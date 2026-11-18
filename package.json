@@ -1,0 +1,16 @@
+{
+  "name": "vpn-shop",
+  "private": true,
+  "packageManager": "pnpm@12.21.0",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev:api": "pnpm --filter @vpn/api dev",
+    "dev:web": "pnpm --filter @vpn/web dev",
+    "dev:admin": "pnpm --filter @vpn/admin dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "db:generate": "pnpm --filter @vpn/api db:generate",
+    "db:migrate": "pnpm --filter @vpn/api db:migrate",
+    "db:up": "docker compose up -d db"
+  }
+}
