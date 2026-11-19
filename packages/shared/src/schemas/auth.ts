@@ -1,11 +1,26 @@
 import { z } from "zod";
 
 // Один и тот же контракт валидации для фронта и бэка.
-const email = z.email().max(254).transform((v) => v.trim().toLowerCase());
-const password = z.string().min(10).max(128);
+const email = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .pipe(z.email().max(254));
 
-export const registerSchema = z.object({ email, password });
+const newPassword = z.string().min(10).max(128);
+const token = z.string().min(20).max(200);
+
+export const registerSchema = z.object({ email, password: newPassword });
 export const loginSchema = z.object({ email, password: z.string().min(1).max(128) });
+export const verifyEmailSchema = z.object({ token });
+export const forgotPasswordSchema = z.object({ email });
+export const resetPasswordSchema = z.object({ token, password: newPassword });
 
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
+export type VerifyEmailInput = z.infer<typeof verifyEmailSchema>;
+export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
+
+// Публичное представление пользователя (то, что отдаёт API)
+export type PublicUser = { id: string; email: string | null; role: "USER" | "ADMIN" };
