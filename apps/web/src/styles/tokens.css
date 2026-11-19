@@ -1,0 +1,44 @@
+:root {
+  color-scheme: light dark;
+
+  --font-sans: "Geologica Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  /* Светлая тема: туманный серо-голубой фон, чернильно-синий текст, ультрамарин для действий */
+  --color-ground: #eceff3;
+  --color-ink: #0f1b2d;
+  --color-ink-muted: #4b596b;
+  --color-line: #c5cdd7;
+  --color-line-strong: #6e7c8e; /* границы полей: контраст 3:1 и выше */
+  --color-accent: #2438e0;
+  --color-accent-hover: #1a2bb8;
+  --color-on-accent: #ffffff;
+  --color-error: #b42332;
+  --color-success: #17734a;
+
+  /* Брендовая панель */
+  --color-panel: #0f1b2d;
+  --color-panel-ink: #e7ecf3;
+  --color-panel-ink-muted: #9fb0c6;
+  --color-panel-line: #3a4b66;
+  --color-panel-accent: #8fa0ff;
+
+  --radius-control: 6px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-ground: #0b1220;
+    --color-ink: #e6ebf2;
+    --color-ink-muted: #9aa7b8;
+    --color-line: #263246;
+    --color-line-strong: #6b7a8f;
+    --color-accent: #8fa0ff;
+    --color-accent-hover: #aab6ff;
+    --color-on-accent: #0b1220;
+    --color-error: #ff7b86;
+    --color-success: #5fd39a;
+
+    --color-panel: #111b2e;
+    --color-panel-line: #2b3a55;
+  }
+}

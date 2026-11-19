@@ -1,0 +1,31 @@
+.oauth {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.oauth__divider {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  color: var(--color-ink-muted);
+  font-size: 0.9rem;
+}
+
+.oauth__divider::before,
+.oauth__divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--color-line);
+}
+
+.oauth__buttons {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.oauth__icon {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+}

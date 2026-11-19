@@ -1,0 +1,73 @@
+/* Мобильная раскладка: компактная шапка и форма под ней */
+.auth-shell {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 100dvh;
+}
+
+.auth-shell__panel {
+  display: flex;
+  flex-direction: column;
+  padding: 1.25rem;
+  background: var(--color-panel);
+  color: var(--color-panel-ink);
+}
+
+.auth-shell__brand {
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.auth-shell__map,
+.auth-shell__statement {
+  display: none;
+}
+
+.auth-shell__main {
+  display: flex;
+  padding: 2rem 1.25rem 3rem;
+}
+
+.auth-shell__content {
+  width: 100%;
+  max-width: 24rem;
+}
+
+@media (min-width: 880px) {
+  .auth-shell {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    grid-template-rows: none;
+  }
+
+  .auth-shell__panel {
+    padding: 2.5rem;
+    min-height: 100dvh;
+  }
+
+  .auth-shell__brand {
+    font-size: 1.25rem;
+  }
+
+  .auth-shell__map {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem 0;
+  }
+
+  .auth-shell__statement {
+    display: block;
+    max-width: 16ch;
+    font-size: clamp(1.75rem, 1rem + 1.6vw, 2.5rem);
+    font-weight: 500;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+  }
+
+  .auth-shell__main {
+    align-items: center;
+    padding: 3rem clamp(2rem, 6vw, 6rem);
+  }
+}

@@ -1,0 +1,64 @@
+.route-map {
+  display: block;
+  width: 100%;
+  max-width: 28rem;
+  height: auto;
+}
+
+.route-map__ring {
+  fill: none;
+  stroke: var(--color-panel-line);
+  stroke-width: 1;
+  stroke-dasharray: 2 7;
+}
+
+.route-map__line {
+  fill: none;
+  stroke: var(--color-panel-line);
+  stroke-width: 1.5;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: route-draw 900ms cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+  animation-delay: calc(var(--i) * 120ms + 150ms);
+}
+
+.route-map__node {
+  fill: var(--color-panel-ink);
+  opacity: 0;
+  animation: route-appear 300ms ease-out forwards;
+  animation-delay: calc(var(--i) * 120ms + 800ms);
+}
+
+.route-map__halo {
+  fill: none;
+  stroke: var(--color-panel-accent);
+  stroke-opacity: 0.4;
+}
+
+.route-map__hub {
+  fill: var(--color-panel-accent);
+}
+
+@keyframes route-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes route-appear {
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-map__line {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+
+  .route-map__node {
+    animation: none;
+    opacity: 1;
+  }
+}

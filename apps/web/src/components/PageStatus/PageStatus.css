@@ -1,0 +1,16 @@
+.page-status {
+  display: flex;
+  min-height: 100dvh;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 1.25rem;
+  font-size: 1.5rem;
+  color: var(--color-ink-muted);
+}
+
+.page-status--error {
+  font-size: 1rem;
+  text-align: center;
+}

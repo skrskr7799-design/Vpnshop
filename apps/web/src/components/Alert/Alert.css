@@ -1,0 +1,17 @@
+.alert {
+  padding: 0.125rem 0 0.125rem 0.875rem;
+  border-left: 3px solid var(--alert-color);
+  font-size: 0.95rem;
+}
+
+.alert--error {
+  --alert-color: var(--color-error);
+}
+
+.alert--success {
+  --alert-color: var(--color-success);
+}
+
+.alert--info {
+  --alert-color: var(--color-line-strong);
+}
