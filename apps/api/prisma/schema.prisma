@@ -26,7 +26,6 @@ enum AuthProvider {
 }
 
 enum TokenType {
-  EMAIL_VERIFY
   PASSWORD_RESET
 }
 
@@ -128,6 +127,23 @@ model Session {
   @@index([familyId])
 }
 
+// Регистрация по почте: пользователь создаётся только ПОСЛЕ подтверждения ссылкой.
+// Пока почта не подтверждена, аккаунта нет, поэтому чужой email нельзя «занять заранее»
+// (pre-hijacking). Строк на один email может быть несколько: каждая ссылка
+// создаёт аккаунт со своим паролем, и кликнуть её может только владелец ящика.
+model PendingRegistration {
+  id           String   @id @default(uuid())
+  email        String // lowercase
+  passwordHash String // argon2id
+  tokenHash    String   @unique
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  @@index([email, createdAt])
+  @@index([expiresAt])
+}
+
+// Токены для сброса пароля (и будущих сценариев вроде смены почты).
 model VerificationToken {
   id        String    @id @default(uuid())
   userId    String
