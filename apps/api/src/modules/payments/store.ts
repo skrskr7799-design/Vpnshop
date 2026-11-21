@@ -20,6 +20,11 @@ export async function lockPaymentKey(db: Db, scope: string, accountId: string, k
   await db.$queryRaw`SELECT 1 AS locked FROM pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
 }
 
+// Short DB-only finance gate shared by inbox acceptance, ledger ingestion and allocation.
+export function lockEntitlementAccount(db: Db, accountId: string) {
+  return lockPaymentKey(db, "entitlement", accountId, accountId);
+}
+
 export async function noteCase(
   db: Db, account: Pick<MerchantAccount, "id">, kind: string, objectKey: string,
   reason: string, details: Prisma.InputJsonObject, now: Date,

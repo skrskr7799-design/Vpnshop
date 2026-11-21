@@ -3,7 +3,7 @@ import { DEFAULT_LEASE_MS, MAX_HEARTBEAT_INTERVAL_MS, MAX_JOBS_PER_TICK, POLL_IN
 import { processJob, type ProcessorDeps } from "./fulfillment.processor";
 import { claimNextJob, LeaseLost, renewLease, rescheduleJob, type ClaimedJob } from "./fulfillment.queue";
 
-export type WorkerOptions = ProcessorDeps & { pollIntervalMs?: number; leaseMs?: number };
+export type WorkerOptions = ProcessorDeps & { pollIntervalMs?: number; leaseMs?: number; maintenance?: () => Promise<number> };
 export type FulfillmentWorker = ReturnType<typeof createFulfillmentWorker>;
 
 export function createFulfillmentWorker(options: WorkerOptions) {
@@ -47,6 +47,12 @@ export function createFulfillmentWorker(options: WorkerOptions) {
   }
 
   async function tick(): Promise<number> {
+    if (stopping) return 0;
+    if (options.maintenance) {
+      const processed = await options.maintenance();
+      alive();
+      return processed;
+    }
     let processed = 0;
     while (!stopping && processed < MAX_JOBS_PER_TICK) {
       const job = await claimNextJob(owner, leaseMs, options.now?.());

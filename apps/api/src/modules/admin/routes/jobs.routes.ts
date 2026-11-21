@@ -12,7 +12,7 @@ const listQuery = paginationSchema.extend({ status: z.enum(["PENDING", "RUNNING"
 export const adminJobsRoutes: FastifyPluginAsync = async (app) => {
   app.get("/jobs", { preHandler: requireAdmin("jobs:read") }, async (req) => {
     const { page, pageSize, status } = listQuery.parse(req.query);
-    const where = status ? { status } : {};
+    const where = { assignmentId: null, status };
     const [items, total] = await Promise.all([
       prisma.fulfillmentJob.findMany({
         where,

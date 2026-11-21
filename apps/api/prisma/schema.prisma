@@ -120,6 +120,7 @@ model User {
   updatedAt DateTime @updatedAt
 
   fulfillmentLease FulfillmentLease?
+  subscription Subscription?
   identities    AuthIdentity[]
   sessions      Session[]
   totp          AdminTotp?
@@ -326,6 +327,8 @@ model Order {
   plan     Plan            @relation(fields: [planId], references: [id])
   payments Payment[]
   job      FulfillmentJob?
+  allocation OrderAllocation?
+  period PeriodGrant?
   offerVersion OfferVersion? @relation(fields: [offerVersionId], references: [id], onDelete: Restrict)
 
   @@unique([userId, checkoutKeyHash])
@@ -422,6 +425,11 @@ model PaymentTransaction {
   account MerchantAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
   payment Payment? @relation(fields: [paymentId], references: [id], onDelete: Restrict)
 
+  allocation OrderAllocation?
+  adjustment Adjustment?
+  hold ServiceHold? @relation("HoldMovement")
+  holdRelease ServiceHold? @relation("HoldReleaseMovement")
+
   @@unique([accountId, movementKey])
   @@index([accountId, originalMovementKey])
   @@index([accountId, externalPaymentId])
@@ -453,7 +461,8 @@ model PaymentCase {
 // с ретраями. orderId unique => один заказ продлевает подписку ровно один раз.
 model FulfillmentJob {
   id            String    @id @default(uuid())
-  orderId       String    @unique
+  orderId       String?   @unique
+  assignmentId  String?   @unique
   status        JobStatus @default(PENDING)
   attempts      Int       @default(0)
   nextAttemptAt DateTime  @default(now())
@@ -466,7 +475,8 @@ model FulfillmentJob {
   completedAt   DateTime?
   createdAt     DateTime  @default(now())
 
-  order Order @relation(fields: [orderId], references: [id])
+  assignment DesiredAssignment? @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  order Order? @relation(fields: [orderId], references: [id], onDelete: Restrict)
 
   lease FulfillmentLease?
 
@@ -500,4 +510,102 @@ model FulfillmentLease {
   job        FulfillmentJob? @relation(fields: [jobId], references: [id], onDelete: Restrict)
   owner      String?
   expiresAt  DateTime? @db.Timestamptz(3)
+}
+
+model OrderAllocation {
+  id        String @id @default(uuid())
+  orderId   String @unique
+  captureId String @unique
+  createdAt DateTime
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  capture PaymentTransaction @relation(fields: [captureId], references: [id], onDelete: Restrict)
+  grant PeriodGrant?
+}
+
+model Subscription {
+  id               String @id @default(uuid())
+  userId           String @unique
+  legacyUnverified Boolean @default(false)
+  revision         Int @default(0)
+  nextBoundaryAt   DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  periods PeriodGrant[]
+  holds ServiceHold[]
+  assignments DesiredAssignment[]
+
+  @@index([nextBoundaryAt])
+}
+
+model PeriodGrant {
+  id              String @id @default(uuid())
+  subscriptionId  String
+  orderId         String @unique
+  allocationId    String @unique
+  serial          Int
+  startAt         DateTime
+  endAt           DateTime
+  createdAt       DateTime
+  calendarVersion Int
+  deviceLimit     Int
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  order Order @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  allocation OrderAllocation @relation(fields: [allocationId], references: [id], onDelete: Restrict)
+  adjustment Adjustment?
+  assignments DesiredAssignment[]
+
+  @@unique([subscriptionId, serial])
+}
+
+model Adjustment {
+  id          String @id @default(uuid())
+  grantId     String @unique
+  movementId  String @unique
+  effectiveAt DateTime
+  createdAt   DateTime
+  reason      String
+
+  grant PeriodGrant @relation(fields: [grantId], references: [id], onDelete: Restrict)
+  movement PaymentTransaction @relation(fields: [movementId], references: [id], onDelete: Restrict)
+}
+
+model ServiceHold {
+  id                String @id @default(uuid())
+  subscriptionId    String
+  source            String
+  kind              String
+  reason            String
+  createdAt         DateTime
+  createdBy         String?
+  movementId        String? @unique
+  releasedAt        DateTime?
+  releasedBy        String?
+  releaseMovementId String? @unique
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  movement PaymentTransaction? @relation("HoldMovement", fields: [movementId], references: [id], onDelete: Restrict)
+  releaseMovement PaymentTransaction? @relation("HoldReleaseMovement", fields: [releaseMovementId], references: [id], onDelete: Restrict)
+
+  @@unique([subscriptionId, source])
+}
+
+model DesiredAssignment {
+  id             String @id @default(uuid())
+  subscriptionId String
+  revision       Int
+  grantId        String?
+  enabled        Boolean
+  deviceLimit    Int?
+  expiresAt      DateTime?
+  nextBoundaryAt DateTime?
+  reason         String
+  createdAt      DateTime
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  grant PeriodGrant? @relation(fields: [grantId], references: [id], onDelete: Restrict)
+  job FulfillmentJob?
+
+  @@unique([subscriptionId, revision])
 }

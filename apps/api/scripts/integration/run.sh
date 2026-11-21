@@ -70,7 +70,7 @@ snapshot() {
   # Project Order onto its legacy columns. The new nullable fields are checked separately.
   {
     docker exec "$container" pg_dump -U postgres -d vpnshop_legacy --data-only --schema=public \
-      --exclude-table=public._prisma_migrations --exclude-table='public."Order"' --exclude-table='public."Payment"' --exclude-table='public."WebhookEvent"' --inserts --no-owner --no-privileges |
+      --exclude-table=public._prisma_migrations --exclude-table='public."Subscription"' --exclude-table='public."FulfillmentJob"' --exclude-table='public."Order"' --exclude-table='public."Payment"' --exclude-table='public."WebhookEvent"' --inserts --no-owner --no-privileges |
       sed -n '/^INSERT INTO /p'
     sql vpnshop_legacy <<'SQL'
 COPY (SELECT id, "userId", "planId", "durationMonths", "deviceLimit", currency, amount,
@@ -79,6 +79,8 @@ COPY (SELECT id, "orderId", provider, "externalId", status, amount, currency, "p
   "paidAt", "createdAt", "updatedAt" FROM "Payment") TO STDOUT;
 COPY (SELECT id, provider, "eventKey", payload, "signatureValid", "receivedAt", "processedAt", error
   FROM "WebhookEvent") TO STDOUT;
+COPY (SELECT id, "orderId", status, attempts, "nextAttemptAt", "targetExpireAt", "lockedAt",
+  "lastError", "completedAt", "createdAt" FROM "FulfillmentJob") TO STDOUT;
 SQL
   } | LC_ALL=C sort
 }
@@ -89,6 +91,7 @@ for pass in 1 2; do
   pnpm exec prisma migrate deploy
   pnpm exec prisma migrate status
   pnpm exec prisma migrate diff --from-schema-datasource prisma/schema.prisma --to-schema-datamodel prisma/schema.prisma --exit-code
+  sql vpnshop_legacy < scripts/integration/subscription-backfill.sql
   sql vpnshop_legacy < scripts/integration/constraints.sql
   snapshot > "$tmp/after"
   cmp "$tmp/before" "$tmp/after"
@@ -106,7 +109,10 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON "User","AuthIdentity","Session","Pending
   "VerificationToken","AdminTotp","AdminRecoveryCode","AdminSession","Plan","PlanPrice","OfferVersion","Order",
   "Payment","WebhookEvent","FulfillmentJob","FulfillmentLease","AuditLog","MerchantAccount","PaymentCase" TO vpnshop_suite;
 -- TRUNCATE permits guarded suite reset without allowing ledger UPDATE/DELETE.
-GRANT SELECT, INSERT, TRUNCATE ON "PaymentTransaction" TO vpnshop_suite;
+GRANT SELECT, INSERT, TRUNCATE ON "PaymentTransaction", "OrderAllocation", "PeriodGrant",
+  "Adjustment", "DesiredAssignment" TO vpnshop_suite;
+GRANT SELECT, INSERT, UPDATE, TRUNCATE ON "ServiceHold", "Subscription" TO vpnshop_suite;
+GRANT TRUNCATE ON "FulfillmentLease", "FulfillmentJob" TO vpnshop_suite;
 SQL
 export TEST_DATABASE_URL="postgresql://vpnshop_suite:$VPNSHOP_TEST_MARKER@127.0.0.1:$port/vpnshop_suite"
 export DATABASE_URL="$TEST_DATABASE_URL"

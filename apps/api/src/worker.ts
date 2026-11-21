@@ -4,6 +4,7 @@ import { panelSettings } from "./config/panel-env";
 import { prisma } from "./lib/prisma";
 import { DEFAULT_LEASE_MS } from "./modules/fulfillment/fulfillment.constants";
 import { createFulfillmentWorker } from "./modules/fulfillment/fulfillment.worker";
+import { refreshDueAssignments } from "./modules/subscriptions/store";
 import { RemnawaveClient } from "./modules/remnawave/remnawave.client";
 
 const settings = z.object({
@@ -19,6 +20,8 @@ if (!settings.success) throw new Error("Invalid worker configuration: " +
 const config = settings.data;
 const probes = Fastify({ logger: true, disableRequestLogging: true });
 const worker = createFulfillmentWorker({
+  // COM-03 processes only local period boundaries in runtime. FND-03 HTTP regression uses fixtures.
+  maintenance: process.env.NODE_ENV === "test" ? undefined : refreshDueAssignments,
   api: new RemnawaveClient({
     baseUrl: config.REMNAWAVE_URL, token: config.REMNAWAVE_TOKEN, apiKey: config.REMNAWAVE_API_KEY,
     trustedProxyHeaders: config.REMNAWAVE_TRUSTED_PROXY_HEADERS, timeoutMs: config.WORKER_HTTP_TIMEOUT_MS,

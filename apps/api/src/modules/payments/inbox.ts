@@ -4,13 +4,14 @@ import { prisma } from "../../lib/prisma";
 import { dbNow } from "../commerce/offers";
 import { recordObservation } from "./ledger";
 import { observationSchema, type Observation } from "./provider";
-import { lockPaymentKey, nextCheck, noteCase } from "./store";
+import { lockEntitlementAccount, lockPaymentKey, nextCheck, noteCase } from "./store";
 
 // Commit the full normalized observation before the handler sends ACK.
 export async function acceptWebhook(account: MerchantAccount, eventKey: string, input: Observation) {
   const observation = observationSchema.parse(input);
   const fingerprint = sha256(JSON.stringify(observation));
   return prisma.$transaction(async db => {
+    await lockEntitlementAccount(db, account.id);
     await lockPaymentKey(db, "event", account.id, eventKey);
     const now = await dbNow(db);
     const identity = { accountId: account.id, eventKey };

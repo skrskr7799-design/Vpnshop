@@ -6,7 +6,7 @@ import { sha256 } from "../../lib/crypto";
 import { prisma } from "../../lib/prisma";
 import { dbNow } from "../commerce/offers";
 import { DefinitiveCreateRejection, safeInvoice, type PaymentProviderAdapter } from "./provider";
-import { lockOrder, lockPaymentKey, nextCheck, noteCase } from "./store";
+import { lockEntitlementAccount, lockOrder, lockPaymentKey, nextCheck, noteCase } from "./store";
 
 export async function createAttempt(
   account: MerchantAccount, adapter: PaymentProviderAdapter,
@@ -57,6 +57,7 @@ export async function createAttempt(
   }
 
   return prisma.$transaction(async db => {
+    await lockEntitlementAccount(db, account.id);
     if (invoice) await lockPaymentKey(db, "invoice", account.id, invoice.externalId);
     await lockOrder(db, orderId);
     const current = await db.payment.findUniqueOrThrow({ where: { id: attempt.id } });

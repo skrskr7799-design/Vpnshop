@@ -2,7 +2,7 @@ import type { MerchantAccount, Order, Payment, PaymentEvidence, PaymentTransacti
 import { prisma } from "../../lib/prisma";
 import { dbNow } from "../commerce/offers";
 import { observationSchema, type Observation, type PaymentMovement } from "./provider";
-import { type Db, lockOrder, lockPaymentKey, nextCheck, noteCase } from "./store";
+import { type Db, lockEntitlementAccount, lockOrder, lockPaymentKey, nextCheck, noteCase } from "./store";
 
 async function matchPayment(db: Db, accountId: string, observation: Observation) {
   if (!observation.merchantReference) return null;
@@ -77,6 +77,7 @@ export async function recordObservation(
   db: Db, account: MerchantAccount, value: Observation, evidence: PaymentEvidence, receivedAt?: Date,
 ) {
   const observation = observationSchema.parse(value);
+  await lockEntitlementAccount(db, account.id);
   await lockPaymentKey(db, "invoice", account.id, observation.externalPaymentId);
   const now = await dbNow(db);
   const match = await matchPayment(db, account.id, observation);

@@ -33,6 +33,12 @@ BEGIN
     OR EXISTS (SELECT 1 FROM "WebhookEvent" WHERE "accountId" IS NOT NULL) THEN
     RAISE EXCEPTION 'Legacy finance data acquired invented external proof';
   END IF;
+  IF (SELECT count(*) FROM "Subscription" WHERE "legacyUnverified" AND "userId" = 'u' AND revision = 0) <> 1
+    OR (SELECT count(*) FROM "Subscription") <> 1
+    OR EXISTS (SELECT 1 FROM "OrderAllocation") OR EXISTS (SELECT 1 FROM "PeriodGrant")
+    OR EXISTS (SELECT 1 FROM "DesiredAssignment") OR EXISTS (SELECT 1 FROM "FulfillmentJob" WHERE "assignmentId" IS NOT NULL) THEN
+    RAISE EXCEPTION 'Legacy subscription must be preserved for review without inferred commerce facts';
+  END IF;
   IF (SELECT count(*) FROM "User" u JOIN "Order" o ON o."userId"=u.id
       JOIN "Payment" p ON p."orderId"=o.id JOIN "FulfillmentJob" j ON j."orderId"=o.id
       WHERE u."remnawaveUserId"=73 AND p.amount=o.amount AND o.amount=10000) <> 1 THEN

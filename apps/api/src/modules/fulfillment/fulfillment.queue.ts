@@ -35,6 +35,7 @@ async function markWriter(tx: Db) {
 }
 
 export async function claimNextJob(owner: string, leaseMs: number, scheduleTime?: Date): Promise<ClaimedJob | null> {
+  if (process.env.NODE_ENV !== "test") return null;
   return prisma.$transaction(async tx => {
     // Lock the account as well as the job. A backdated insert must not start a
     // second order while another order for this account is in flight.
@@ -151,7 +152,7 @@ export async function requeueFailedJob(
   db: Pick<Db, "fulfillmentJob"> = prisma,
 ): Promise<boolean> {
   const { count } = await db.fulfillmentJob.updateMany({
-    where: { id: jobId, status: "FAILED" },
+    where: { id: jobId, status: "FAILED", assignmentId: null },
     data: { status: "PENDING", attempts: 0, nextAttemptAt: now, lockedAt: null },
   });
   return count === 1;

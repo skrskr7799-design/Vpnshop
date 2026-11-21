@@ -4,7 +4,7 @@ import { dbNow } from "../commerce/offers";
 import { processInbox } from "./inbox";
 import { recordLookup } from "./ledger";
 import type { Observation, PaymentProviderAdapter } from "./provider";
-import { nextCheck, noteCase } from "./store";
+import { lockEntitlementAccount, nextCheck, noteCase } from "./store";
 
 const MAX_LOOKUP_AGE_MS = 48 * 60 * 60 * 1000;
 
@@ -53,7 +53,13 @@ export async function reconcileAttempts(account: MerchantAccount, adapter: Payme
         if (fact?.evidence === "LOOKUP") reason = "CAPTURE_DISCOVERED_BY_LOOKUP";
       }
     }
-    if (reason) await noteCase(prisma, account, reason, `attempt:${payment.id}`, reason, {}, now);
+    if (reason) {
+      const issue = reason;
+      await prisma.$transaction(async db => {
+        await lockEntitlementAccount(db, account.id);
+        await noteCase(db, account, issue, `attempt:${payment.id}`, issue, {}, now);
+      });
+    }
   }
   return due.length;
 }
