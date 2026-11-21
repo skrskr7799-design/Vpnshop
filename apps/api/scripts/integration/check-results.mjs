@@ -7,6 +7,14 @@ for (const result of report.testResults) {
   for (const test of result.assertionResults) {
     if (test.status === "failed" && process.env.GITHUB_ACTIONS) {
       console.error(`::error file=${result.name}::Integration assertion failed: ${test.fullName}`);
+      if (result.name.endsWith("/payments.int.test.ts")) {
+        const details = (test.failureMessages ?? []).join("\n")
+          .replace(/\x1b\[[0-9;]*m/g, "")
+          .replace(/(?:postgres(?:ql)?:\/\/)[^\s"']+/gi, "[database url]")
+          .split("\n").filter(line => line.trim() && !line.startsWith("    at ")).slice(0, 8)
+          .join("%0A").slice(0, 600);
+        console.error(`::notice file=${result.name}::${details}`);
+      }
     }
   }
 }
