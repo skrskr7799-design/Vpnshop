@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
-import { LOCK_TIMEOUT_MS, MAX_ATTEMPTS } from "./fulfillment.constants";
+import { LEGACY_LOCK_TIMEOUT_MS, MAX_ATTEMPTS } from "./fulfillment.constants";
 
 type Db = Prisma.TransactionClient;
 
@@ -48,8 +48,8 @@ export async function claimNextJob(owner: string, leaseMs: number, scheduleTime?
       WHERE (l."jobId" IS NULL OR (l."jobId" = j.id AND l."expiresAt" <= clock_timestamp()))
         AND (
           (j.status = 'RUNNING' AND (l."jobId" = j.id OR
-            COALESCE(j."lockedAt", '-infinity') <= clock_timestamp() - ${LOCK_TIMEOUT_MS} * interval '1 millisecond'))
-          OR (j.status = 'PENDING' AND j."nextAttemptAt" <= COALESCE(${scheduleTime ?? null}::timestamp, statement_timestamp())
+            COALESCE(j."lockedAt", '-infinity') <= (clock_timestamp() AT TIME ZONE 'UTC') - ${LEGACY_LOCK_TIMEOUT_MS} * interval '1 millisecond'))
+          OR (j.status = 'PENDING' AND j."nextAttemptAt" <= COALESCE(${scheduleTime ?? null}::timestamp, statement_timestamp() AT TIME ZONE 'UTC')
             AND NOT EXISTS (
               SELECT 1 FROM "Order" prev JOIN "FulfillmentJob" p ON p."orderId" = prev.id
               WHERE prev."userId" = u.id AND p.id <> j.id AND (p.status = 'RUNNING' OR
@@ -79,7 +79,7 @@ export async function claimNextJob(owner: string, leaseMs: number, scheduleTime?
       return null;
     }
     await tx.$executeRaw`UPDATE "FulfillmentJob" SET status = 'RUNNING', attempts = attempts + 1,
-      "lockedAt" = clock_timestamp() WHERE id = ${row.id}`;
+      "lockedAt" = clock_timestamp() AT TIME ZONE 'UTC' WHERE id = ${row.id}`;
     return { ...row, attempts: row.attempts + 1, generation: lease.generation, owner };
   });
 }

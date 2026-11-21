@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { LOCK_TIMEOUT_MS, MAX_JOBS_PER_TICK, POLL_INTERVAL_MS } from "./fulfillment.constants";
+import { DEFAULT_LEASE_MS, MAX_HEARTBEAT_INTERVAL_MS, MAX_JOBS_PER_TICK, POLL_INTERVAL_MS } from "./fulfillment.constants";
 import { processJob, type ProcessorDeps } from "./fulfillment.processor";
 import { claimNextJob, LeaseLost, renewLease, rescheduleJob, type ClaimedJob } from "./fulfillment.queue";
 
@@ -9,8 +9,8 @@ export type FulfillmentWorker = ReturnType<typeof createFulfillmentWorker>;
 export function createFulfillmentWorker(options: WorkerOptions) {
   const owner = randomUUID();
   const pollMs = options.pollIntervalMs ?? POLL_INTERVAL_MS;
-  const leaseMs = options.leaseMs ?? LOCK_TIMEOUT_MS;
-  const heartbeatMs = Math.floor(leaseMs / 3);
+  const leaseMs = options.leaseMs ?? DEFAULT_LEASE_MS;
+  const heartbeatMs = Math.min(MAX_HEARTBEAT_INTERVAL_MS, Math.floor(leaseMs / 3));
   let stopping = false;
   let loop: Promise<void> | undefined;
   let wake: (() => void) | undefined;

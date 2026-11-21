@@ -328,6 +328,8 @@ model FulfillmentJob {
 
   order Order @relation(fields: [orderId], references: [id])
 
+  lease FulfillmentLease?
+
   @@index([status, nextAttemptAt])
 }
 
@@ -354,7 +356,8 @@ model FulfillmentLease {
   userId     String @id
   user       User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   generation BigInt
-  jobId      String?
+  jobId      String? @unique
+  job        FulfillmentJob? @relation(fields: [jobId], references: [id], onDelete: Restrict)
   owner      String?
-  expiresAt  DateTime?
+  expiresAt  DateTime? @db.Timestamptz(3)
 }
