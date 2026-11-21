@@ -13,8 +13,8 @@
     "test": "vitest run",
     "test:contract": "vitest run .contract.test.ts",
     "remnawave:check": "tsx --env-file=../../.env scripts/remnawave-check.ts",
-    "test:integration": "vitest run --config vitest.integration.config.ts",
-    "db:test:push": "DATABASE_URL=\"$TEST_DATABASE_URL\" prisma db push --force-reset --skip-generate",
+    "test:integration": "bash scripts/integration/run.sh",
+    "db:deploy": "prisma migrate deploy",
     "admin:create": "tsx --env-file=../../.env scripts/admin-create.ts",
     "admin:reset-2fa": "tsx --env-file=../../.env scripts/admin-reset-2fa.ts"
   },

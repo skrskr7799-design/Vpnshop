@@ -11,7 +11,7 @@ cp .env.example .env        # заполнить значения
 pnpm install
 pnpm db:up                  # Postgres в docker
 pnpm db:generate
-pnpm db:migrate             # первая миграция
+pnpm --filter @vpn/api db:deploy  # применить историю миграций к новой БД
 pnpm dev:api                # http://localhost:3000/health
 pnpm dev:web                # http://localhost:5173
 pnpm dev:admin              # http://localhost:5174
@@ -114,15 +114,9 @@ Telegram-аккаунт к существующему профилю добав�
 
 ## Интеграционные тесты (настоящий Postgres)
 
-Покрывают код с БД: воркер, регистрацию, сессии, сброс пароля, объединение аккаунтов. Нужна отдельная БД с `test` в имени (иначе очистка откажется работать):
+Из корня checkout с историей FND-01 выполните `pnpm install --frozen-lockfile`, `pnpm db:generate` и `pnpm --filter @vpn/api test:integration`. Нужны Docker, Bash, OpenSSL, Git и доступ к образу PostgreSQL 17. Скрипт сам запускает временный контейнер на случайном loopback-порту и удаляет его после прогона. В GitHub Actions используется service container задания. Скрипт выделяет отдельные БД для чистой установки и legacy-репетиции. Для Vitest он выдаёт ограниченную роль и одноразовый маркер. Пять прикладных наборов и проверки защиты выполняются последовательно по файлам. Пропущенная проверка делает задание неуспешным.
 
-```bash
-export TEST_DATABASE_URL=postgresql://vpnshop:vpnshop@localhost:5432/vpnshop_test
-pnpm --filter @vpn/api db:test:push        # создаёт таблицы (внимание: стирает БД)
-pnpm --filter @vpn/api test:integration
-```
-
-Обычный `pnpm test` их не запускает.
+Порядок подключения существующей БД к истории описан в [инструкции по миграциям](docs/deployment.md#принятие-baseline-fnd-02).
 
 ## Админка (`apps/api/src/modules/admin`)
 
