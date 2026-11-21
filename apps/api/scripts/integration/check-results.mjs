@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
+import { stripVTControlCharacters } from "node:util";
 
 const report = JSON.parse(readFileSync(process.argv[2], "utf8"));
 const files = readdirSync("src", { recursive: true }).filter(name => name.endsWith(".int.test.ts"));
@@ -8,12 +9,11 @@ for (const result of report.testResults) {
     if (test.status === "failed" && process.env.GITHUB_ACTIONS) {
       console.error(`::error file=${result.name}::Integration assertion failed: ${test.fullName}`);
       if (result.name.endsWith("/payments.int.test.ts")) {
-        const details = (test.failureMessages ?? []).join("\n")
-          .replace(/\x1b\[[0-9;]*m/g, "")
+        const details = stripVTControlCharacters((test.failureMessages ?? []).join("\n"))
           .replace(/(?:postgres(?:ql)?:\/\/)[^\s"']+/gi, "[database url]")
           .split("\n").filter(line => line.trim() && !line.startsWith("    at ")).slice(0, 8)
           .join("%0A").slice(0, 600);
-        console.error(`::notice file=${result.name}::${details}`);
+        console.error(`::error file=${result.name}::${details}`);
       }
     }
   }
