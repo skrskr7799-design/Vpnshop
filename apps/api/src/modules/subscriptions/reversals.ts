@@ -1,7 +1,7 @@
 import type { MerchantAccount, PaymentTransaction, PeriodGrant, Subscription } from "@prisma/client";
 import { dbNow } from "../commerce/offers";
 import { lockEntitlementAccount, lockOrder, noteCase } from "../payments/store";
-import { canUseAccount } from "./allocation";
+import { canUseAccount, hasPendingEvidence } from "./allocation";
 import { releaseStoredHold, storeHold } from "./holds";
 import { auditDecision, lockSubscription, projectAssignment, subscriptionTransaction, type Db } from "./store";
 
@@ -30,6 +30,9 @@ async function applyRefund(
     where: { accountId: capture.accountId, kind: "REFUND", originalMovementKey: capture.movementKey },
     orderBy: [{ providerTime: "asc" }, { movementKey: "asc" }],
   });
+  if (await hasMovementConflict(db, capture, related.map(refund => refund.movementKey))) {
+    return review(db, movement, "REVERSAL_CONFLICT_REVIEW", now);
+  }
   const trusted = related.filter(refund => sameIdentity(refund, capture) && verifiedTiming(refund, capture, now));
   const total = trusted.reduce((sum, refund) => sum + refund.amountMinor, 0n);
   if (trusted.length !== related.length || total > capture.amountMinor) {
@@ -56,6 +59,16 @@ async function byMovementKey(db: Db, movement: PaymentTransaction, movementKey: 
   });
 }
 
+async function hasMovementConflict(db: Db, capture: PaymentTransaction, keys: string[]) {
+  return !!await db.paymentCase.findFirst({
+    where: { accountId: capture.accountId, status: { not: "RESOLVED" }, OR: [
+      { kind: "MOVEMENT_CONFLICT", objectKey: { in: [capture.movementKey, ...keys].map(key => `movement:${key}`) } },
+      { kind: "EVENT_CONFLICT", details: { path: ["observation", "externalPaymentId"], equals: capture.externalPaymentId } },
+    ] },
+    select: { id: true },
+  });
+}
+
 // Used by trusted internal callers only. Finance locks account -> order before subscription.
 export async function applyReversal(movementId: string) {
   return subscriptionTransaction(async db => {
@@ -76,15 +89,12 @@ export async function applyReversal(movementId: string) {
           !verifiedTiming(debit, capture, now) || debit.providerTime! > movement.providerTime!))) {
       return review(db, movement, "REVERSAL_IDENTITY_REVIEW", now);
     }
-    const conflict = await db.paymentCase.findFirst({
-      where: { accountId: movement.accountId, status: { not: "RESOLVED" }, OR: [
-        { kind: "MOVEMENT_CONFLICT", objectKey: { in: [`movement:${movement.movementKey}`, `movement:${capture.movementKey}`,
-          ...(debit ? [`movement:${debit.movementKey}`] : [])] } },
-        { kind: "EVENT_CONFLICT", details: { path: ["observation", "externalPaymentId"], equals: movement.externalPaymentId } },
-      ] },
-      select: { id: true },
-    });
-    if (conflict) return review(db, movement, "REVERSAL_CONFLICT_REVIEW", now);
+    if (await hasMovementConflict(db, capture, [movement.movementKey, ...(debit ? [debit.movementKey] : [])])) {
+      return review(db, movement, "REVERSAL_CONFLICT_REVIEW", now);
+    }
+    if (movement.kind !== "CHARGEBACK_DEBIT" && await hasPendingEvidence(db, capture)) {
+      return { status: "REVIEW" as const, reason: "INBOX_PENDING" };
+    }
     const allocation = await db.orderAllocation.findUnique({
       where: { captureId: capture.id }, include: { grant: true },
     });

@@ -59,6 +59,7 @@
 ### COM-03 — статус реализации
 
 - **IMPLEMENTED** Координатор зачёта, UTC v1, исторические периоды, refund adjustments, независимые hold, ревизии желаемого состояния и восстановление пропущенных границ. COM-03 использует синтетические доказанные движения. [Реализация и правила](subscriptions.md#реализация-com-03)
+- **VERIFIED** На SHA `ac09b834a939c8cae290795963017751b924dca7` прошли Prisma generation, typecheck, lint, сборка, unit/contract, PostgreSQL, clean/legacy migrate, повторный backfill и регрессии COM-01/02/FND-03. Worker в обычном режиме создал локальную ревизию при нуле запросов к loopback-панели. [CI](https://github.com/skrskr7799-design/Vpnshop/actions/runs/44934429148)
 - **BLOCKED** Коммерческий допуск ждёт подтверждённой интеграции Platega, политики B2/R06 и COM-04 с безопасным применением и сверкой ревизий. Потеря исходного grantTime при полном откате commit остаётся отдельным случаем R07. [Переход и откат](deployment.md#com-03--переключение-и-откат)
 
 [Контракты денег](payments.md) · [Периоды](subscriptions.md) · [Матрица панели](remnawave-integration.md)

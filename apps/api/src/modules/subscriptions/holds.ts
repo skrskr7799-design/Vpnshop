@@ -1,7 +1,7 @@
 import type { Subscription } from "@prisma/client";
 import { AppError } from "../../lib/errors";
 import { dbNow } from "../commerce/offers";
-import { auditDecision, lockSubscription, projectAssignment, subscriptionTransaction, type Db } from "./store";
+import { auditDecision, createSubscription, lockSubscription, projectAssignment, subscriptionTransaction, type Db } from "./store";
 
 type HoldInput = {
   source: string;
@@ -64,8 +64,9 @@ export async function placeStaffHold(userId: string, actorId: string, source: st
   return subscriptionTransaction(async db => {
     await authorizeStaff(db, actorId, reason);
     if (!/^[A-Za-z0-9._:-]{1,128}$/.test(source)) throw new AppError(400, "INVALID_HOLD_SOURCE");
-    const subscription = await lockSubscription(db, userId);
-    if (!subscription) throw new AppError(404, "SUBSCRIPTION_NOT_FOUND");
+    const user = await db.user.findUnique({ where: { id: userId }, select: { id: true } });
+    if (!user) throw new AppError(404, "SUBSCRIPTION_NOT_FOUND");
+    const subscription = await createSubscription(db, userId);
     return storeHold(db, subscription, await dbNow(db), { source: `staff:${source}`, kind, reason, actorId });
   });
 }

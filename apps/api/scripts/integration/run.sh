@@ -91,7 +91,11 @@ for pass in 1 2; do
   pnpm exec prisma migrate deploy
   pnpm exec prisma migrate status
   pnpm exec prisma migrate diff --from-schema-datasource prisma/schema.prisma --to-schema-datamodel prisma/schema.prisma --exit-code
-  sql vpnshop_legacy < scripts/integration/subscription-backfill.sql
+  # Re-execute the exact idempotent DML from the migration.
+  awk '/^-- BEGIN legacy subscription backfill$/{copy=1; next}
+       /^-- END legacy subscription backfill$/{copy=0} copy'     prisma/migrations/20261121040000_subscription_allocation/migration.sql > "$tmp/subscription-backfill.sql"
+  [[ -s "$tmp/subscription-backfill.sql" ]]
+  sql vpnshop_legacy < "$tmp/subscription-backfill.sql"
   sql vpnshop_legacy < scripts/integration/constraints.sql
   snapshot > "$tmp/after"
   cmp "$tmp/before" "$tmp/after"

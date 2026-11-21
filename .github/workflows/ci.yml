@@ -60,6 +60,11 @@ jobs:
           PRISMA_SKIP_POSTINSTALL_GENERATE: 'true'
         run: pnpm install --frozen-lockfile
 
+      - name: Validate Prisma schema
+        env:
+          DATABASE_URL: postgresql://schema_validation@127.0.0.1:1/schema_validation
+        run: pnpm --filter @vpn/api exec prisma validate
+
       - name: Generate Prisma Client and record engine target
         run: |
           pnpm db:generate

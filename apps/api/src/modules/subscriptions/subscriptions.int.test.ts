@@ -313,3 +313,31 @@ it("recovers missed boundaries deterministically without HTTP and enforces non-o
   expect(await prisma.periodGrant.count()).toBe(2);
   expect((await prisma.periodGrant.findUniqueOrThrow({ where: { id: first.grant.id } })).endAt).toEqual(yesterday);
 });
+
+it("holds ambiguous duplicate captures before any allocation and gates non-mock merchants", async () => {
+  const order = await offerOrder();
+  const first = await fact(order);
+  const second = await fact(order);
+  expect(await allocateCapture(first.id)).toMatchObject({ status: "REVIEW", reason: "FINANCIAL_REVIEW" });
+  expect(await allocateCapture(second.id)).toMatchObject({ status: "REVIEW", reason: "FINANCIAL_REVIEW" });
+  const sandbox = await prisma.merchantAccount.create({
+    data: { provider: "PLATEGA", environment: "SANDBOX", merchant: "unapproved-fixture" },
+  });
+  const unapproved = await fact(await offerOrder(), sandbox);
+  expect(await allocateCapture(unapproved.id)).toMatchObject({ status: "REVIEW", reason: "UNVERIFIED_CAPTURE" });
+  expect(await prisma.periodGrant.count()).toBe(0);
+});
+
+it("refuses to release a chargeback while another related event awaits processing", async () => {
+  const capture = await fact(await offerOrder());
+  await booked(capture);
+  const debit = await reverse(capture, "CHARGEBACK_DEBIT");
+  await applyReversal(debit.id);
+  const refundObservation = await reversalObservation(capture, "REFUND", 200n);
+  await acceptWebhook(account, "pending-reversal", refundObservation);
+  const reversal = await reverse(debit, "CHARGEBACK_REVERSAL");
+  expect(await applyReversal(reversal.id)).toMatchObject({ status: "REVIEW", reason: "INBOX_PENDING" });
+  expect((await current()).enabled).toBe(false);
+  await processInbox(account);
+  expect(await applyReversal(reversal.id)).toMatchObject({ status: "RELEASED" });
+});

@@ -11,13 +11,17 @@ export function canUseAccount(account: MerchantAccount) {
   return account.provider === "PLATEGA" && account.environment === "MOCK" && process.env.NODE_ENV === "test";
 }
 
-export async function hasPendingEvidence(db: Db, fact: PaymentTransaction) {
+export async function hasPendingEvidence(db: Db, fact: PaymentTransaction, orderId?: string) {
   const [row] = await db.$queryRaw<{ pending: boolean }[]>`
     SELECT EXISTS (
       SELECT 1 FROM "WebhookEvent" WHERE "accountId" = ${fact.accountId} AND "processedAt" IS NULL
         AND (payload->>'externalPaymentId' = ${fact.externalPaymentId}
           OR payload->>'merchantReference' = ${fact.merchantReference}::text
-          OR payload#>>'{movement,originalMovementKey}' = ${fact.movementKey})
+          OR payload#>>'{movement,originalMovementKey}' = ${fact.movementKey}
+          OR payload->>'externalPaymentId' IS NULL
+          OR EXISTS (SELECT 1 FROM "Payment" p WHERE p."orderId" = ${orderId ?? null}::text
+            AND p."accountId" = ${fact.accountId} AND (p."merchantReference" = payload->>'merchantReference'
+              OR p."externalId" = payload->>'externalPaymentId')))
     ) AS pending`;
   return row?.pending ?? true;
 }
@@ -68,7 +72,7 @@ export async function allocateCapture(captureId: string) {
       return review("CAPTURE_PROOF_MISMATCH");
     }
     // Before acknowledging ingress or recording a pull, Payments takes the same account lock.
-    if (await hasPendingEvidence(db, fact)) return { status: "REVIEW" as const, reason: "INBOX_PENDING" };
+    if (await hasPendingEvidence(db, fact, order.id)) return { status: "REVIEW" as const, reason: "INBOX_PENDING" };
     const reversal = await db.paymentTransaction.findFirst({
       where: { accountId: fact.accountId, kind: { in: ["REFUND", "CHARGEBACK_DEBIT", "CHARGEBACK_REVERSAL"] },
         OR: [{ originalMovementKey: fact.movementKey }, { externalPaymentId: fact.externalPaymentId },
