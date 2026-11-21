@@ -1,0 +1,36 @@
+import type { MerchantAccount, Order, Prisma } from "@prisma/client";
+import { prisma } from "../../lib/prisma";
+import type { PaymentProviderAdapter } from "./provider";
+
+export type Db = Prisma.TransactionClient;
+
+export async function merchantAccount(adapter: PaymentProviderAdapter) {
+  await prisma.merchantAccount.createMany({ data: [adapter.account], skipDuplicates: true });
+  return prisma.merchantAccount.findUniqueOrThrow({ where: { provider_environment_merchant: adapter.account } });
+}
+
+export async function lockOrder(db: Db, id: string) {
+  const [order] = await db.$queryRaw<Order[]>`SELECT * FROM "Order" WHERE id = ${id} FOR UPDATE`;
+  return order;
+}
+
+// Scope collision only introduces waiting. Database unique constraints enforce identity.
+export async function lockPaymentKey(db: Db, scope: string, accountId: string, key: string) {
+  await db.$queryRaw`SELECT 1 AS locked FROM pg_advisory_xact_lock(hashtextextended(
+    ${JSON.stringify([scope, accountId, key])}, 0)
+  ))`;
+}
+
+export async function noteCase(
+  db: Db, account: Pick<MerchantAccount, "id">, kind: string, objectKey: string,
+  reason: string, details: Prisma.InputJsonObject, now: Date,
+) {
+  const key = { accountId: account.id, objectKey, kind };
+  // Repeats retain the original evidence and resolution history.
+  await db.paymentCase.createMany({
+    data: [{ ...key, reason, details, nextCheckAt: now, history: [{ status: "OPEN", reason, at: now.toISOString() }] }],
+    skipDuplicates: true,
+  });
+}
+
+export const nextCheck = (now: Date) => new Date(now.getTime() + 60_000);

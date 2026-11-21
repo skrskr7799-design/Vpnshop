@@ -61,6 +61,39 @@ enum PaymentStatus {
   FAILED
   EXPIRED
   REFUNDED
+  CREATED
+  SUBMITTING
+  AWAITING_CUSTOMER
+  PROCESSING
+  UNKNOWN
+  SUCCEEDED
+  CANCELED
+}
+
+enum MerchantEnvironment {
+  MOCK
+  SANDBOX
+  PRODUCTION
+}
+
+enum MovementKind {
+  CAPTURE
+  REFUND
+  CHARGEBACK_DEBIT
+  CHARGEBACK_REVERSAL
+  FEE
+  ADJUSTMENT
+}
+
+enum PaymentEvidence {
+  WEBHOOK
+  LOOKUP
+}
+
+enum PaymentCaseStatus {
+  OPEN
+  INVESTIGATING
+  RESOLVED
 }
 
 enum JobStatus {
@@ -301,39 +334,119 @@ model Order {
   @@index([status, expiresAt])
 }
 
-// У заказа может быть несколько попыток оплаты (разные провайдеры).
-model Payment {
-  id           String          @id @default(uuid())
-  orderId      String
-  provider     PaymentProvider
-  externalId   String? // id транзакции у провайдера
-  status       PaymentStatus   @default(PENDING)
-  amount       Int
-  currency     Currency
-  providerData Json?
-  paidAt       DateTime?
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
+model MerchantAccount {
+  id          String              @id @default(uuid())
+  provider    PaymentProvider
+  environment MerchantEnvironment
+  merchant    String
+  payments    Payment[]
+  events      WebhookEvent[]
+  ledger      PaymentTransaction[]
+  cases       PaymentCase[]
 
-  order Order @relation(fields: [orderId], references: [id])
-
-  @@unique([provider, externalId])
-  @@index([orderId])
+  @@unique([provider, environment, merchant])
 }
 
-// Журнал входящих вебхуков. Уникальный (provider, eventKey) —
-// основа идемпотентности: повторная доставка упрётся в constraint.
+// A null account identifies a legacy attempt whose external proof has not been verified.
+model Payment {
+  id                String          @id @default(uuid())
+  orderId           String
+  provider          PaymentProvider
+  externalId        String?
+  status            PaymentStatus   @default(PENDING)
+  amount            Int
+  currency          Currency
+  providerData      Json?
+  paidAt            DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  accountId         String?
+  merchantReference String?
+  requestKeyHash    String?
+  channel           String?
+  expiresAt         DateTime?
+  nextCheckAt       DateTime?
+  reasonCode        String?
+  redirectUrl       String?
+
+  order   Order @relation(fields: [orderId], references: [id])
+  account MerchantAccount? @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  ledger  PaymentTransaction[]
+
+  @@unique([accountId, externalId])
+  @@unique([accountId, merchantReference])
+  @@unique([orderId, requestKeyHash])
+  @@index([orderId])
+  @@index([accountId, nextCheckAt])
+}
+
+// Managed payload is a sanitized, replayable observation. Legacy JSON is retained in place.
 model WebhookEvent {
   id             String          @id @default(uuid())
   provider       PaymentProvider
-  eventKey       String // id события или хэш(externalId + status)
+  eventKey       String
   payload        Json
   signatureValid Boolean
   receivedAt     DateTime        @default(now())
   processedAt    DateTime?
   error          String?
 
-  @@unique([provider, eventKey])
+  accountId      String?
+  fingerprint    String?
+  evidence       PaymentEvidence?
+  nextCheckAt    DateTime?
+  attempts       Int @default(0)
+
+  account MerchantAccount? @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@unique([accountId, eventKey])
+  @@index([accountId, processedAt, nextCheckAt])
+}
+
+model PaymentTransaction {
+  id                  String @id @default(uuid())
+  accountId           String
+  movementKey         String
+  kind                MovementKind
+  amountMinor         BigInt
+  currency            String
+  providerTime        DateTime?
+  receivedAt          DateTime @default(now())
+  evidence            PaymentEvidence
+  externalPaymentId   String
+  merchantReference   String?
+  originalMovementKey String?
+  paymentId           String?
+
+  account MerchantAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  payment Payment? @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+
+  @@unique([accountId, movementKey])
+  @@index([accountId, originalMovementKey])
+  @@index([accountId, externalPaymentId])
+  @@index([accountId, merchantReference])
+  @@index([paymentId])
+}
+
+model PaymentCase {
+  id          String @id @default(uuid())
+  accountId   String
+  objectKey   String
+  kind        String
+  reason      String
+  status      PaymentCaseStatus @default(OPEN)
+  priority    Int @default(1)
+  nextCheckAt DateTime?
+  details     Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  history     Json @default("[]")
+
+  account MerchantAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@unique([accountId, objectKey, kind])
+  @@index([status, nextCheckAt])
 }
 
 // Outbox: оплата только создаёт задачу, а воркер ходит в Remnawave

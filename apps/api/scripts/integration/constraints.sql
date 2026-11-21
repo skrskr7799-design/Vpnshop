@@ -28,6 +28,11 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'Legacy data acquired invented offer history';
   END IF;
+  IF EXISTS (SELECT 1 FROM "PaymentTransaction") OR EXISTS (SELECT 1 FROM "MerchantAccount")
+    OR EXISTS (SELECT 1 FROM "Payment" WHERE "accountId" IS NOT NULL)
+    OR EXISTS (SELECT 1 FROM "WebhookEvent" WHERE "accountId" IS NOT NULL) THEN
+    RAISE EXCEPTION 'Legacy finance data acquired invented external proof';
+  END IF;
   IF (SELECT count(*) FROM "User" u JOIN "Order" o ON o."userId"=u.id
       JOIN "Payment" p ON p."orderId"=o.id JOIN "FulfillmentJob" j ON j."orderId"=o.id
       WHERE u."remnawaveUserId"=73 AND p.amount=o.amount AND o.amount=10000) <> 1 THEN

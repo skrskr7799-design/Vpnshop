@@ -35,11 +35,29 @@ export const orderSnapshotSchema = offerTermsSchema
 export const checkoutResponseSchema = z.strictObject({
   orderId: uuid, snapshot: orderSnapshotSchema, expiresAt: timestamp,
 });
+export const paymentChannelSchema = z.enum(["CARD", "SBP"]);
 export const orderDetailSchema = z.strictObject({
   id: uuid, createdAt: timestamp, expiresAt: timestamp, snapshot: orderSnapshotSchema,
   orderStatus: z.enum(["PENDING", "PAID", "FULFILLED", "EXPIRED", "CANCELED", "REFUNDED"]),
-  allowedChannels: z.tuple([]),
-  canStartPayment: z.literal(false),
+  allowedChannels: z.array(paymentChannelSchema),
+  canStartPayment: z.boolean(),
 });
 export type Offer = z.infer<typeof offerSchema>;
 export type OrderSnapshot = z.infer<typeof orderSnapshotSchema>;
+
+export type PaymentChannel = z.infer<typeof paymentChannelSchema>;
+export const createPaymentSchema = z.strictObject({ channel: paymentChannelSchema });
+export const paymentParamsSchema = z.strictObject({ id: uuid, paymentId: uuid });
+export const paymentAttemptSchema = z.strictObject({
+  id: uuid, channel: paymentChannelSchema, status: z.enum([
+    "CREATED", "SUBMITTING", "AWAITING_CUSTOMER", "PROCESSING", "UNKNOWN", "SUCCEEDED", "FAILED", "EXPIRED", "CANCELED",
+  ]),
+  createdAt: timestamp, updatedAt: timestamp, expiresAt: timestamp, reasonCode: z.string().nullable(),
+});
+export const paymentResponseSchema = z.strictObject({
+  attempt: paymentAttemptSchema,
+  nextAction: z.discriminatedUnion("type", [
+    z.strictObject({ type: z.literal("WAIT") }),
+    z.strictObject({ type: z.literal("REDIRECT"), url: z.url(), expiresAt: timestamp }),
+  ]),
+});

@@ -18,12 +18,15 @@ export async function resetDatabase(): Promise<void> {
     // Explicit application tables, in foreign-key order. The role has DML grants only.
     await tx.fulfillmentLease.deleteMany();
     await tx.fulfillmentJob.deleteMany();
+    await tx.$executeRaw`TRUNCATE "PaymentTransaction"`;
+    await tx.paymentCase.deleteMany();
     await tx.payment.deleteMany();
     await tx.order.deleteMany();
     await tx.offerVersion.deleteMany();
     await tx.planPrice.deleteMany();
     await tx.plan.deleteMany();
     await tx.webhookEvent.deleteMany();
+    await tx.merchantAccount.deleteMany();
     await tx.auditLog.deleteMany();
     await tx.pendingRegistration.deleteMany();
     // AuthIdentity, Session, VerificationToken and staff credentials cascade from User.

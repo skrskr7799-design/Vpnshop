@@ -3,11 +3,13 @@ import type { FastifyPluginAsync } from "fastify";
 import { AppError } from "../../lib/errors";
 import { prisma } from "../../lib/prisma";
 import { authenticate } from "../auth/authenticate";
+import { paymentOwnerRoutes } from "../payments/payments.routes";
+import type { PaymentProviderAdapter } from "../payments/provider";
 import { getCurrentUser } from "../auth/auth.service";
 import { dbNow, toOffer } from "./offers";
 import { checkout, ownerOrder, snapshot } from "./orders";
 
-export const commerceRoutes: FastifyPluginAsync = async app => {
+export const commerceRoutes: FastifyPluginAsync<{ payments?: PaymentProviderAdapter }> = async (app, { payments }) => {
   app.get("/plans", async (req, reply) => {
     const { currency } = catalogQuerySchema.parse(req.query);
     const [versions, asOf] = await prisma.$transaction(async db => [
@@ -30,6 +32,8 @@ export const commerceRoutes: FastifyPluginAsync = async app => {
       await getCurrentUser(req.auth!.userId);
     });
 
+    paymentOwnerRoutes(orders, payments);
+
     orders.post("/orders", async (req, reply) => {
       const { offerVersionId } = checkoutBodySchema.parse(req.body);
       const key = checkoutKeySchema.parse(req.headers["idempotency-key"]);
@@ -41,9 +45,17 @@ export const commerceRoutes: FastifyPluginAsync = async app => {
       const { id } = orderParamsSchema.parse(req.params);
       const order = await ownerOrder(req.auth!.userId, id);
       if (!order) throw new AppError(404, "NOT_FOUND");
+      const now = await dbNow(prisma);
+      const open = !!payments && order.status === "PENDING" && order.expiresAt > now &&
+        order.currency === "RUB" && order.offerVersionId !== null;
+      const activeAttempt = open && await prisma.payment.findFirst({
+        where: { orderId: id, OR: [
+          { status: { notIn: ["FAILED", "EXPIRED", "CANCELED"] } }, { externalId: { not: null } },
+        ] }, select: { id: true },
+      });
       return {
         id: order.id, createdAt: order.createdAt.toISOString(), expiresAt: order.expiresAt.toISOString(),
-        snapshot: snapshot(order), orderStatus: order.status, allowedChannels: [], canStartPayment: false,
+        snapshot: snapshot(order), orderStatus: order.status, allowedChannels: open ? payments.channels : [], canStartPayment: open && !activeAttempt,
       };
     });
   });

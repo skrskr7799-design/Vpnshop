@@ -11,17 +11,20 @@ import { commerceRoutes } from "./modules/commerce/commerce.routes";
 import { healthRoutes } from "./modules/health/health.routes";
 import { oauthRoutes } from "./modules/oauth/oauth.routes";
 import { loadProviders } from "./modules/oauth/providers";
+import { paymentFixture, paymentWebhookRoutes } from "./modules/payments/payments.routes";
+import type { PaymentProviderAdapter } from "./modules/payments/provider";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
-export async function buildApp() {
+export async function buildApp(options: { payments?: PaymentProviderAdapter } = {}) {
+  const payments = paymentFixture(options.payments);
   const app = Fastify({
     // за reverse proxy: корректный IP клиента для rate limit и аудита
     trustProxy: true,
     logger: {
       level: isProd ? "info" : "debug",
       // секреты не должны попадать в логи
-      redact: ["req.headers.authorization", "req.headers.cookie", "res.headers['set-cookie']"],
+      redact: ["req.headers.authorization", "req.headers.cookie", "req.headers['x-fixture-secret']", "res.headers['set-cookie']"],
       transport: isProd ? undefined : { target: "pino-pretty" },
     },
   });
@@ -36,7 +39,7 @@ export async function buildApp() {
   registerErrorHandler(app);
 
   // Всё, что вызывает браузер с куками, живёт под /api.
-  // Вебхуки платёжек потом подключим вне этого префикса: у них своя проверка (подпись).
+  await app.register(async hook => { paymentWebhookRoutes(hook, payments); });
   await app.register(
     async (api) => {
       // CSRF: на изменяющих запросах Origin обязан совпасть с нашим фронтом.
@@ -47,7 +50,7 @@ export async function buildApp() {
       });
 
       await api.register(healthRoutes);
-      await api.register(commerceRoutes);
+      await api.register(commerceRoutes, { payments });
       await api.register(authRoutes, { prefix: "/auth" });
       await api.register(oauthRoutes, { prefix: "/auth/oauth", providers: loadProviders() });
     },
