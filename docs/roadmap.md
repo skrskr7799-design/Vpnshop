@@ -52,6 +52,7 @@
 ### COM-02 — PARTIAL
 
 - **IMPLEMENTED** Попытки оплаты по заказу и ключу, durable inbox, append-only движения, дела сверки, C7 и статус, детерминированный fixture. Платёжный контур оставляет заказ и выдачу без перехода. Владельцем утверждены RUB, Platega и окно 30 минут.
+- **VERIFIED** На SHA `8a3cb8fbd950d284e6ed5f41f1e183fb4e26f00a` CI прошёл locked install, генерацию Prisma, typecheck, lint, сборку, unit/contract и PostgreSQL integration. Включены 12 платёжных сценариев, регрессии COM-01/FND-03, два применения миграций на чистой и legacy-БД и сравнение 15 исходных записей. Потеря ACK смоделирована на границе после commit. Сетевое взаимодействие Platega не проверялось. [Успешный CI](https://github.com/skrskr7799-design/Vpnshop/actions/runs/44932241748)
 - **BLOCKED** Официальный контракт и merchant sandbox. Требуется подтвердить каналы аккаунта, механизм callback и ACK, авторитетный CAPTURE, поиск и правила повторов. Коммерческий приём остаётся закрытым до COM-03.
 - [Матрица Platega и контракт COM-03](payments.md#com-02-и-platega) · [Переход и откат](deployment.md#com-02--платёжная-схема-и-безопасный-переход) · [PostgreSQL fixture](../apps/api/src/modules/payments/payments.int.test.ts)
 
