@@ -1,0 +1,70 @@
+name: Toolchain CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, fnd-01-toolchain-ci, 'work/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  checks:
+    name: Install, generate, lint, build and test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+
+      - name: Record toolchain
+        run: |
+          {
+            echo "Commit: $(git rev-parse HEAD)"
+            echo "Node: $(node --version)"
+            echo "pnpm: $(pnpm --version)"
+            uname -sm
+            getconf GNU_LIBC_VERSION
+            openssl version
+            sha256sum pnpm-lock.yaml
+            echo 'Prisma engine source: https://binaries.prisma.sh'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Locked dependency install
+        env:
+          PRISMA_SKIP_POSTINSTALL_GENERATE: 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client and record engine target
+        run: |
+          pnpm db:generate
+          pnpm --filter @vpn/api exec prisma version | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Typecheck workspace
+        run: pnpm typecheck
+
+      - name: Lint workspace
+        run: pnpm lint
+
+      - name: Build workspace
+        run: pnpm build
+
+      - name: Unit tests
+        run: pnpm test:unit
+
+      - name: API contract tests
+        run: pnpm test:contract

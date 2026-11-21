@@ -1,0 +1,44 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "import"],
+  "categories": {
+    "correctness": "error"
+  },
+  "ignorePatterns": ["**/dist/**", "**/coverage/**"],
+  "rules": {
+    "import/no-cycle": "error",
+    "no-restricted-properties": [
+      "error",
+      { "property": "$queryRawUnsafe", "message": "Use a parameterized Prisma query." },
+      { "property": "$executeRawUnsafe", "message": "Use a parameterized Prisma query." }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["apps/api/src/modules/oauth/return-to.ts"],
+      "rules": { "no-control-regex": "off" }
+    },
+    {
+      "files": ["apps/api/src/test/db.ts"],
+      "rules": {
+        "no-restricted-properties": [
+          "error",
+          { "property": "$queryRawUnsafe", "message": "Use a parameterized Prisma query." }
+        ]
+      }
+    },
+    {
+      "files": ["apps/web/src/**/*.{ts,tsx}", "apps/admin/src/**/*.{ts,tsx}", "packages/shared/src/**/*.{ts,tsx}"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          { "patterns": ["@prisma/*", "**/api/src/**"] }
+        ],
+        "no-restricted-properties": [
+          "error",
+          { "object": "process", "property": "env", "message": "Keep server environment access in the API." }
+        ]
+      }
+    }
+  ]
+}
