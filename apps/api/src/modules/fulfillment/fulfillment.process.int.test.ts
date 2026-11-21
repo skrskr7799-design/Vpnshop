@@ -94,14 +94,15 @@ it("runs API alone, elects one of two worker processes, heartbeats and drains wi
   const lease = () => prisma.fulfillmentLease.findFirstOrThrow({ where: { jobId: job.id } });
   const initial = await lease();
   const identities = await Promise.all(workers.map(async w => ((await (await w.probe("/ready")).json()) as { owner: string }).owner));
-  const activeIndex = identities.indexOf(initial.owner);
+  const activeIndex = identities.findIndex(owner => owner === initial.owner);
   expect(activeIndex).toBeGreaterThanOrEqual(0);
   const active = workers[activeIndex]!;
   const idle = workers[1 - activeIndex]!;
-  idle.child.kill("SIGINT");
-  expect((await idle.exit)[0]).toBe(0);
   await vi.waitFor(async () => expect((await lease()).expiresAt!.getTime())
     .toBeGreaterThan(initial.expiresAt!.getTime()), { timeout: 7000 });
+  expect(await jobState(job.id)).toMatchObject({ status: "RUNNING", attempts: 1 });
+  idle.child.kill("SIGINT");
+  expect((await idle.exit)[0]).toBe(0);
   active.child.kill("SIGTERM");
   await active.wait("/ready", 503);
   const later = await newJob();
