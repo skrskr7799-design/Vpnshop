@@ -6,6 +6,7 @@ import { DefinitiveCreateRejection, observationSchema, type CreatePayment, type 
 
 // Protocol for isolated tests only. This envelope and headers are local fixtures.
 export function mockProvider(secret = "isolated-test-fixture", merchant = "mock-shop") {
+  const redirectOrigin = "https://payments.example.invalid";
   const sent: CreatePayment[] = [];
   const statuses = new Map<string, Observation>();
   let createBehavior: "ok" | "timeout" | "reject" | "bad-redirect" = "ok";
@@ -18,7 +19,7 @@ export function mockProvider(secret = "isolated-test-fixture", merchant = "mock-
   const adapter = {
     account: { provider: "PLATEGA", environment: "MOCK", merchant },
     channels: ["SBP", "CARD"],
-    redirectOrigin: "https://payments.example.invalid",
+    redirectOrigin,
     async createPayment(input: CreatePayment) {
       sent.push(input);
       if (createBehavior === "reject") throw new DefinitiveCreateRejection();
@@ -27,7 +28,7 @@ export function mockProvider(secret = "isolated-test-fixture", merchant = "mock-
         externalPaymentId, merchantReference: input.merchantReference, status: "AWAITING_CUSTOMER", movement: null,
       });
       if (createBehavior === "timeout") throw new Error("fixture timeout");
-      const origin = createBehavior === "bad-redirect" ? "https://untrusted.invalid" : adapter.redirectOrigin;
+      const origin = createBehavior === "bad-redirect" ? "https://untrusted.invalid" : redirectOrigin;
       return { externalPaymentId, url: `${origin}/${externalPaymentId}` };
     },
     async getPaymentStatus(id: string) { return statuses.get(id) ?? null; },

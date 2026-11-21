@@ -49,6 +49,12 @@
 - **IMPLEMENTED** Миграция COM-01 оставляет исторические заказы без версии и не публикует импортированные цены автоматически. Перед запуском ADMIN проверяет и публикует нужные цены через PUT. Поля названия и версии в legacy-снимке остаются пустыми. При откате остановить вход checkout и правки тарифов, сохранить миграцию, версии и заказы, вернуть совместимый релиз с исправлением. Старый CRUD цен не поддерживает историю и при временном возврате приложения должен оставаться закрытым. После открытия checkout повтор клиента использует прежний ключ. Миграции и сравнение старых записей входят в чистый и legacy прогон CI. [SQL](../apps/api/prisma/migrations/20261121020000_versioned_checkout/migration.sql) · [DB assertions](../apps/api/src/modules/commerce/commerce.int.test.ts)
 - **VERIFIED** Коммит реализации `98fa5a90b223baf0e1641c64cc241fb7ecc012c2` прошёл locked install, генерацию Prisma Client, typecheck, lint, сборку, unit/contract и PostgreSQL integration на GitHub Actions. Десять сценариев commerce охватывают публикацию, снятие, сохранение снимка, RBAC, изоляцию владельцев, идемпотентность, гонки и повтор после отката. Clean deploy и legacy rehearsal прошли два применения миграций с совпадением 15 контрольных записей. Интеграционный набор включает регрессию fulfillment. [GitHub Actions](https://github.com/skrskr7799-design/Vpnshop/actions/runs/44929970928)
 
+### COM-02 — PARTIAL
+
+- **IMPLEMENTED** Попытки оплаты по заказу и ключу, durable inbox, append-only движения, дела сверки, C7 и статус, детерминированный fixture. Платёжный контур оставляет заказ и выдачу без перехода. Владельцем утверждены RUB, Platega и окно 30 минут.
+- **BLOCKED** Официальный контракт и merchant sandbox. Требуется подтвердить каналы аккаунта, механизм callback и ACK, авторитетный CAPTURE, поиск и правила повторов. Коммерческий приём остаётся закрытым до COM-03.
+- [Матрица Platega и контракт COM-03](payments.md#com-02-и-platega) · [Переход и откат](deployment.md#com-02--платёжная-схема-и-безопасный-переход) · [PostgreSQL fixture](../apps/api/src/modules/payments/payments.int.test.ts)
+
 [Контракты денег](payments.md) · [Периоды](subscriptions.md) · [Матрица панели](remnawave-integration.md)
 
 ## Phase 3 — User Account

@@ -206,6 +206,11 @@ it("isolates event conflicts, bounds webhook size and reschedules unprocessed da
 });
 
 it("deduplicates webhook and lookup across concurrent database transactions and rejects mutation", async () => {
+  const sessions = await Promise.all([1, 2].map(() => prisma.$transaction(async db => {
+    const [backend] = await db.$queryRaw<{ pid: number }[]>`SELECT pg_backend_pid() AS pid FROM pg_sleep(0.1)`;
+    return backend!.pid;
+  })));
+  expect(new Set(sessions).size).toBe(2);
   const payment = await newAttempt((await order()).id);
   const observation = capture(payment);
   await post("separate-1", observation);

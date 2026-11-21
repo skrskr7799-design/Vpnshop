@@ -30,7 +30,7 @@ export async function acceptWebhook(account: MerchantAccount, eventKey: string, 
 export async function processInbox(account: MerchantAccount, limit = 20) {
   let processed = 0;
   for (; processed < limit; processed++) {
-    let eventId: string | undefined;
+    let claimed: Pick<WebhookEvent, "id" | "attempts"> | undefined;
     try {
       const found = await prisma.$transaction(async db => {
         const [event] = await db.$queryRaw<WebhookEvent[]>`
@@ -39,7 +39,11 @@ export async function processInbox(account: MerchantAccount, limit = 20) {
           ORDER BY "nextCheckAt", id LIMIT 1 FOR UPDATE SKIP LOCKED
         `;
         if (!event) return false;
-        eventId = event.id;
+        claimed = event;
+        const now = await dbNow(db);
+        if (now.getTime() - event.receivedAt.getTime() > 10 * 60_000) {
+          await noteCase(db, account, "INBOX_DELAY", `inbox:${event.id}`, "INBOX_DELAY", {}, now);
+        }
         // All state changes are local SQL. A crash rolls back both movement and processedAt.
         await recordObservation(db, account, observationSchema.parse(event.payload), "WEBHOOK", event.receivedAt);
         await db.webhookEvent.update({ where: { id: event.id }, data: {
@@ -49,12 +53,12 @@ export async function processInbox(account: MerchantAccount, limit = 20) {
       }, { isolationLevel: "ReadCommitted" });
       if (!found) break;
     } catch (error) {
-      if (!eventId) throw error;
-      const id = eventId;
+      if (!claimed) throw error;
+      const { id, attempts } = claimed;
       await prisma.$transaction(async db => {
         const now = await dbNow(db);
         const changed = await db.webhookEvent.updateMany({
-          where: { id, processedAt: null },
+          where: { id, processedAt: null, attempts },
           data: { attempts: { increment: 1 }, error: "INBOX_PROCESSING_FAILED", nextCheckAt: nextCheck(now) },
         });
         if (changed.count) await noteCase(db, account, "INBOX_PROCESSING_FAILED", `inbox:${id}`,

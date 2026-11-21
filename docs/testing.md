@@ -98,3 +98,7 @@ Phase 5. До коммерческого запуска каждый обяза�
 | Release S | Новый и предыдущий совместимый digest | Обновить, выполнить smoke и учебный rollback. | TLS, схема, роли, heartbeat и финансовая цепочка совпадают с ожиданиями, один активный писатель. [Runbook](operations.md#релиз-и-откат) |
 
 Готовность подтверждают обязательные checks на холодном runner, воспроизводимый DB suite, staging smoke и отдельный протокол restore. Для допуска Telegram дополнительно нужен тестовый бот. [Критерии Phase 4](identity.md#приёмка-и-решения-для-владельца)
+
+## Регрессия COM-02
+
+`test:integration` использует disposable PostgreSQL и детерминированный payment fixture. Проверки охватывают конкурирующие команды создания, PostgreSQL backend PID, таймаут и восстановление intent без второго POST, BOLA, состояние после durable ACK, параллельный webhook и pull, конфликт event key, append-only ledger, двойное поступление, опоздание, обратное движение до оригинала, несовпадение суммы/валюты и закрытую выдачу. Повторный clean/legacy migrate сравнивает исторические поля Order, Payment и WebhookEvent и проверяет пустой новый журнал. Реальный sandbox потребует отдельных доказательств, включая точный wire-format, redirect, timeout, аутентификацию, ACK и внешний lookup. [Integration suite](../apps/api/src/modules/payments/payments.int.test.ts) · [Capability matrix](payments.md#com-02-и-platega)

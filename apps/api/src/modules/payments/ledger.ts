@@ -113,7 +113,8 @@ export async function recordObservation(
   }
   if (movement.kind === "CAPTURE" && match) {
     await reviewCapture(db, account, match.order, match.payment, fact, now);
-    if (fact.amountMinor === BigInt(match.payment.amount) && fact.currency === match.payment.currency) {
+    if (match.payment.status !== "SUCCEEDED" &&
+        fact.amountMinor === BigInt(match.payment.amount) && fact.currency === match.payment.currency) {
       await db.payment.update({ where: { id: match.payment.id }, data: {
         externalId: fact.externalPaymentId, status: "SUCCEEDED", paidAt: fact.providerTime,
         reasonCode: null, nextCheckAt: null,
@@ -124,7 +125,8 @@ export async function recordObservation(
     const original = await db.paymentTransaction.findUnique({
       where: { accountId_movementKey: { accountId: account.id, movementKey: movement.originalMovementKey } },
     });
-    const related = original?.kind === "CAPTURE" && original.externalPaymentId === fact.externalPaymentId &&
+    const expectedKind = movement.kind === "CHARGEBACK_REVERSAL" ? "CHARGEBACK_DEBIT" : "CAPTURE";
+    const related = original?.kind === expectedKind && original.externalPaymentId === fact.externalPaymentId &&
       original.currency === fact.currency && original.merchantReference === fact.merchantReference;
     await noteCase(db, account, related ? "REVERSAL_PRESENT" : "UNRESOLVED_REVERSAL", `movement:${movement.key}`,
       related ? "REVIEW_REVERSED_FUNDS" : "ORIGINAL_CAPTURE_NOT_CONFIRMED", {
