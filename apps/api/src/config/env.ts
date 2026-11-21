@@ -13,6 +13,7 @@ const schema = z
     HOST: z.string().default("0.0.0.0"),
     PORT: z.coerce.number().int().positive().default(3000),
     DATABASE_URL: z.string().min(1),
+    CHECKOUT_TTL_MINUTES: z.coerce.number().int().min(1).max(1440).default(30),
     WEB_ORIGIN: z.url(),
     COOKIE_SECRET: z.string().min(32, "COOKIE_SECRET must be at least 32 characters"),
     JWT_SECRET: z.string().min(32, "JWT_SECRET must be at least 32 characters"),

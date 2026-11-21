@@ -21,6 +21,11 @@ BEGIN
     RAISE EXCEPTION 'Missing required order amount';
   EXCEPTION WHEN not_null_violation THEN NULL;
   END;
+  IF EXISTS (SELECT 1 FROM "OfferVersion") OR EXISTS (
+    SELECT 1 FROM "Order" WHERE num_nonnulls("offerVersionId", "checkoutKeyHash", "checkoutPolicyVersion") <> 0
+  ) THEN
+    RAISE EXCEPTION 'Legacy data acquired invented offer history';
+  END IF;
   IF (SELECT count(*) FROM "User" u JOIN "Order" o ON o."userId"=u.id
       JOIN "Payment" p ON p."orderId"=o.id JOIN "FulfillmentJob" j ON j."orderId"=o.id
       WHERE u."remnawaveUserId"=73 AND p.amount=o.amount AND o.amount=10000) <> 1 THEN

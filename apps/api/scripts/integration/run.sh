@@ -67,9 +67,16 @@ sql vpnshop_legacy <<< 'DROP INDEX fnd02_drift_probe'
 legacy_diff
 
 snapshot() {
-  docker exec "$container" pg_dump -U postgres -d vpnshop_legacy --data-only --schema=public \
-    --exclude-table=public._prisma_migrations --inserts --no-owner --no-privileges |
-    sed -n '/^INSERT INTO /p' | LC_ALL=C sort
+  # Project Order onto its legacy columns. The new nullable fields are checked separately.
+  {
+    docker exec "$container" pg_dump -U postgres -d vpnshop_legacy --data-only --schema=public \
+      --exclude-table=public._prisma_migrations --exclude-table='public."Order"' --inserts --no-owner --no-privileges |
+      sed -n '/^INSERT INTO /p'
+    sql vpnshop_legacy <<'SQL'
+COPY (SELECT id, "userId", "planId", "durationMonths", "deviceLimit", currency, amount,
+  status, "expiresAt", "paidAt", "fulfilledAt", "createdAt", "updatedAt" FROM "Order") TO STDOUT;
+SQL
+  } | LC_ALL=C sort
 }
 snapshot > "$tmp/before"
 [[ "$(wc -l < "$tmp/before")" -eq 15 ]]
@@ -92,7 +99,7 @@ INSERT INTO test_guard.instance VALUES ('$VPNSHOP_TEST_MARKER');
 GRANT USAGE ON SCHEMA test_guard, public TO vpnshop_suite;
 GRANT SELECT ON test_guard.instance TO vpnshop_suite;
 GRANT SELECT, INSERT, UPDATE, DELETE ON "User","AuthIdentity","Session","PendingRegistration",
-  "VerificationToken","AdminTotp","AdminRecoveryCode","AdminSession","Plan","PlanPrice","Order",
+  "VerificationToken","AdminTotp","AdminRecoveryCode","AdminSession","Plan","PlanPrice","OfferVersion","Order",
   "Payment","WebhookEvent","FulfillmentJob","FulfillmentLease","AuditLog" TO vpnshop_suite;
 SQL
 export TEST_DATABASE_URL="postgresql://vpnshop_suite:$VPNSHOP_TEST_MARKER@127.0.0.1:$port/vpnshop_suite"

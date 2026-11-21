@@ -70,7 +70,7 @@ describe("защита периметра", () => {
   it("публичный API не содержит маршрутов админки", async () => {
     const { buildApp } = await import("../../app");
     const publicApp = await buildApp();
-    for (const url of ["/api/plans", "/api/dashboard", "/api/audit", "/api/jobs"]) {
+    for (const url of ["/api/dashboard", "/api/audit", "/api/jobs"]) {
       expect((await publicApp.inject({ method: "GET", url })).statusCode, url).toBe(404);
     }
     await publicApp.close();
@@ -193,7 +193,7 @@ describe("тарифы", () => {
     expect(blocked.json().error.code).toBe("PLAN_HAS_ORDERS");
     expect(await prisma.plan.count({ where: { id: used.id } })).toBe(1);
 
-    await api.put(`/api/plans/${unused.id}/prices`, { durationMonths: 1, currency: "RUB", amount: 100 });
+    await api.put(`/api/plans/${unused.id}/prices`, { durationMonths: 1, currency: "RUB", amount: 100, isActive: false });
     expect((await api.delete(`/api/plans/${unused.id}`)).statusCode).toBe(204);
     expect(await prisma.planPrice.count({ where: { planId: unused.id } })).toBe(0); // цены удалились каскадом
     expect(await auditRows("plan.delete")).toHaveLength(1);

@@ -240,8 +240,28 @@ model PlanPrice {
   isActive       Boolean  @default(true)
 
   plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  versions OfferVersion[]
 
   @@unique([planId, durationMonths, currency])
+}
+
+// PlanPrice is the stable offer. Each publication freezes its commercial terms.
+model OfferVersion {
+  id             String   @id @default(uuid())
+  planPriceId    String
+  version        Int
+  name           String
+  durationMonths Int
+  deviceLimit    Int
+  currency       Currency
+  amount         Int
+  publishedAt    DateTime
+  withdrawnAt    DateTime?
+
+  offer  PlanPrice @relation(fields: [planPriceId], references: [id], onDelete: Restrict)
+  orders Order[]
+
+  @@unique([planPriceId, version])
 }
 
 // ───────────────────── Заказы и платежи ─────────────────────
@@ -258,6 +278,10 @@ model Order {
   currency       Currency
   amount         Int
 
+  offerVersionId String?
+  checkoutKeyHash String?
+  checkoutPolicyVersion Int?
+
   status      OrderStatus @default(PENDING)
   expiresAt   DateTime // конец окна оплаты
   paidAt      DateTime?
@@ -269,7 +293,10 @@ model Order {
   plan     Plan            @relation(fields: [planId], references: [id])
   payments Payment[]
   job      FulfillmentJob?
+  offerVersion OfferVersion? @relation(fields: [offerVersionId], references: [id], onDelete: Restrict)
 
+  @@unique([userId, checkoutKeyHash])
+  @@index([offerVersionId])
   @@index([userId, createdAt])
   @@index([status, expiresAt])
 }

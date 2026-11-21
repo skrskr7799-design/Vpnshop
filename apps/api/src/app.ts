@@ -7,6 +7,7 @@ import { env, isProd } from "./config/env";
 import { AppError } from "./lib/errors";
 import { registerErrorHandler } from "./lib/error-handler";
 import { authRoutes } from "./modules/auth/auth.routes";
+import { commerceRoutes } from "./modules/commerce/commerce.routes";
 import { healthRoutes } from "./modules/health/health.routes";
 import { oauthRoutes } from "./modules/oauth/oauth.routes";
 import { loadProviders } from "./modules/oauth/providers";
@@ -46,6 +47,7 @@ export async function buildApp() {
       });
 
       await api.register(healthRoutes);
+      await api.register(commerceRoutes);
       await api.register(authRoutes, { prefix: "/auth" });
       await api.register(oauthRoutes, { prefix: "/auth/oauth", providers: loadProviders() });
     },

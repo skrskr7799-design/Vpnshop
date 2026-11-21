@@ -20,6 +20,7 @@ export async function resetDatabase(): Promise<void> {
     await tx.fulfillmentJob.deleteMany();
     await tx.payment.deleteMany();
     await tx.order.deleteMany();
+    await tx.offerVersion.deleteMany();
     await tx.planPrice.deleteMany();
     await tx.plan.deleteMany();
     await tx.webhookEvent.deleteMany();
