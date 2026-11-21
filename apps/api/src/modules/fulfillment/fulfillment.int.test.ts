@@ -276,6 +276,21 @@ describe("порядок и конкурентность", () => {
     expect(panel.calls.create).toBe(2);
   });
 
+  it("выдаёт подписку другому клиенту за длинной очередью заблокированных продлений", async () => {
+    const blocked = await createUser();
+    const first = await createJob((await createOrder(blocked.id)).id, new Date(clock.getTime() - 60_000));
+    await prisma.fulfillmentJob.update({ where: { id: first.id }, data: { status: "FAILED" } });
+    for (let i = 0; i < 30; i++) {
+      await createJob((await createOrder(blocked.id)).id, new Date(clock.getTime() - 30_000 + i));
+    }
+    const independent = await createUser();
+    const ready = await createJob((await createOrder(independent.id)).id, clock);
+
+    expect(await makeWorker().tick()).toBe(1);
+    expect(await job(ready.id)).toMatchObject({ status: "DONE", attempts: 1 });
+    expect(await prisma.fulfillmentJob.count({ where: { status: "PENDING", attempts: 0 } })).toBe(30);
+  });
+
   it("несколько воркеров параллельно: каждая задача выполняется ровно один раз", async () => {
     const jobs = [];
     for (let i = 0; i < 6; i++) {

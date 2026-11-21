@@ -1,6 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
-import { CLAIM_CANDIDATES, LOCK_TIMEOUT_MS } from "./fulfillment.constants";
+import { LOCK_TIMEOUT_MS } from "./fulfillment.constants";
 
 type Db = Prisma.TransactionClient;
 
@@ -34,52 +34,36 @@ export async function reapStaleJobs(now: Date): Promise<number> {
   return count;
 }
 
-// Берёт следующую готовую задачу.
-// Порядок строгий в пределах одного пользователя: пока не завершена более ранняя задача этого же
-// пользователя, следующую не трогаем. Иначе две задачи посчитали бы дату от одного и того же
-// состояния панели, и одна перезаписала бы другую (потерянное продление).
-// Захват атомарный (compare-and-set): два воркера не возьмут одну задачу.
+// Сначала исключаем задачи, у которых есть незавершённый предшественник этого
+// пользователя. Заблокированная очередь одного клиента не задерживает остальных.
 export async function claimNextJob(now: Date): Promise<ClaimedJob | null> {
-  const candidates = await prisma.fulfillmentJob.findMany({
-    where: { status: "PENDING", nextAttemptAt: { lte: now } },
-    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    take: CLAIM_CANDIDATES,
-    select: { id: true, createdAt: true, order: { select: { userId: true } } },
-  });
-
-  for (const candidate of candidates) {
-    const blocker = await prisma.fulfillmentJob.findFirst({
-      where: {
-        id: { not: candidate.id },
-        status: { not: "DONE" },
-        order: { userId: candidate.order.userId },
-        OR: [
-          { createdAt: { lt: candidate.createdAt } },
-          { createdAt: candidate.createdAt, id: { lt: candidate.id } },
-        ],
-      },
-      select: { id: true },
-    });
-    if (blocker) continue;
-
-    const claimed = await prisma.fulfillmentJob.updateMany({
-      where: { id: candidate.id, status: "PENDING" },
-      data: { status: "RUNNING", lockedAt: now, attempts: { increment: 1 } },
-    });
-    if (claimed.count !== 1) continue; // успел другой воркер
-
-    return prisma.fulfillmentJob.findUniqueOrThrow({
-      where: { id: candidate.id },
-      select: {
-        id: true,
-        orderId: true,
-        attempts: true,
-        targetExpireAt: true,
-        order: { select: { id: true, userId: true, status: true, durationMonths: true, deviceLimit: true } },
-      },
-    });
-  }
-  return null;
+  const [job] = await prisma.$queryRaw<ClaimedJob[]>`
+    WITH candidate AS (
+      SELECT j.id, o."userId", o.status, o."durationMonths", o."deviceLimit"
+      FROM "FulfillmentJob" j
+      JOIN "Order" o ON o.id = j."orderId"
+      WHERE j.status = 'PENDING' AND j."nextAttemptAt" <= ${now}
+        AND NOT EXISTS (
+          SELECT 1
+          FROM "Order" earlier_order
+          JOIN "FulfillmentJob" earlier ON earlier."orderId" = earlier_order.id
+          WHERE earlier_order."userId" = o."userId"
+            AND earlier.status <> 'DONE'
+            AND (earlier."createdAt", earlier.id) < (j."createdAt", j.id)
+        )
+      ORDER BY j."createdAt", j.id
+      LIMIT 1
+      FOR UPDATE OF j SKIP LOCKED
+    )
+    UPDATE "FulfillmentJob" j
+    SET status = 'RUNNING', "lockedAt" = ${now}, attempts = j.attempts + 1
+    FROM candidate c
+    WHERE j.id = c.id
+    RETURNING j.id, j."orderId", j.attempts, j."targetExpireAt",
+      json_build_object('id', j."orderId", 'userId', c."userId", 'status', c.status,
+                        'durationMonths', c."durationMonths", 'deviceLimit', c."deviceLimit") AS "order"
+  `;
+  return job ?? null;
 }
 
 // Итоговая дата фиксируется один раз и дальше не меняется, даже если задачу придётся повторять.
