@@ -44,6 +44,8 @@ SQL
 base="postgresql://vpnshop_migrator:$password@127.0.0.1:$port"
 export DATABASE_URL="$base/vpnshop_suite"
 pnpm exec prisma migrate deploy
+pnpm exec prisma migrate deploy
+pnpm exec prisma migrate status
 pnpm exec prisma migrate diff --from-schema-datasource prisma/schema.prisma --to-schema-datamodel prisma/schema.prisma --exit-code
 
 # Build the pre-migration catalog independently from the versioned baseline SQL.
@@ -53,7 +55,16 @@ export DATABASE_URL="$base/vpnshop_legacy"
 pnpm exec prisma migrate diff --from-empty --to-schema-datamodel "$tmp/legacy.prisma" --script > "$tmp/legacy.sql"
 sql vpnshop_legacy < <(printf 'SET ROLE vpnshop_migrator;\n'; cat "$tmp/legacy.sql")
 sql vpnshop_legacy < scripts/integration/legacy.sql
-pnpm exec prisma migrate diff --from-schema-datasource "$tmp/legacy.prisma" --to-schema-datamodel "$tmp/legacy.prisma" --exit-code
+legacy_diff() {
+  pnpm exec prisma migrate diff --from-schema-datasource "$tmp/legacy.prisma" --to-schema-datamodel "$tmp/legacy.prisma" --exit-code
+}
+# Prove a drifted legacy fixture stops before recording any migration history.
+sql vpnshop_legacy <<< 'CREATE INDEX fnd02_drift_probe ON "Order"(amount)'
+drift_status=0
+legacy_diff || drift_status=$?
+[[ "$drift_status" == 2 ]]
+sql vpnshop_legacy <<< 'DROP INDEX fnd02_drift_probe'
+legacy_diff
 
 snapshot() {
   docker exec "$container" pg_dump -U postgres -d vpnshop_legacy --data-only --schema=public \
@@ -70,7 +81,7 @@ for pass in 1 2; do
   sql vpnshop_legacy < scripts/integration/constraints.sql
   snapshot > "$tmp/after"
   cmp "$tmp/before" "$tmp/after"
-  echo "Legacy pass $pass: 15 fixture rows preserved, sha256 $(sha256sum "$tmp/after" | cut -d' ' -f1)"
+  echo "Legacy pass $pass: 15 fixture rows preserved, sha256 $(sha256sum "$tmp/after" | cut -d' ' -f1)" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
 done
 # Only the runtime schema is writable, with DML privileges on application tables.
 sql vpnshop_suite <<SQL
@@ -88,5 +99,5 @@ export TEST_DATABASE_URL="postgresql://vpnshop_suite:$VPNSHOP_TEST_MARKER@127.0.
 export DATABASE_URL="$TEST_DATABASE_URL"
 vitest_status=0
 pnpm exec vitest run --config vitest.integration.config.ts --reporter=default --reporter=json --outputFile.json="$tmp/tests.json" || vitest_status=$?
-node scripts/integration/check-results.mjs "$tmp/tests.json"
+node scripts/integration/check-results.mjs "$tmp/tests.json" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
 exit "$vitest_status"
