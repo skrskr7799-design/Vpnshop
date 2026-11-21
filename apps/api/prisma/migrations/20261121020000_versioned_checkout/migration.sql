@@ -53,4 +53,21 @@ $$;
 CREATE TRIGGER freeze_order_snapshot BEFORE UPDATE ON "Order"
 FOR EACH ROW EXECUTE FUNCTION vpnshop_freeze_order_snapshot();
 
+CREATE FUNCTION vpnshop_validate_order_offer() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM "OfferVersion" v JOIN "PlanPrice" p ON p.id = v."planPriceId"
+    WHERE v.id = NEW."offerVersionId"
+      AND ROW(p."planId", v."durationMonths", v."deviceLimit", v.currency, v.amount) =
+          ROW(NEW."planId", NEW."durationMonths", NEW."deviceLimit", NEW.currency, NEW.amount)
+  ) THEN
+    RAISE EXCEPTION 'Order snapshot does not match offer version';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER validate_order_offer BEFORE INSERT ON "Order"
+FOR EACH ROW WHEN (NEW."offerVersionId" IS NOT NULL) EXECUTE FUNCTION vpnshop_validate_order_offer();
+
 COMMIT;

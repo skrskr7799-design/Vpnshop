@@ -194,6 +194,24 @@ it("disables the whole plan, keeps published history and preserves SUPPORT read-
   expect((await catalog())[0]?.id).toBe(published.offerVersionId);
 });
 
+it("rejects a blocked account holding a still-valid access token", async () => {
+  const offer = await publish();
+  await prisma.user.update({ where: { id: buyer.user.id }, data: { status: "BLOCKED" } });
+  expect((await buy(offer.offerVersionId)).json().error.code).toBe("ACCOUNT_BLOCKED");
+  expect(await prisma.order.count()).toBe(0);
+});
+
+it("enforces one current version and a matching order snapshot in PostgreSQL", async () => {
+  const offer = await publish();
+  const { id: _id, ...version } = await prisma.offerVersion.findUniqueOrThrow({ where: { id: offer.offerVersionId } });
+  await expect(prisma.offerVersion.create({ data: { ...version, version: 2 } })).rejects.toMatchObject({ code: "P2002" });
+  await expect(prisma.order.create({ data: {
+    planId, userId: buyer.user.id, offerVersionId: offer.offerVersionId,
+    durationMonths: 1, deviceLimit: 5, currency: "RUB", amount: 1, expiresAt: new Date(),
+    checkoutKeyHash: "test-key", checkoutPolicyVersion: 1,
+  } })).rejects.toThrow("Order snapshot does not match offer version");
+});
+
 it("releases a checkout key when the insert rolls back", async () => {
   const { checkout } = await import("./orders");
   const offer = await publish();

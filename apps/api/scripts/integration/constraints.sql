@@ -17,7 +17,9 @@ BEGIN
   EXCEPTION WHEN foreign_key_violation THEN NULL;
   END;
   BEGIN
-    UPDATE "Order" SET amount=NULL WHERE id='o';
+    INSERT INTO "Order" (id, "planId", "userId", "durationMonths", "deviceLimit", currency,
+      amount, "expiresAt", "updatedAt")
+    VALUES ('missing-amount', 'p', 'u', 1, 3, 'RUB', NULL, now(), now());
     RAISE EXCEPTION 'Missing required order amount';
   EXCEPTION WHEN not_null_violation THEN NULL;
   END;

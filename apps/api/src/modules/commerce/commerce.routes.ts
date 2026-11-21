@@ -3,6 +3,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { AppError } from "../../lib/errors";
 import { prisma } from "../../lib/prisma";
 import { authenticate } from "../auth/authenticate";
+import { getCurrentUser } from "../auth/auth.service";
 import { dbNow, toOffer } from "./offers";
 import { checkout, ownerOrder, snapshot } from "./orders";
 
@@ -24,7 +25,10 @@ export const commerceRoutes: FastifyPluginAsync = async app => {
 
   app.register(async orders => {
     orders.addHook("onRequest", async (_req, reply) => { reply.header("Cache-Control", "private, no-store"); });
-    orders.addHook("preHandler", authenticate);
+    orders.addHook("preHandler", async req => {
+      await authenticate(req);
+      await getCurrentUser(req.auth!.userId);
+    });
 
     orders.post("/orders", async (req, reply) => {
       const { offerVersionId } = checkoutBodySchema.parse(req.body);
