@@ -29,7 +29,7 @@ export async function verifyAccessToken(token: string): Promise<AuthClaims | nul
       algorithms: ["HS256"],
     });
     const role = payload.role;
-    if (!payload.sub || (role !== "USER" && role !== "ADMIN")) return null;
+    if (!payload.sub || (role !== "USER" && role !== "ADMIN" && role !== "SUPPORT")) return null;
     return { userId: payload.sub, role };
   } catch {
     return null;

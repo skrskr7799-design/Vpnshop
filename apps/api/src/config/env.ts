@@ -26,12 +26,64 @@ const schema = z
     GOOGLE_CLIENT_SECRET: optionalString,
     TELEGRAM_CLIENT_ID: optionalString,
     TELEGRAM_CLIENT_SECRET: optionalString,
+    // ── Админка: отдельный сервер на своём порту, по умолчанию выключен ──
+    ADMIN_ENABLED: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((v) => v === "true"),
+    // По умолчанию слушаем только localhost: наружу админку выводит reverse proxy или VPN
+    ADMIN_HOST: z.string().default("127.0.0.1"),
+    ADMIN_PORT: z.coerce.number().int().positive().default(3001),
+    // Origin фронта админки (проверка Origin, CORS)
+    ADMIN_ORIGIN: z.url().default("http://localhost:5174"),
+    // Верить ли X-Forwarded-For. По умолчанию нет: иначе IP-фильтр можно обойти подделкой заголовка.
+    // Включайте, только если админка стоит за собственным reverse proxy.
+    ADMIN_TRUST_PROXY: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((v) => v === "true"),
+    // Разрешённые адреса/сети (CIDR) через запятую. Пусто = без ограничения по IP
+    ADMIN_ALLOWED_CIDRS: z
+      .string()
+      .optional()
+      .transform((v) => (v ?? "").split(",").map((x) => x.trim()).filter(Boolean)),
+    // 32 байта в base64: `openssl rand -base64 32`. Из него выводятся ключи шифрования TOTP и подписи.
+    ADMIN_ENCRYPTION_KEY: optionalString,
+    ADMIN_SESSION_HOURS: z.coerce.number().positive().default(12),
+    ADMIN_IDLE_MINUTES: z.coerce.number().positive().default(30),
+    // Воркер выдачи подписок живёт в процессе API. Запускайте ровно один экземпляр.
+    WORKER_ENABLED: z
+      .enum(["true", "false"])
+      .default("true")
+      .transform((v) => v === "true"),
     REMNAWAVE_URL: z.url(),
     REMNAWAVE_TOKEN: z.string().min(1),
+    // X-Api-Key, если панель закрыта Caddy с ключами доступа (необязательно)
+    REMNAWAVE_API_KEY: optionalString,
+    // Слать x-forwarded-for/proto: нужно, когда API ходит к панели напрямую по внутренней сети
+    // (например http://remnawave:3000), мимо её reverse proxy
+    REMNAWAVE_TRUSTED_PROXY_HEADERS: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((v) => v === "true"),
+    // Internal squads, в которые попадают новые пользователи (UUID через запятую).
+    // Без сквада пользователю, скорее всего, нечего отдавать: проверьте на своей панели.
+    REMNAWAVE_INTERNAL_SQUAD_UUIDS: z
+      .string()
+      .transform((v) => v.split(",").map((x) => x.trim()).filter(Boolean))
+      .pipe(z.array(z.uuid()).min(1, "at least one internal squad UUID is required")),
   })
   .refine((v) => v.NODE_ENV !== "production" || Boolean(v.SMTP_URL), {
     path: ["SMTP_URL"],
     message: "SMTP_URL is required in production",
+  })
+  .refine((v) => !v.ADMIN_ENABLED || Boolean(v.ADMIN_ENCRYPTION_KEY), {
+    path: ["ADMIN_ENCRYPTION_KEY"],
+    message: "ADMIN_ENCRYPTION_KEY is required when ADMIN_ENABLED=true",
+  })
+  .refine((v) => !v.ADMIN_ENCRYPTION_KEY || Buffer.from(v.ADMIN_ENCRYPTION_KEY, "base64").length === 32, {
+    path: ["ADMIN_ENCRYPTION_KEY"],
+    message: "ADMIN_ENCRYPTION_KEY must be 32 bytes in base64",
   })
   .refine((v) => Boolean(v.GOOGLE_CLIENT_ID) === Boolean(v.GOOGLE_CLIENT_SECRET), {
     path: ["GOOGLE_CLIENT_SECRET"],

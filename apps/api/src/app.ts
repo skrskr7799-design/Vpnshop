@@ -3,9 +3,9 @@ import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
-import { ZodError } from "zod";
 import { env, isProd } from "./config/env";
 import { AppError } from "./lib/errors";
+import { registerErrorHandler } from "./lib/error-handler";
 import { authRoutes } from "./modules/auth/auth.routes";
 import { healthRoutes } from "./modules/health/health.routes";
 import { oauthRoutes } from "./modules/oauth/oauth.routes";
@@ -32,26 +32,7 @@ export async function buildApp() {
 
   app.decorateRequest("auth", null);
 
-  app.setErrorHandler((error, req, reply) => {
-    if (error instanceof AppError) {
-      return reply.code(error.statusCode).send({ error: { code: error.code } });
-    }
-    if (error instanceof ZodError) {
-      return reply.code(400).send({
-        error: {
-          code: "VALIDATION_ERROR",
-          issues: error.issues.map((i) => ({ path: i.path.join("."), message: i.message })),
-        },
-      });
-    }
-    // штатные ошибки Fastify и плагинов: 415, 429 и т.п.
-    const status = (error as { statusCode?: number }).statusCode;
-    if (status && status >= 400 && status < 500) {
-      return reply.code(status).send({ error: { code: (error as { code?: string }).code ?? "BAD_REQUEST" } });
-    }
-    req.log.error(error);
-    return reply.code(500).send({ error: { code: "INTERNAL" } });
-  });
+  registerErrorHandler(app);
 
   // Всё, что вызывает браузер с куками, живёт под /api.
   // Вебхуки платёжек потом подключим вне этого префикса: у них своя проверка (подпись).

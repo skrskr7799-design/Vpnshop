@@ -44,7 +44,9 @@ export async function rotateSession(refreshToken: string, meta: SessionMeta): Pr
   const now = new Date();
 
   if (session.revokedAt) {
-    if (now.getTime() - session.revokedAt.getTime() <= REFRESH_REUSE_GRACE_MS) {
+    // Окно гонки только для токена, погашенного ротацией. Отозванный выходом, сменой пароля
+    // или обнаружением кражи отклоняется сразу.
+    if (session.rotatedAt && now.getTime() - session.rotatedAt.getTime() <= REFRESH_REUSE_GRACE_MS) {
       // две вкладки обновились одновременно: клиент просто повторит запрос с новой кукой
       throw new AppError(401, "REFRESH_RACE");
     }
@@ -68,7 +70,7 @@ export async function rotateSession(refreshToken: string, meta: SessionMeta): Pr
     // атомарно: только один из параллельных запросов сможет погасить этот токен
     const res = await tx.session.updateMany({
       where: { id: session.id, revokedAt: null },
-      data: { revokedAt: now },
+      data: { revokedAt: now, rotatedAt: now },
     });
     if (res.count !== 1) return false;
     await tx.session.create({

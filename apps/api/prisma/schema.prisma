@@ -11,7 +11,8 @@ datasource db {
 
 enum UserRole {
   USER
-  ADMIN
+  ADMIN // полный доступ к админке
+  SUPPORT // только просмотр (права см. admin.permissions.ts)
 }
 
 enum UserStatus {
@@ -78,14 +79,18 @@ model User {
   role            UserRole   @default(USER)
   status          UserStatus @default(ACTIVE)
 
-  // Связь с пользователем в Remnawave (null, пока ничего не куплено)
-  remnawaveUuid String? @unique
+  // Числовой id пользователя в Remnawave (в API 3.x пользователь адресуется по id или username).
+  // null, пока ничего не куплено. Username у нас детерминированный (см. remnawave.username.ts).
+  remnawaveUserId Int? @unique
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  identities AuthIdentity[]
-  sessions   Session[]
+  identities    AuthIdentity[]
+  sessions      Session[]
+  totp          AdminTotp?
+  recoveryCodes AdminRecoveryCode[]
+  adminSessions AdminSession[]
   tokens     VerificationToken[]
   orders     Order[]
 }
@@ -118,7 +123,11 @@ model Session {
   userAgent String?
   ip        String?
   expiresAt DateTime
+  // revokedAt: токен больше не действует (ротация, выход, смена пароля, кража).
+  // rotatedAt: токен погашен именно ротацией, только к такому применяется окно гонки двух вкладок.
+  // Отозванный иначе (выход, кража) не имеет rotatedAt и отклоняется сразу.
   revokedAt DateTime?
+  rotatedAt DateTime?
   createdAt DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -156,6 +165,53 @@ model VerificationToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, type])
+}
+
+// ─────────────────────────── Админка ───────────────────────────
+
+// Второй фактор админа (TOTP). Секрет хранится зашифрованным (AES-256-GCM).
+model AdminTotp {
+  id             String    @id @default(uuid())
+  userId         String    @unique
+  secretEnc      String
+  confirmedAt    DateTime? // null, пока админ не подтвердил первый код
+  lastUsedStep   Int? // последний принятый 30-секундный шаг: защита от повторного использования кода
+  failedAttempts Int       @default(0)
+  lockedUntil    DateTime?
+  createdAt      DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Одноразовые резервные коды на случай потери телефона. Хранится только хэш.
+model AdminRecoveryCode {
+  id        String    @id @default(uuid())
+  userId    String
+  codeHash  String    @unique
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// Серверные сессии админки (в куке лежит только случайный токен). Отзыв действует мгновенно.
+model AdminSession {
+  id            String    @id @default(uuid())
+  userId        String
+  tokenHash     String    @unique
+  ip            String?
+  userAgent     String?
+  createdAt     DateTime  @default(now())
+  lastSeenAt    DateTime  @default(now())
+  idleExpiresAt DateTime // истекает при бездействии
+  expiresAt     DateTime // абсолютный предел жизни сессии
+  revokedAt     DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 // ─────────────────────────── Тарифы ───────────────────────────
@@ -260,6 +316,10 @@ model FulfillmentJob {
   status        JobStatus @default(PENDING)
   attempts      Int       @default(0)
   nextAttemptAt DateTime  @default(now())
+  // Итоговая дата окончания подписки, вычисленная при первой попытке и сохранённая.
+  // Запрос в Remnawave задаёт её абсолютным значением, поэтому повтор после сбоя безопасен
+  // и срок не удлиняется дважды.
+  targetExpireAt DateTime?
   lockedAt      DateTime?
   lastError     String?
   completedAt   DateTime?
