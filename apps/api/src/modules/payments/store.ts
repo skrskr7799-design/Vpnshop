@@ -16,9 +16,8 @@ export async function lockOrder(db: Db, id: string) {
 
 // Scope collision only introduces waiting. Database unique constraints enforce identity.
 export async function lockPaymentKey(db: Db, scope: string, accountId: string, key: string) {
-  await db.$queryRaw`SELECT 1 AS locked FROM pg_advisory_xact_lock(hashtextextended(
-    ${JSON.stringify([scope, accountId, key])}, 0)
-  ))`;
+  const lockKey = JSON.stringify([scope, accountId, key]);
+  await db.$queryRaw`SELECT 1 AS locked FROM pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
 }
 
 export async function noteCase(
