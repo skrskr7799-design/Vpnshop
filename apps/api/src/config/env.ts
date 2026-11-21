@@ -1,3 +1,4 @@
+import { panelSettings } from "./panel-env";
 import { z } from "zod";
 
 // Пустая строка в .env (VAR=) считается «не задано»
@@ -51,27 +52,7 @@ const schema = z
     ADMIN_ENCRYPTION_KEY: optionalString,
     ADMIN_SESSION_HOURS: z.coerce.number().positive().default(12),
     ADMIN_IDLE_MINUTES: z.coerce.number().positive().default(30),
-    // Воркер выдачи подписок живёт в процессе API. Запускайте ровно один экземпляр.
-    WORKER_ENABLED: z
-      .enum(["true", "false"])
-      .default("true")
-      .transform((v) => v === "true"),
-    REMNAWAVE_URL: z.url(),
-    REMNAWAVE_TOKEN: z.string().min(1),
-    // X-Api-Key, если панель закрыта Caddy с ключами доступа (необязательно)
-    REMNAWAVE_API_KEY: optionalString,
-    // Слать x-forwarded-for/proto: нужно, когда API ходит к панели напрямую по внутренней сети
-    // (например http://remnawave:3000), мимо её reverse proxy
-    REMNAWAVE_TRUSTED_PROXY_HEADERS: z
-      .enum(["true", "false"])
-      .default("false")
-      .transform((v) => v === "true"),
-    // Internal squads, в которые попадают новые пользователи (UUID через запятую).
-    // Без сквада пользователю, скорее всего, нечего отдавать: проверьте на своей панели.
-    REMNAWAVE_INTERNAL_SQUAD_UUIDS: z
-      .string()
-      .transform((v) => v.split(",").map((x) => x.trim()).filter(Boolean))
-      .pipe(z.array(z.uuid()).min(1, "at least one internal squad UUID is required")),
+    ...panelSettings,
   })
   .refine((v) => v.NODE_ENV !== "production" || Boolean(v.SMTP_URL), {
     path: ["SMTP_URL"],

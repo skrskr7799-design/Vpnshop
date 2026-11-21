@@ -86,6 +86,7 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  fulfillmentLease FulfillmentLease?
   identities    AuthIdentity[]
   sessions      Session[]
   totp          AdminTotp?
@@ -346,4 +347,14 @@ model AuditLog {
 
   @@index([entity, entityId])
   @@index([actorId, createdAt])
+}
+
+// One active slot per account, including across different orders.
+model FulfillmentLease {
+  userId     String @id
+  user       User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  generation BigInt
+  jobId      String?
+  owner      String?
+  expiresAt  DateTime?
 }

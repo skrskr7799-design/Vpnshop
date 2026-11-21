@@ -93,7 +93,7 @@ GRANT USAGE ON SCHEMA test_guard, public TO vpnshop_suite;
 GRANT SELECT ON test_guard.instance TO vpnshop_suite;
 GRANT SELECT, INSERT, UPDATE, DELETE ON "User","AuthIdentity","Session","PendingRegistration",
   "VerificationToken","AdminTotp","AdminRecoveryCode","AdminSession","Plan","PlanPrice","Order",
-  "Payment","WebhookEvent","FulfillmentJob","AuditLog" TO vpnshop_suite;
+  "Payment","WebhookEvent","FulfillmentJob","FulfillmentLease","AuditLog" TO vpnshop_suite;
 SQL
 export TEST_DATABASE_URL="postgresql://vpnshop_suite:$VPNSHOP_TEST_MARKER@127.0.0.1:$port/vpnshop_suite"
 export DATABASE_URL="$TEST_DATABASE_URL"

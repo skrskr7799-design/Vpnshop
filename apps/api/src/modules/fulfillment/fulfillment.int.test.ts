@@ -313,10 +313,8 @@ describe("восстановление после падения", () => {
     // Процесс успел применить дату в панели и умер, не записав результат в БД
     panel.seed(remnawaveUsernameFor(user.id), { expireAt: target });
     const o = await createOrder(user.id, { months: 3 });
-    const j = await createJob(o.id);
-    await prisma.fulfillmentJob.update({
-      where: { id: j.id },
-      data: { status: "RUNNING", attempts: 1, targetExpireAt: target, lockedAt: new Date(clock.getTime() - 10 * MIN) },
+    const j = await prisma.fulfillmentJob.create({
+      data: { orderId: o.id, status: "RUNNING", attempts: 1, targetExpireAt: target, lockedAt: new Date(Date.now() - 10 * MIN) },
     });
 
     await makeWorker().tick();
@@ -330,10 +328,8 @@ describe("восстановление после падения", () => {
   it("свежая задача в RUNNING (идёт работа) не отбирается", async () => {
     const user = await createUser();
     const o = await createOrder(user.id);
-    const j = await createJob(o.id);
-    await prisma.fulfillmentJob.update({
-      where: { id: j.id },
-      data: { status: "RUNNING", attempts: 1, lockedAt: new Date(clock.getTime() - MIN) },
+    const j = await prisma.fulfillmentJob.create({
+      data: { orderId: o.id, status: "RUNNING", attempts: 1, lockedAt: new Date(Date.now() - MIN) },
     });
 
     expect(await makeWorker().tick()).toBe(0);
