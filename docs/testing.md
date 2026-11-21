@@ -102,3 +102,7 @@ Phase 5. До коммерческого запуска каждый обяза�
 ## Регрессия COM-02
 
 `test:integration` использует disposable PostgreSQL и детерминированный payment fixture. Проверки охватывают конкурирующие команды создания, PostgreSQL backend PID, таймаут и восстановление intent без второго POST, BOLA, состояние после durable ACK, параллельный webhook и pull, конфликт event key, append-only ledger, двойное поступление, опоздание, обратное движение до оригинала, несовпадение суммы/валюты и закрытую выдачу. Повторный clean/legacy migrate сравнивает исторические поля Order, Payment и WebhookEvent и проверяет пустой новый журнал. Реальный sandbox потребует отдельных доказательств, включая точный wire-format, redirect, timeout, аутентификацию, ACK и внешний lookup. [Integration suite](../apps/api/src/modules/payments/payments.int.test.ts) · [Capability matrix](payments.md#com-02-и-platega)
+
+## Регрессия COM-03
+
+PostgreSQL suite проверяет повтор и конкуренцию зачёта, два merchant lock и два независимых backend PID, запрет пересечения, откат до commit, UTC v1, связанные обратные движения и ожидающий inbox, полный/частичный возврат, независимые hold, сценарий R03, смену лимита на границе и восстановление пропущенной границы. Отдельный worker process в обычном режиме тестируется с loopback-счётчиком HTTP. Legacy rehearsal дважды применяет миграции/идемпотентный backfill, проверяет 15 исходных записей, пустую непроверенную подписку и отклонение старого writer. [Subscription suite](../apps/api/src/modules/subscriptions/subscriptions.int.test.ts)

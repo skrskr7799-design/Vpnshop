@@ -55,8 +55,10 @@ async function launch(entry: "server" | "worker", panelPort: number, extra: Reco
 
 async function mockPanel() {
   const writes: string[] = [];
+  const requests: string[] = [];
   const pending: (() => void)[] = [];
   const server = createServer(async (req, res) => {
+    requests.push(req.method ?? "");
     if (req.method !== "POST") { res.writeHead(404).end("{}"); return; }
     let raw = "";
     for await (const chunk of req) raw += chunk;
@@ -71,7 +73,7 @@ async function mockPanel() {
     server.closeAllConnections();
     await new Promise<void>(resolve => server.close(() => resolve()));
   });
-  return { panelPort, writes, pending };
+  return { panelPort, writes, pending, requests };
 }
 async function newJob() { return createJob((await createOrder((await createUser()).id)).id); }
 const jobState = (id: string) => prisma.fulfillmentJob.findUniqueOrThrow({ where: { id } });
@@ -142,6 +144,27 @@ it("keeps liveness separate from database readiness on connection failure", asyn
   await worker.wait("/health", 200);
   await worker.wait("/ready", 503);
   expect(await (await worker.probe("/ready")).json()).toMatchObject({ ready: false, lastHeartbeat: null });
+  worker.child.kill("SIGTERM");
+  expect((await worker.exit)[0]).toBe(0);
+});
+
+it("runtime worker restores a local boundary and never calls the legacy panel writer", async () => {
+  const panel = await mockPanel();
+  const user = await createUser();
+  const job = await createJob((await createOrder(user.id)).id);
+  const subscription = await prisma.subscription.create({
+    data: { userId: user.id, nextBoundaryAt: new Date(0) },
+  });
+  const worker = await launch("worker", panel.panelPort, { NODE_ENV: "production" });
+  await worker.wait("/ready", 200);
+  const assignment = await prisma.desiredAssignment.findUniqueOrThrow({
+    where: { subscriptionId_revision: { subscriptionId: subscription.id, revision: 1 } },
+  });
+  expect(assignment).toMatchObject({ enabled: false, nextBoundaryAt: null });
+  expect(await jobState(job.id)).toMatchObject({ status: "PENDING", attempts: 0 });
+  expect(await prisma.fulfillmentJob.findUnique({ where: { assignmentId: assignment.id } }))
+    .toMatchObject({ status: "PENDING", orderId: null });
+  expect(panel.requests).toEqual([]);
   worker.child.kill("SIGTERM");
   expect((await worker.exit)[0]).toBe(0);
 });

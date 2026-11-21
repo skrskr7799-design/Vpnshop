@@ -33,6 +33,15 @@ BEGIN
     OR EXISTS (SELECT 1 FROM "WebhookEvent" WHERE "accountId" IS NOT NULL) THEN
     RAISE EXCEPTION 'Legacy finance data acquired invented external proof';
   END IF;
+  BEGIN
+    PERFORM set_config('vpnshop.fulfillment_writer', 'lease-v1', true);
+    UPDATE "FulfillmentJob" SET status = 'RUNNING' WHERE id = 'j';
+    RAISE EXCEPTION 'Legacy worker unexpectedly retained claim rights';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM NOT LIKE '%requires fulfillment lease protocol v1 on the disposable database%' THEN
+      RAISE;
+    END IF;
+  END;
   IF (SELECT count(*) FROM "Subscription" WHERE "legacyUnverified" AND "userId" = 'u' AND revision = 0) <> 1
     OR (SELECT count(*) FROM "Subscription") <> 1
     OR EXISTS (SELECT 1 FROM "OrderAllocation") OR EXISTS (SELECT 1 FROM "PeriodGrant")

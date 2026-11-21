@@ -137,7 +137,7 @@ it("serializes two paid renewals across merchant locks and independent PostgreSQ
     const duration = period.orderId === firstOrder.id ? firstOrder.durationMonths : secondOrder.durationMonths;
     expect(period.endAt).toEqual(addMonths(period.startAt, duration));
   }
-  expect(right!.endAt).toBeGreaterThan(existing.endAt);
+  expect(right!.endAt.getTime()).toBeGreaterThan(existing.endAt.getTime());
   expect((await current()).deviceLimit).toBe(5);
 });
 
