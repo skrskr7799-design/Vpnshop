@@ -152,6 +152,14 @@ dc exec -T admin-api node -e 'fetch("http://172.30.76.10:3000/api/ready",{signal
 dc exec -T prometheus promtool check config /etc/prometheus/prometheus.yml
 dc exec -T alertmanager amtool check-config /etc/alertmanager/alertmanager.yml
 dc exec -T exporter node -e 'fetch("http://172.30.75.12:9100/metrics").then(async r=>process.exit((await r.text()).includes("mzt_postgres_up 1")?0:1)).catch(()=>process.exit(1))'
+dc exec -T exporter test ! -e /run/secrets/admin_tls_key
+dc exec -T exporter node -e '
+  fetch("http://172.30.75.12:9100/metrics").then(r=>r.text()).then(body=>{
+    for (const origin of ["public", "admin"]) {
+      const item=body.split("\n").find(line=>line.startsWith(`mzt_tls_certificate_seconds{origin="${origin}"} `));
+      if (!item || Number(item.split(" ").at(-1)) <= 0) process.exit(1);
+    }
+  }).catch(()=>process.exit(1))'
 dc exec -T alert-sink node -e '
   fetch("http://alertmanager:9093/api/v2/alerts",{method:"POST",headers:{"content-type":"application/json"},
     body:JSON.stringify([{labels:{alertname:"SyntheticSmoke",severity:"critical",group:"smoke"}}])})

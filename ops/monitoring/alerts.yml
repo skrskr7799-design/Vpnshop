@@ -16,6 +16,16 @@ groups:
         for: 10m
         labels: {severity: warning, group: api}
         annotations: {summary: "p95 HTTP latency exceeds one second"}
+      - alert: TLSCertificateExpiring
+        expr: mzt_tls_certificate_seconds >= 0 and mzt_tls_certificate_seconds < 1209600
+        for: 5m
+        labels: {severity: warning, group: tls}
+        annotations: {summary: "TLS certificate expires within 14 days", runbook: "docs/operations.md#релиз-и-откат"}
+      - alert: TLSCertificateCritical
+        expr: mzt_tls_certificate_seconds < 259200
+        for: 2m
+        labels: {severity: critical, group: tls}
+        annotations: {summary: "TLS certificate missing or expires within 3 days", runbook: "docs/operations.md#реагирование-на-инциденты"}
       - alert: PostgresUnavailable
         expr: mzt_postgres_up == 0 or up{job="postgres-operations"} == 0
         for: 2m

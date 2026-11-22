@@ -106,6 +106,7 @@ repo1-s3-uri-style=path
 repo1-storage-port=9443
 repo1-storage-ca-file=/run/secrets/s3_ca
 repo1-storage-verify-tls=y
+io-timeout=3
 S3
   mount_repo=()
   restore_repo=()
@@ -172,6 +173,20 @@ if [[ "${MZT_RELEASE_FAILURES:-0}" == 1 ]]; then
   br --output=json info | jq -e '.[0].backup | map(.type) | (index("full") != null and index("diff") != null)' >/dev/null
 fi
 br verify
+if [[ "${MZT_RELEASE_FAILURES:-0}" == 1 && "$storage" == s3 ]]; then
+  failed=$(sql "$pg" -c 'SELECT failed_count FROM pg_stat_archiver')
+  docker stop -t 5 "$tls_proxy" >/dev/null
+  sql "$pg" -c "INSERT INTO \"AuditLog\"(id,action,entity) VALUES ('pitr-storage-outage','drill.archive','drill')"
+  sql "$pg" -c 'SELECT pg_switch_wal()' >/dev/null
+  for attempt in {1..22}; do
+    now_failed=$(sql "$pg" -c 'SELECT failed_count FROM pg_stat_archiver')
+    if (( now_failed > failed )); then break; fi
+    if [[ "$attempt" == 22 ]]; then echo "No archive failure recorded during the isolated S3 outage"; exit 1; fi
+    sleep 1
+  done
+  docker start "$tls_proxy" >/dev/null
+  br check
+fi
 # Transaction strictly between the base backup and the chosen target.
 sql "$pg" -c "INSERT INTO \"AuditLog\"(id,action,entity) VALUES ('pitr-before-target','drill.target','drill')"
 target=$(sql "$pg" -c "SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS.US') || '+00'")
@@ -209,4 +224,7 @@ cmp "$tmp/before" "$tmp/replayed"
 digest=$(sha256sum "$tmp/replayed" | cut -d' ' -f1)
 evidence=$(printf 'PITR (%s): %s UTC target, verified drill runtime %ss, financial/control proof sha256:%s' "$storage" "$target" "$(($(date +%s)-started))" "$digest")
 printf '%s\n' "$evidence"
-if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then printf '%s\n' "$evidence" >> "$GITHUB_STEP_SUMMARY"; fi
+if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+  printf '%s\n' "$evidence" >> "$GITHUB_STEP_SUMMARY"
+  printf '::notice title=PITR evidence::%s\n' "$evidence"
+fi

@@ -40,7 +40,7 @@ for image in application migrator web admin edge db backup; do
   if scan_image --scanners vuln,secret,license --format json --output /scan/result.json --input /scan/image.tar &&
      scan_image --format spdx-json --output /scan/sbom.json --input /scan/image.tar; then
     # Secret scanner matches and snippets never leave the temporary directory.
-    jq 'del(.Results[]?.Secrets) | .Results |= map(if has("Vulnerabilities") then .Vulnerabilities |= map(select(.Severity == "HIGH" or .Severity == "CRITICAL")) else . end)' "$tmp/result.json" > "$output/$image.trivy.json"
+    jq 'del(.Results[]?.Secrets) | .Results |= ((. // []) | map(if has("Vulnerabilities") then .Vulnerabilities |= map(select(.Severity == "HIGH" or .Severity == "CRITICAL")) else . end))' "$tmp/result.json" > "$output/$image.trivy.json"
     cp "$tmp/sbom.json" "$output/$image.spdx.json"
     c=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' "$tmp/result.json")
     h=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH")] | length' "$tmp/result.json")
@@ -65,5 +65,6 @@ if [[ -n "${GITHUB_OUTPUT:-}" && "$git_result" == 0 && "$secret_count" == 0 && "
 fi
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   printf 'Supply chain: %s\n' "$(jq -c . "$output/scan-gates.json")" >> "$GITHUB_STEP_SUMMARY"
+  printf '::notice title=Supply chain evidence::%s\n' "$(jq -c . "$output/scan-gates.json")"
 fi
 exit "$decision"

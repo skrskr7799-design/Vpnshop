@@ -191,7 +191,7 @@ services:
       DATABASE_URL_FILE: /run/secrets/monitor_url
       BACKUP_MONITOR: ${BACKUP_MONITOR:-false}
       PANEL_MONITOR: ${PANEL_MONITOR:-false}
-    secrets: [monitor_url]
+    secrets: [monitor_url, public_cert, admin_cert]
     volumes: [proofs:/state/proofs:ro]
     networks:
       monitoring-db:

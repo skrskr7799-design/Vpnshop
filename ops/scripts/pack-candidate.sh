@@ -17,4 +17,7 @@ zstd --quiet -T2 -6 "$tmp/images.tar" -o "$output/images.tar.zst"
 (cd "$output" && sha256sum candidate.json images.tar.zst > SHA256SUMS && sha256sum -c SHA256SUMS)
 manifest=$(sha256sum "$output/candidate.json" | cut -d' ' -f1)
 printf 'Candidate manifest SHA-256: %s\n' "$manifest"
-if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then printf 'Candidate manifest SHA-256: %s\n' "$manifest" >> "$GITHUB_STEP_SUMMARY"; fi
+if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+  printf 'Candidate manifest SHA-256: %s\n' "$manifest" >> "$GITHUB_STEP_SUMMARY"
+  printf '::notice title=Candidate manifest::sha256:%s\n' "$manifest"
+fi
