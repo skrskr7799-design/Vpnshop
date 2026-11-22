@@ -42,15 +42,22 @@ for image in application migrator web admin edge db backup prometheus alertmanag
   fi
   printf 'Scanning release image %s\n' "$image"
   docker image save "$ref" -o "$tmp/image.tar"
+  metadata_exit=0
+  {
+    docker image history --no-trunc --format '{{json .CreatedBy}}' "$ref"
+    docker image inspect --format '{{json .Config}}' "$ref"
+  } | docker run --rm -i --network none "$gitleaks" stdin --redact=100 --no-banner --exit-code 3 || metadata_exit=$?
   image_status=PASS
-  if scan_image --scanners vuln,secret,license --format json --output /scan/result.json --input /scan/image.tar &&
+  if [[ "$metadata_exit" == 0 || "$metadata_exit" == 3 ]] &&
+     scan_image --scanners vuln,secret,license --format json --output /scan/result.json --input /scan/image.tar &&
      scan_image --format spdx-json --output /scan/sbom.json --input /scan/image.tar; then
     # Secret scanner matches and snippets never leave the temporary directory.
-    jq 'del(.Results[]?.Secrets) | .Results |= ((. // []) | map(if has("Vulnerabilities") then .Vulnerabilities |= map(select(.Severity == "HIGH" or .Severity == "CRITICAL")) else . end))' "$tmp/result.json" > "$output/$image.trivy.json"
+    jq '{SchemaVersion, ArtifactName, Results: [ .Results[]? | {Target, Class, Type, Licenses, Vulnerabilities: [.Vulnerabilities[]? | select(.Severity == "HIGH" or .Severity == "CRITICAL")]} ]}' "$tmp/result.json" > "$output/$image.trivy.json"
     cp "$tmp/sbom.json" "$output/$image.spdx.json"
     c=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' "$tmp/result.json")
     h=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH")] | length' "$tmp/result.json")
     s=$(jq '[.Results[]?.Secrets[]?] | length' "$tmp/result.json")
+    if [[ "$metadata_exit" == 3 ]]; then s=$((s+1)); fi
     critical=$((critical+c)); secret_count=$((secret_count+s))
     if (( c || s )); then image_status=FAIL; fi
     findings=$(jq -c --arg name "$image" --arg ref "$ref" --arg status "$image_status" --argjson critical "$c" --argjson high "$h" --argjson secrets "$s" \
