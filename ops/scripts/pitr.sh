@@ -44,6 +44,7 @@ log-level-file=off
 CONF
 chmod a+r "$tmp/pgpass" "$tmp/migrator_url" "$tmp/pgbackrest_conf"
 docker network create --internal "$network" >/dev/null
+subnet=$(docker network inspect --format '{{(index .IPAM.Config 0).Subnet}}' "$network")
 mount_repo=(-v "$repo:/state/repo")
 restore_repo=(-v "$repo:/state/repo:ro")
 restore_network=none
@@ -121,7 +122,8 @@ archive='pgbackrest --config=/run/secrets/pgbackrest_conf --stanza=vpnshop archi
 docker run -d --name "$pg" --network "$network" --network-alias pitr-db "${common[@]}" \
   "${mount_repo[@]}" -v "$state:/state/db" -v "$tmp/pgpass:/run/secrets/drill_pgpass:ro" \
   --entrypoint sh "$db_image" -ec 'initdb --auth-local=trust --auth-host=scram-sha-256 --username=postgres --pwfile=/run/secrets/drill_pgpass --data-checksums >/dev/null
-    exec postgres -c listen_addresses="*" -c archive_mode=on -c archive_timeout=30 -c "archive_command=$1"' sh "$archive" >/dev/null
+    printf "host postgres all %s scram-sha-256\n" "$2" >> "$PGDATA/pg_hba.conf"
+    exec postgres -c listen_addresses="*" -c archive_mode=on -c archive_timeout=30 -c "archive_command=$1"' sh "$archive" "$subnet" >/dev/null
 ready() {
   for i in {1..45}; do if docker exec "$1" pg_isready -U postgres -q; then return; fi; sleep 1; done
   docker logs --tail 20 "$1"; return 1
@@ -154,7 +156,7 @@ GRANT USAGE ON SCHEMA public TO drill_backup;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO drill_backup;
 SQL
   docker run --rm --network "$network" --read-only --tmpfs /tmp:mode=1777 --cap-drop ALL --security-opt no-new-privileges \
-    --user 999:999 -e AWS_CA_BUNDLE=/run/secrets/s3_ca -e NO_PROXY=pitr-s3 \
+    --user 999:999 -e AWS_CA_BUNDLE=/run/secrets/s3_ca -e HTTP_PROXY= -e HTTPS_PROXY= -e http_proxy= -e https_proxy= \
     -e S3_ENDPOINT=https://pitr-s3:9443 -e S3_BUCKET=replay-fixture -e KEY_VERSION=drill-v1 -e AWS_DEFAULT_REGION=us-east-1 \
     -v "$tmp/s3.crt:/run/secrets/s3_ca:ro" -v "$tmp/backup_url:/run/secrets/backup_url:ro" \
     -v "$tmp/logical_key:/run/secrets/logical_key:ro" -v "$tmp/logical_credentials:/run/secrets/logical_s3_credentials:ro" \
@@ -201,4 +203,6 @@ sql "$restored" < ops/backup/drill-replay.sql
 sql "$restored" < ops/backup/control-totals.sql > "$tmp/replayed"
 cmp "$tmp/before" "$tmp/replayed"
 digest=$(sha256sum "$tmp/replayed" | cut -d' ' -f1)
-printf 'PITR (%s): %s UTC target, verified drill runtime %ss, financial/control proof sha256:%s\n' "$storage" "$target" "$(($(date +%s)-started))" "$digest"
+evidence=$(printf 'PITR (%s): %s UTC target, verified drill runtime %ss, financial/control proof sha256:%s' "$storage" "$target" "$(($(date +%s)-started))" "$digest")
+printf '%s\n' "$evidence"
+if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then printf '%s\n' "$evidence" >> "$GITHUB_STEP_SUMMARY"; fi

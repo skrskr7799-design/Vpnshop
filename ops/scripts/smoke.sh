@@ -47,7 +47,7 @@ for zone in public admin; do
 done
 rm "$tmp/ca.key"
 # Test-only permissions. The parent directory remains private to the runner.
-chmod a+r "$tmp"/db_* "$tmp"/*_url "$tmp"/*_key "$tmp"/*_cert "$tmp"/web_*
+chmod a+r "$tmp"/db_* "$tmp"/*_url "$tmp"/*_key "$tmp"/*_cert "$tmp"/web_* "$tmp/ca.crt"
 cat > "$tmp/settings" <<SETTINGS
 APPLICATION_IMAGE=$prefix-application:$revision
 MIGRATOR_IMAGE=$prefix-migrator:$revision
@@ -113,7 +113,8 @@ docker run --rm --network "${COMPOSE_PROJECT_NAME}_admin-ingress" --read-only --
     const https = require("node:https");
     https.get({ hostname: "admin-edge", servername: "admin.mzt.test", port: 8443, path: "/api/me",
       headers: { Host: "admin.mzt.test", "X-Forwarded-For": "127.0.0.1" } },
-      r => { r.resume(); process.exit(r.statusCode === 403 ? 0 : 1); }).on("error", () => process.exit(1));'
+      r => { r.resume(); if (r.statusCode !== 403) { console.error("Expected isolated ACL rejection, received", r.statusCode); process.exit(1); } })
+      .on("error", e => { console.error("Isolated ACL TLS request failed", e.code); process.exit(1); });'
 request public 18443 -fsS -X POST -H 'Origin: https://public.mzt.test:18443' -H 'Content-Type: application/json' \
   --data '{"email":"synthetic@example.invalid","password":"synthetic-test-strong-12"}' https://public.mzt.test:18443/api/auth/register | jq -e '.ok'
 request public 18443 -fsS https://public.mzt.test:18443/api/plans | jq -e '.offers | length == 0'

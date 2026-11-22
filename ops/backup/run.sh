@@ -22,5 +22,15 @@ case "${1:-}" in
     dc exec -T db sh -ec 'date -u +%s >/state/proofs/.physical_epoch; mv /state/proofs/.physical_epoch /state/proofs/physical_epoch'
     ;;
   logical) dc run --rm --no-deps logical ;;
+  record-restore)
+    # This command records signed-off off-site evidence. The CI fixture never updates it.
+    report=${2:?Provide the reviewed off-site restore report}
+    now=$(date -u +%s)
+    completed=$(jq -er --argjson now "$now" '
+      select(.verified == true and .storage == "off-site" and (.controlSha256 | test("^[a-f0-9]{64}$"))) |
+      .completedAt | fromdateiso8601 | select(. <= $now and . >= $now - 2678400)
+    ' "$report")
+    printf '%s\n' "$completed" | dc exec -T db sh -ec 'cat > /state/proofs/.restore_epoch; mv /state/proofs/.restore_epoch /state/proofs/restore_epoch'
+    ;;
   *) exit 64 ;;
 esac

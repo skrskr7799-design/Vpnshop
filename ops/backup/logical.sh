@@ -6,7 +6,8 @@ case "${S3_BUCKET:?}${KEY_VERSION:?}" in *[!a-zA-Z0-9._-]*) exit 64;; esac
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 export AWS_SHARED_CREDENTIALS_FILE=/run/secrets/logical_s3_credentials AWS_EC2_METADATA_DISABLED=true
-export GNUPGHOME="$work/gnupg"
+export GNUPGHOME="$work/gnupg" AWS_CONFIG_FILE="$work/aws.conf"
+printf '[default]\ns3 =\n    addressing_style = path\n' > "$AWS_CONFIG_FILE"
 mkdir -m 700 "$GNUPGHOME"
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 key="$KEY_VERSION/$stamp"
