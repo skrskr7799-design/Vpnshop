@@ -2,14 +2,16 @@
 
 Phase 5. Два входа Fastify, два статических frontend, отдельные фоновые процессы и PostgreSQL в одном Compose-проекте. [Архитектура](architecture.md) · [Админка](admin.md) · [Безопасность](security.md) · [Эксплуатация](operations.md)
 
-## Текущее состояние
+## Реализация OPS-01
 
-| Проверено | Реализация | Требование к релизу |
-|---|---|---|
-| Docker и Compose | Compose для разработки содержит только `postgres:17-alpine`, учётные данные примера, порт 5432 на host loopback и том db-data. Dockerfile, reverse proxy, production Compose и GitHub Actions в Git отсутствуют. | Сохранить PostgreSQL 17 и Compose. Подготовить immutable образы, зоны, TLS и pipeline. [Compose](../docker-compose.yml) · [CI](testing.md) |
-| Точки входа | `server.ts` всегда строит публичный listener, условно добавляет admin и worker. Worker запускается до проверки панели. Tsup собирает только server. Admin dev proxy обращается к публичному порту 3000. | Выделить entrypoints и секреты по процессам. Исправить dev proxy. До перехода текущий runner допускает только один worker. [Server](../apps/api/src/server.ts) · [Tsup](../apps/api/tsup.config.ts) · [Admin](../apps/admin/vite.config.ts) |
-| Health | Публичные `/api/health`, `/api/ready` с SELECT 1. Отдельных admin и worker probes нет. | Сохранить пути для API, расширить готовность проверкой совместимой схемы и дренирования. Внешние интеграции наблюдаются отдельно. [Health](../apps/api/src/modules/health/health.routes.ts) |
-| DB и тесты | Prisma schema без отслеживаемых миграций. `db:migrate` вызывает migrate dev. Старый test helper использует force-reset по TEST_DATABASE_URL. | Применять версионированные миграции даже в CI. Учитывать подтверждённый в Phase 1 сбой загрузки Prisma. [Скрипты API](../apps/api/package.json) · [Аудит](audit.md#выполненные-технические-проверки) |
+| Артефакт | Процессы и назначение |
+|---|---|
+| `application` | `dist/server.js` (public), `dist/admin.js` (staff), `dist/worker.js` (выдача), `dist/billing.js` (финансовый процесс в закрытом режиме), `dist/notifications.js` (почтовый outbox), `dist/exporter.js` (агрегаты). Один образ, отдельные контейнеры. |
+| `migrator` | `mzt-migrate` применяет Prisma migrations, проверяет статус и транзакционно назначает grants. Точка запуска выше runtime прав. |
+| `web`, `admin`, `edge` | Два статических пакета и образ Nginx для двух отдельных TLS listeners. |
+| `db`, `backup` | PostgreSQL 17 с pgBackRest и отдельный клиент логической копии. |
+
+[Образы](../Dockerfile) · [Образы БД](../ops/db/Dockerfile) · [Compose](../ops/compose.yml) · [CI](testing.md#инфраструктурные-проверки-ops)
 
 ## Топология и сетевые соединения
 
@@ -32,14 +34,14 @@ flowchart LR
     PG --> Backup[Внешнее зашифрованное хранилище]
 ```
 
-Один Nginx с двумя TLS listeners раздаёт два read-only статических пакета того же релиза. Один VPS и один PostgreSQL достаточны для пилота. Для сотрудников использовать существующую управляющую сеть либо WireGuard на хосте. Каждому сотруднику отдельный ключ с возможностью отзыва. Клиентская VPN-подписка изолирована от управляющей сети.
+Два контейнера Nginx с независимыми сетями и TLS ключами раздают статические пакеты того же релиза. Один VPS и один PostgreSQL достаточны для пилота. Для сотрудников использовать существующую управляющую сеть либо WireGuard на хосте. Каждому сотруднику отдельный ключ с возможностью отзыва. Клиентская VPN-подписка изолирована от управляющей сети.
 
 | Откуда → куда | Порты и интерфейсы | Условия |
 |---|---|---|
-| Интернет → edge | TCP 443 на публичном адресе. TCP 80 перенаправляет на HTTPS и допускает ACME challenge при выбранной схеме. | Только точный WEB_ORIGIN. `/api/*` ведёт в public API, `/webhooks/*` — к зарегистрированным backend адаптерам. SPA fallback только для web-страниц. Webhook проверяет поставщика и не переадресуется на login. |
+| Интернет → edge | TCP 443 на публичном адресе. Публикуется только настроенный TLS-порт. Выдача сертификатов выполняется отдельно. | Только точный WEB_ORIGIN. `/api/*` ведёт в public API, `/webhooks/*` — к зарегистрированным backend адаптерам. SPA fallback только для web-страниц. Webhook проверяет поставщика и не переадресуется на login. |
 | Сотрудник → host и admin edge | Управляющая VPN, например UDP 51820 для WireGuard. SSH TCP 22 и admin HTTPS TCP 443 только на управляющем интерфейсе. | Admin hostname и приватный DNS. Проверить интерфейс входящего соединения и допустимые peer. Публичный listener отклоняет admin Host/SNI. SSH по ключам, доступ через консоль хостинга для восстановления. VPN не заменяет staff login/TOTP. |
-| Edge → public API / admin API | TCP 3000 в web_net и TCP 3001 в admin_net. | На интерфейсе контейнера возможен bind 0.0.0.0. Host publish отсутствует. Прокси не подключается к сетям PostgreSQL. Public API не имеет маршрута в admin_net или сеть PostgreSQL админки. |
-| Runtime, migrator, backup → PostgreSQL | TCP 5432 в раздельных внутренних сетях `db_public_net`, `db_admin_net` и `db_tasks_net`. К каждому сегменту подключены PostgreSQL и сервисы соответствующей роли. | Нет host publish. Разрешённые сети и роли перечислены в pg_hba. Пересылка трафика между сегментами запрещена. SCRAM и grants по роли. |
+| Edge → public API / admin API | TCP 3000 в `public-api-edge` и TCP 3001 в `admin-api-edge`. | На интерфейсе контейнера возможен bind 0.0.0.0. Host publish отсутствует. Прокси не подключается к сетям PostgreSQL. Public API не имеет маршрута в admin_net или сеть PostgreSQL админки. |
+| Runtime, migrator, backup → PostgreSQL | TCP 5432 по отдельным `public-db`, `admin-db`, `tasks-db`, `finance-db`, `notifications-db`, `monitoring-db`, `backup-db` и `migration-db`. В каждом сегменте PostgreSQL и потребитель соответствующей роли. | Нет host publish. Подключения требуют SCRAM. Доступ к данным определяется grants и RLS. Для внешнего подключения или маршрутизации за пределы хоста отдельно согласовать `pg_hba` и firewall. |
 | Runtime → внешние зависимости | TCP 443 к утверждённым origin OAuth, панели и платёжных API. SMTP 465/587 с TLS при необходимости. DNS к доверенному resolver. | Отдельные egress сети или ACL по роли без объединения public и admin. Фиксированные назначения, границы таймаута и параллелизма. Public API читает профиль для выдачи ссылки и создаёт платёжную попытку по контракту. Admin API исходит из локальных наблюдений, команды провайдерам идут через backend. |
 | Backup, edge, alert sender → внешние сервисы | TCP 443 для архива, ACME, мониторинга и уведомлений. | Отдельные credentials по назначению. Метрики, служебные probes и exporter доступны только в управляющей сети или локальному сборщику. [Секреты](security.md#конфигурация-и-секреты) |
 
@@ -60,7 +62,7 @@ TLS завершается на edge. Для публичного origin — ACM
 
 Стартовый VPS для измерений — 4 vCPU, 8 GiB RAM и SSD от 80 GiB. Зарезервировать хосту и эксплуатации минимум 1.5 GiB. На стенде измерить peak RSS, CPU throttling, p95 и I/O под нагрузкой, рост WAL и место под ближайший backup. Скорректировать границы до пилота. [Пороги](operations.md#метрики-и-оповещения)
 
-Порядок запуска: сети → DB → backup preflight для существующей базы → один migrator → API и proxy → smoke чтения → фоновые процессы в паузе → проверка интеграций → разрешение задач. Зависимости при старте дополняются bounded retry в runtime. Для постоянных сервисов `unless-stopped`, для migrator restart disabled. Docker сам не перезапускает unhealthy контейнер. Crash loop требует оператора. Compose healthcheck процесса использует liveness, release gate отдельно проверяет readiness. При дренировании или недоступной DB API отвечает 503 на операции, требующие готовности. Настроить edge на предсказуемый ответ при недоступном upstream.
+Порядок запуска: сети → DB → backup preflight для существующей базы → один migrator → API и proxy → smoke чтения → фоновые процессы в паузе → проверка интеграций → разрешение задач. Зависимости при старте дополняются bounded retry в runtime. Для постоянных сервисов `unless-stopped`, для migrator restart disabled. Docker сам не перезапускает unhealthy контейнер. Crash loop требует оператора. Compose проверяет readiness процесса. Независимый liveness нужен для диагностики при отказе БД. При дренировании или недоступной DB API отвечает 503 на операции, требующие готовности. Настроить edge на предсказуемый ответ при недоступном upstream.
 
 Проектный stop grace — 30 с для API с общим deadline запроса до 20 с, 60 с для worker при ограниченной длительности активного HTTP и фиксации, 120 с PostgreSQL. Калибровать на стенде. Запускать Node напрямую с доставкой сигналов главному процессу, одним обработчиком shutdown и закрытием пула после обработки. При hard stop восстановление идёт по durable состоянию. [Работа воркера](operations.md#выдача-и-фоновые-процессы)
 
@@ -136,3 +138,14 @@ CI строит синтетическую legacy-БД из историческ
 4. Выполнить smoke ADMIN и SUPPORT, сверить stale/unavailable, отзыв сессии и повтор команды. Production Remnawave и финансовые действия проходят отдельную приёмку.
 
 При регрессии закрывается ingress или соответствующая команда. Схема, аудит, деньги и возвратные резервы сохраняются. Backend исправляется поверх миграций, совместимый UI можно переключить отдельно. Проверить forward fix на clean/legacy PostgreSQL и повторе завершённой команды.
+
+## Изолированный staging и выпуск
+
+1. На disposable Linux-хосте с Docker и Compose v2 выполнить `ops/scripts/build.sh`, `ops/scripts/smoke.sh` и `ops/scripts/pitr.sh`. Smoke сам генерирует CA, TLS ключи, БД и синтетические секреты. Нужны свободные loopback порты 18443/18444. Рабочие файлы конфигурации в тестовых контейнерах живут только до окончания прогона.
+2. Для выделенного staging создать защищённый каталог `MZT_DEPLOY_DIR` с `settings` и `SECRETS_DIR`. В `settings` хранить HTTPS origins, host/IP/TLS ports, явные разрешённые CIDR и путь к каталогу секретов. Проверить наличие PNPM/Docker только в сборочном контуре. Проверить, что каждое монтирование реально читается UID процесса, например 1000 для Node, 101 для Nginx, 999 для PostgreSQL. Хостовые файлы выдавать через владельца или ACL и монтировать read-only. Для первого пустого тома Postgres дополнительно читает пароли всех ролей для bootstrap.
+3. До выдачи доступа проверить вход снаружи и из управляющей VPN по IPv4 и, если включён, IPv6. Разрешить admin bind только на управляемом адресе, на firewall разрешить его только с интерфейса управляющей VPN или доверенной сети. Проверить правила Docker FORWARD, DOCKER-USER или эквивалент nftables и запрет прямой маршрутизации к мостам и портам БД, API и метрик. Проверить отсутствие конфликтов подсетей 172.30.72.0–172.30.77.0 с управлением и соседними стеками. Отдельно ограничить egress по хостам и портам. Основной Compose оставляет runtime во внутренних сетях. Для SMTP есть отдельный opt-in `MZT_ENABLE_SMTP_EGRESS=1` с firewall, `MAIL_FROM` и маршрутом до согласованного relay. OAuth, панель и платёжное API требуют отдельно утверждённой сети или прокси и приёмки.
+4. Workflow публикации запускается вручную с reviewed `main` в защищённом окружении `release-registry`. Установить required reviewers на уровне GitHub. Он выпускает OCI-образы в GHCR без SSH или доступа к VPS. Манифест v1 содержит `gitSha`, `schema`, SHA-256 дерева миграций `migrationTree`, digest refs `images` и `previousManifest` как SHA-256 предыдущего совместимого манифеста либо `first-release`. CI сверяет digest и image ID после загрузки. Теги служат способом поиска, rollout принимает digest. [Workflow](../.github/workflows/release-images.yml)
+5. `MZT_DEPLOY_ENV=staging ops/scripts/rollout.sh stage candidate.json previous.json` валидирует образы, сетевую топологию и версию схемы, берёт lock, останавливает писателей, применяет миграции, проверяет оба HTTPS origins и оставляет задачи остановленными. Заменять существующий PostgreSQL-образ разрешено в maintenance window после проверки совместимости. Сбой миграции требует анализа `_prisma_migrations` и forward fix, а предыдущая БД остаётся источником истины. В production требуется отдельное письменное разрешение и совпадение SHA-256 с `MZT_APPROVED_MANIFEST` и защищённым файлом `production-approved`. Подключение off-site обязательно, существующая БД должна пройти проверку свежести. Для rollback зафиксировать совместимость предыдущего runtime с текущей схемой в `schema-rollback-approved` и запустить тот же скрипт с `rollback previous.json current.json`. Поднять HTTP, сверить данные и включить один worker только после приёмки.
+6. Фоновые платежи, возвраты и операции панели остаются закрытыми. После независимой приёмки проверить Platega, Remnawave и SMTP отдельно. Проверка production host, ACL, DNS, TLS renewal, egress, S3 и замер ёмкости относятся к staging/release gate.
+
+[Preflight и rollout](../ops/scripts) · [Grants](../ops/db/grants.sql) · [Восстановление](operations.md#практический-drill-и-off-site)

@@ -122,3 +122,16 @@ PostgreSQL suite проверяет повтор и конкуренцию за�
 - PostgreSQL проверяет одноразовый enrollment и challenge, второй фактор и recovery, отзыв и ролевой периметр, expiry подтверждения под блокировкой, идемпотентность, rollback при сбое аудита, конкурентную публикацию, независимые Hold, устаревшую revision, возвратный резерв с другим approver и уникальную компенсацию. CI сохраняет clean/legacy и regression gates FND, COM и ACC.
 - Операторские проекции проверяются на 1001 строке с одинаковым timestamp. Проверяются область курсоров, маскировка SUPPORT, суммы по валютам и видам подтверждённых движений, цепочка заказа до наблюдения и состояния stale/unavailable.
 - После pnpm build команды node apps/admin/scripts/admin-browser-smoke.mjs и node apps/web/scripts/account-browser-smoke.mjs запускают Chromium с изолированным loopback HTTP. Можно указать CHROMIUM_BIN. Admin smoke проверяет вход, клавиатуру, ширину 360 px, свежесть, повтор команды после ошибки, изоляцию SUPPORT и отрисовку сообщения как текста.
+
+## Инфраструктурные проверки OPS
+
+| Проверка | Как воспроизвести |
+|---|---|
+| Сборка, ABI и конфигурация | `ops/scripts/build.sh` собирает семь targets из pinned bases через locked install. Node и native engine используют Debian bookworm и OpenSSL. `ops/scripts/smoke.sh` запускает реальный Prisma с DB grants и Argon2 при синтетической регистрации. |
+| Сеть, TLS, секреты | Compose smoke поднимает изолированный стек с локальным CA, проверяет оба origins, SPA, неверный SNI, spoofed forwarding, недоступные порты, UID, secret mounts и утечку marker. Публичный Actions выполняет всё с одноразовыми секретами. |
+| Migration и drain | Cold DB, повторный migrate deploy, искусственная запись о failed migration и восстановление readiness после её удаления, graceful SIGTERM, регрессии миграций и worker в основном CI. |
+| Метрики и алертинг | promtool, amtool, DB exporter и синтетическое уведомление в закрытый HTTP sink. |
+| Backup/PITR | `ops/scripts/pitr.sh` проверяет pgBackRest, UTC PITR, PostgreSQL, историю Prisma и синтетический replay. Вариант `MZT_DRILL_REPO=s3` поднимает TLS-прокси, локальный S3 API и проверяет encrypted logical dump, скачивание и SHA-256. Локальный режим `MZT_DRILL_SQL_ONLY=1` применяет migration SQL напрямую и не подтверждает таблицу истории Prisma. |
+| Staging | Повторить restore из реального TLS S3 с recovery materials, compatibility rollback, VPN/firewall IPv4/IPv6, SMS/email/alert delivery по согласованным каналам, RPO/RTO и нагрузку. Доступы Platega и Remnawave отдельно. |
+
+[Infrastructure workflow](../.github/workflows/infrastructure.yml) · [Восстановление](operations.md#практический-drill-и-off-site)
