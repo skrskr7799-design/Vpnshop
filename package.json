@@ -3,7 +3,7 @@
   "private": true,
   "packageManager": "pnpm@12.21.0",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.12.0"
   },
   "scripts": {
     "dev:api": "pnpm --filter @vpn/api dev",
@@ -11,9 +11,15 @@
     "dev:admin": "pnpm --filter @vpn/admin dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
+    "lint": "oxlint --deny-warnings apps packages",
     "db:generate": "pnpm --filter @vpn/api db:generate",
     "db:migrate": "pnpm --filter @vpn/api db:migrate",
     "db:up": "docker compose up -d db",
-    "test": "pnpm -r test"
+    "test": "pnpm -r test",
+    "test:unit": "pnpm -r test --exclude \"**/*.contract.test.ts\"",
+    "test:contract": "pnpm --filter @vpn/api test:contract"
+  },
+  "devDependencies": {
+    "oxlint": "1.94.0"
   }
 }

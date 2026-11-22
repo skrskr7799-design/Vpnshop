@@ -1,3 +1,5 @@
+import { readSecret } from "./secrets";
+import { exactHttpsOrigin, isRestrictedPeer } from "./proxy";
 import { z } from "zod";
 
 // Пустая строка в .env (VAR=) считается «не задано»
@@ -11,10 +13,14 @@ const schema = z
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     HOST: z.string().default("0.0.0.0"),
     PORT: z.coerce.number().int().positive().default(3000),
-    DATABASE_URL: z.string().min(1),
-    WEB_ORIGIN: z.url(),
-    COOKIE_SECRET: z.string().min(32, "COOKIE_SECRET must be at least 32 characters"),
-    JWT_SECRET: z.string().min(32, "JWT_SECRET must be at least 32 characters"),
+    DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
+    MZT_PROCESS: z.enum(["public", "admin", "worker", "billing", "notifications", "exporter"]).default("public"),
+    CHECKOUT_TTL_MINUTES: z.coerce.number().int().min(1).max(1440).default(30),
+    WEB_TRUSTED_PROXIES: z.string().default("").transform(value => value.split(",").map(x => x.trim()).filter(Boolean)),
+    TELEGRAM_OIDC_VERIFIED: z.enum(["true", "false"]).default("false"),
+    WEB_ORIGIN: z.url().default("http://localhost:5173"),
+    COOKIE_SECRET: optionalString.pipe(z.string().min(32).optional()),
+    JWT_SECRET: optionalString.pipe(z.string().min(32).optional()),
     // smtp://user:pass@host:587 . В dev можно не задавать: письма пишутся в лог.
     SMTP_URL: z
       .string()
@@ -36,12 +42,7 @@ const schema = z
     ADMIN_PORT: z.coerce.number().int().positive().default(3001),
     // Origin фронта админки (проверка Origin, CORS)
     ADMIN_ORIGIN: z.url().default("http://localhost:5174"),
-    // Верить ли X-Forwarded-For. По умолчанию нет: иначе IP-фильтр можно обойти подделкой заголовка.
-    // Включайте, только если админка стоит за собственным reverse proxy.
-    ADMIN_TRUST_PROXY: z
-      .enum(["true", "false"])
-      .default("false")
-      .transform((v) => v === "true"),
+    ADMIN_TRUSTED_PROXIES: z.string().default("").transform(value => value.split(",").map(part => part.trim()).filter(Boolean)),
     // Разрешённые адреса/сети (CIDR) через запятую. Пусто = без ограничения по IP
     ADMIN_ALLOWED_CIDRS: z
       .string()
@@ -51,36 +52,19 @@ const schema = z
     ADMIN_ENCRYPTION_KEY: optionalString,
     ADMIN_SESSION_HOURS: z.coerce.number().positive().default(12),
     ADMIN_IDLE_MINUTES: z.coerce.number().positive().default(30),
-    // Воркер выдачи подписок живёт в процессе API. Запускайте ровно один экземпляр.
-    WORKER_ENABLED: z
-      .enum(["true", "false"])
-      .default("true")
-      .transform((v) => v === "true"),
-    REMNAWAVE_URL: z.url(),
-    REMNAWAVE_TOKEN: z.string().min(1),
-    // X-Api-Key, если панель закрыта Caddy с ключами доступа (необязательно)
-    REMNAWAVE_API_KEY: optionalString,
-    // Слать x-forwarded-for/proto: нужно, когда API ходит к панели напрямую по внутренней сети
-    // (например http://remnawave:3000), мимо её reverse proxy
-    REMNAWAVE_TRUSTED_PROXY_HEADERS: z
-      .enum(["true", "false"])
-      .default("false")
-      .transform((v) => v === "true"),
-    // Internal squads, в которые попадают новые пользователи (UUID через запятую).
-    // Без сквада пользователю, скорее всего, нечего отдавать: проверьте на своей панели.
-    REMNAWAVE_INTERNAL_SQUAD_UUIDS: z
-      .string()
-      .transform((v) => v.split(",").map((x) => x.trim()).filter(Boolean))
-      .pipe(z.array(z.uuid()).min(1, "at least one internal squad UUID is required")),
+    MAIL_QUEUE_KEY: optionalString,
   })
-  .refine((v) => v.NODE_ENV !== "production" || Boolean(v.SMTP_URL), {
-    path: ["SMTP_URL"],
-    message: "SMTP_URL is required in production",
-  })
-  .refine((v) => !v.ADMIN_ENABLED || Boolean(v.ADMIN_ENCRYPTION_KEY), {
-    path: ["ADMIN_ENCRYPTION_KEY"],
-    message: "ADMIN_ENCRYPTION_KEY is required when ADMIN_ENABLED=true",
-  })
+  .refine(v => v.MZT_PROCESS !== "public" || !!v.COOKIE_SECRET && !!v.JWT_SECRET, { path: ["JWT_SECRET"], message: "Public session keys are required" })
+  .refine(v => v.NODE_ENV !== "production" || v.MZT_PROCESS !== "public" || exactHttpsOrigin(v.WEB_ORIGIN) && !!v.MAIL_QUEUE_KEY,
+    { path: ["WEB_ORIGIN"], message: "Public production requires HTTPS and mail queue encryption" })
+  .refine(v => v.NODE_ENV !== "production" || v.MZT_PROCESS !== "notifications" || !!v.SMTP_URL && !!v.MAIL_QUEUE_KEY,
+    { path: ["SMTP_URL"], message: "Notification transport and mail queue encryption are required" })
+  .refine(v => !v.MAIL_QUEUE_KEY || Buffer.from(v.MAIL_QUEUE_KEY, "base64").length === 32,
+    { path: ["MAIL_QUEUE_KEY"], message: "Mail queue key must be 32 bytes in base64" })
+  .refine(v => v.MZT_PROCESS !== "admin" || !!v.ADMIN_ENCRYPTION_KEY,
+    { path: ["ADMIN_ENCRYPTION_KEY"], message: "Admin role requires its encryption key" })
+  .refine(v => [...v.WEB_TRUSTED_PROXIES, ...v.ADMIN_TRUSTED_PROXIES, ...v.ADMIN_ALLOWED_CIDRS].every(isRestrictedPeer),
+    { path: ["WEB_TRUSTED_PROXIES"], message: "Invalid or unrestricted network selector" })
   .refine((v) => !v.ADMIN_ENCRYPTION_KEY || Buffer.from(v.ADMIN_ENCRYPTION_KEY, "base64").length === 32, {
     path: ["ADMIN_ENCRYPTION_KEY"],
     message: "ADMIN_ENCRYPTION_KEY must be 32 bytes in base64",
@@ -95,10 +79,13 @@ const schema = z
   });
 
 // Fail-fast: приложение не стартует с неверным конфигом.
-const parsed = schema.safeParse(process.env);
+const input = { ...process.env };
+for (const name of ["DATABASE_URL", "JWT_SECRET", "COOKIE_SECRET", "ADMIN_ENCRYPTION_KEY", "SMTP_URL",
+  "MAIL_QUEUE_KEY", "GOOGLE_CLIENT_SECRET", "TELEGRAM_CLIENT_SECRET"]) input[name] = readSecret(name);
+const parsed = schema.safeParse(input);
 if (!parsed.success) {
   console.error("Invalid environment configuration:");
-  console.error(z.prettifyError(parsed.error));
+  console.error(parsed.error.issues.map(issue => issue.path.join(".")).join(", "));
   process.exit(1);
 }
 

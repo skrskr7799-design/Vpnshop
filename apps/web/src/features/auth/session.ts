@@ -1,12 +1,13 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { setSessionExpiredHandler } from "../../api/client";
-import { meQueryKey } from "./queries";
+import { onSessionEvent, setLogoutHidden } from "./api";
+import { clearAccountCache, meQueryKey } from "./queries";
 
-// Если сессию восстановить не удалось: сбрасываем пользователя и его данные,
-// а RequireAuth сам отправит на страницу входа.
 export function bindSessionExpiry(queryClient: QueryClient): void {
-  setSessionExpiredHandler(() => {
-    queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== "auth" });
-    queryClient.setQueryData(meQueryKey, null);
+  setSessionExpiredHandler(() => clearAccountCache(queryClient));
+  onSessionEvent(event => {
+    setLogoutHidden(event === "logout-started");
+    if (event !== "logout-confirmed") clearAccountCache(queryClient);
+    if (event === "login") void queryClient.invalidateQueries({ queryKey: meQueryKey });
   });
 }

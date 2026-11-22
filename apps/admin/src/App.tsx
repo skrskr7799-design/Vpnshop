@@ -1,15 +1,14 @@
-import { useQuery } from "@tanstack/react-query";
+import { Skeleton } from "@vpn/ui";
+import { lazy, Suspense } from "react";
+import { BrowserRouter, Route, Routes } from "react-router";
+import { Login } from "./session";
+
+const Workspace = lazy(() => import("./AdminWorkspace"));
 
 export function App() {
-  const health = useQuery({
-    queryKey: ["health"],
-    queryFn: async () => (await fetch("/api/health")).json() as Promise<{ status: string }>,
-  });
-
-  return (
-    <main className="app">
-      <h1>VPN Shop Admin</h1>
-      <p>API: {health.isPending ? "…" : health.isError ? "недоступен" : health.data.status}</p>
-    </main>
-  );
+  return <BrowserRouter><Routes>
+    <Route path="/login" element={<Login />} />
+    <Route path="/invitation" element={<Login invitation />} />
+    <Route path="*" element={<Suspense fallback={<main className="login"><Skeleton /></main>}><Workspace /></Suspense>} />
+  </Routes></BrowserRouter>;
 }

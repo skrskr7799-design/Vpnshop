@@ -1,7 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import type { AuthProvider, OAuthProviderId } from "@vpn/shared";
+import type { OAuthProviderId } from "@vpn/shared";
 import { request } from "../../api/client";
-import { fetchMe } from "./api";
 
 export const OAUTH_LABELS: Record<OAuthProviderId, string> = { google: "Google", telegram: "Telegram" };
 
@@ -18,19 +17,4 @@ export function useOAuthProviders() {
     staleTime: Infinity,
     retry: false,
   });
-}
-
-// Какие способы входа уже подключены у текущего пользователя
-export function useLinkedProviders() {
-  return useQuery({
-    queryKey: ["auth", "identities"],
-    queryFn: async () => (await request<{ providers: AuthProvider[] }>("/auth/oauth/identities")).providers,
-  });
-}
-
-// Переход по ссылке не умеет обновлять сессию, поэтому сначала делаем запрос:
-// он при необходимости тихо обновит access-токен.
-export async function connectProvider(provider: OAuthProviderId): Promise<void> {
-  const me = await fetchMe();
-  window.location.assign(me ? `/api/auth/oauth/${provider}/link` : "/login");
 }

@@ -1,4 +1,6 @@
-import { env } from "../../config/env";
+import { z } from "zod";
+import { panelSettings } from "../../config/panel-env";
+const env = z.object(panelSettings).parse(process.env);
 import { RemnawaveClient } from "./remnawave.client";
 
 export const remnawave = new RemnawaveClient({

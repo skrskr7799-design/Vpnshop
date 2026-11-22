@@ -1,0 +1,10 @@
+[Unit]
+Description=MZT physical backup schedule
+
+[Timer]
+OnCalendar=*-*-* 01:00:00 UTC
+Persistent=true
+Unit=mzt-physical.service
+
+[Install]
+WantedBy=timers.target

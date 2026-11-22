@@ -32,7 +32,8 @@ export function createTelegramProvider(
       // Настоящий Telegram user id лежит в клэйме id (scope profile), по нему же
       // бот видит пользователя, например в платежах Stars. sub это другой идентификатор.
       const id = claims.id;
-      if (typeof id !== "number" && typeof id !== "string") {
+      if (!((typeof id === "number" && Number.isSafeInteger(id) && id > 0) ||
+          (typeof id === "string" && /^[1-9][0-9]{0,19}$/.test(id)))) {
         throw new AppError(400, "TELEGRAM_PROFILE_MISSING");
       }
       return { providerId: String(id), email: null, emailVerified: false };

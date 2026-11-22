@@ -1,0 +1,4 @@
+# Historical synthetic constants, scoped to commit/path/line. See docs/security.md.
+93579e7ec6ef204b66aa4e1880f24c2f414ce866:ops/scripts/smoke.sh:generic-api-key:90
+c8d570e04d652c4a681f27c14675b169c8b5aaf4:apps/api/src/modules/admin/auth/totp.test.ts:generic-api-key:5
+989584fc9065108b2cf6ac43dbd7a30936e0ad96:ops/scripts/smoke.sh:generic-api-key:202

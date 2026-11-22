@@ -1,0 +1,117 @@
+groups:
+  - name: availability
+    rules:
+      - alert: ApiUnavailable
+        expr: up{job=~"public-api|admin-api"} == 0
+        for: 2m
+        labels: {severity: critical, group: api}
+        annotations: {summary: "API telemetry unavailable", runbook: "docs/operations.md#реагирование-на-инциденты"}
+      - alert: ApiErrors
+        expr: (sum by (job) (increase(mzt_http_requests_total{result="5xx"}[5m])) / clamp_min(sum by (job) (increase(mzt_http_requests_total[5m])), 1)) > 0.02 and sum by (job) (increase(mzt_http_requests_total[5m])) >= 30
+        for: 5m
+        labels: {severity: warning, group: api}
+        annotations: {summary: "HTTP 5xx exceeds 2 percent"}
+      - alert: ApiSlow
+        expr: histogram_quantile(0.95, sum by (le,job) (rate(mzt_http_duration_seconds_bucket[5m]))) > 1
+        for: 10m
+        labels: {severity: warning, group: api}
+        annotations: {summary: "p95 HTTP latency exceeds one second"}
+      - alert: TLSCertificateExpiring
+        expr: mzt_tls_certificate_seconds >= 0 and mzt_tls_certificate_seconds < 1209600
+        for: 5m
+        labels: {severity: warning, group: tls}
+        annotations: {summary: "TLS certificate expires within 14 days", runbook: "docs/operations.md#релиз-и-откат"}
+      - alert: TLSCertificateCritical
+        expr: mzt_tls_certificate_seconds < 259200
+        for: 2m
+        labels: {severity: critical, group: tls}
+        annotations: {summary: "TLS certificate missing or expires within 3 days", runbook: "docs/operations.md#реагирование-на-инциденты"}
+      - alert: PostgresUnavailable
+        expr: mzt_postgres_up == 0 or up{job="postgres-operations"} == 0
+        for: 2m
+        labels: {severity: critical, group: database}
+        annotations: {summary: "PostgreSQL or its monitored connection is unavailable"}
+      - alert: PostgresConnectionPressure
+        expr: mzt_postgres_connections / mzt_postgres_max_connections > 0.8
+        for: 5m
+        labels: {severity: warning, group: database}
+        annotations: {summary: "PostgreSQL connections above 80 percent"}
+      - alert: DiskPressure
+        expr: mzt_disk_used_ratio > 0.75
+        for: 3m
+        labels: {severity: warning, group: disk}
+        annotations: {summary: "Data filesystem above 75 percent"}
+      - alert: DiskCritical
+        expr: mzt_disk_used_ratio > 0.9
+        for: 1m
+        labels: {severity: critical, group: disk}
+        annotations: {summary: "Data filesystem above 90 percent"}
+  - name: commerce
+    rules:
+      - alert: WebhookPersistence
+        expr: (increase(mzt_webhook_persistence_failures_total[5m]) / clamp_min(increase(mzt_webhook_requests_total[5m]), 1)) > 0.01 and increase(mzt_webhook_requests_total[5m]) >= 20
+        for: 5m
+        labels: {severity: warning, group: payment}
+        annotations: {summary: "Authenticated callback persistence failure rate elevated"}
+      - alert: WebhookPersistenceCritical
+        expr: increase(mzt_webhook_persistence_failures_total[5m]) > 0 and increase(mzt_webhook_persistence_failures_total[5m]) == increase(mzt_webhook_requests_total[5m])
+        for: 5m
+        labels: {severity: critical, group: payment}
+        annotations: {summary: "No successful authenticated callback persistence"}
+      - alert: PaymentReconciliation
+        expr: mzt_payment_backlog > 0 or mzt_unallocated_captures > 0
+        for: 5m
+        labels: {severity: warning, group: payment}
+        annotations: {summary: "Review pending or unallocated provider facts"}
+      - alert: WorkerHeartbeat
+        expr: mzt_worker_heartbeat_age_seconds > 60 or mzt_worker_heartbeat_age_seconds < 0
+        for: 1m
+        labels: {severity: warning, group: fulfillment}
+        annotations: {summary: "Ready worker heartbeat older than 60 seconds"}
+      - alert: WorkerHeartbeatCritical
+        expr: mzt_worker_heartbeat_age_seconds > 120 or (mzt_worker_heartbeat_age_seconds < 0 and mzt_queue_depth > 0)
+        for: 2m
+        labels: {severity: critical, group: fulfillment}
+        annotations: {summary: "Fulfillment worker stalled"}
+      - alert: FulfillmentBacklog
+        expr: mzt_oldest_ready_seconds > 120 or (delta(mzt_queue_depth[10m]) > 0 and mzt_queue_depth > 0) or mzt_expired_leases > 0
+        for: 2m
+        labels: {severity: warning, group: fulfillment}
+        annotations: {summary: "Ready tasks are waiting or leases expired"}
+      - alert: FulfillmentBacklogCritical
+        expr: mzt_oldest_ready_seconds > 600
+        for: 5m
+        labels: {severity: critical, group: fulfillment}
+        annotations: {summary: "Fulfillment task has waited over ten minutes"}
+      - alert: RemnawaveDegraded
+        expr: (mzt_panel_observation_age_seconds > 180 or mzt_panel_observation_age_seconds < 0 or mzt_panel_drift > 0) and mzt_panel_enabled == 1
+        for: 3m
+        labels: {severity: warning, group: fulfillment}
+        annotations: {summary: "Panel observations missing, stale, or requiring review"}
+      - alert: RemnawaveDegradedCritical
+        expr: (mzt_panel_observation_age_seconds > 600 or mzt_panel_observation_age_seconds < 0) and mzt_panel_enabled == 1 and mzt_queue_depth > 0
+        for: 10m
+        labels: {severity: critical, group: fulfillment}
+        annotations: {summary: "No recent Remnawave observations while tasks wait"}
+  - name: backup
+    rules:
+      - alert: BackupStale
+        expr: (mzt_backup_age_seconds > 93600 or mzt_backup_age_seconds < 0 or mzt_logical_backup_age_seconds > 93600 or mzt_logical_backup_age_seconds < 0) and mzt_backup_enabled == 1
+        for: 10m
+        labels: {severity: warning, group: backup}
+        annotations: {summary: "Verified backup proof missing or past its schedule"}
+      - alert: WalArchiveLag
+        expr: (mzt_wal_archive_age_seconds > 300 or mzt_wal_archive_age_seconds < 0 or increase(mzt_wal_archive_failures[10m]) > 0) and mzt_backup_enabled == 1
+        for: 3m
+        labels: {severity: warning, group: backup}
+        annotations: {summary: "Confirmed archived WAL is delayed"}
+      - alert: WalArchiveRpoCritical
+        expr: (mzt_wal_archive_age_seconds > 900 or mzt_wal_archive_age_seconds < 0) and mzt_backup_enabled == 1
+        for: 1m
+        labels: {severity: critical, group: backup}
+        annotations: {summary: "Point-in-time recovery lag exceeds RPO target"}
+      - alert: RestoreProofStale
+        expr: (mzt_restore_verification_age_seconds > 2678400 or mzt_restore_verification_age_seconds < 0) and mzt_backup_enabled == 1
+        for: 30m
+        labels: {severity: warning, group: backup}
+        annotations: {summary: "Restore drill proof is missing or expired"}

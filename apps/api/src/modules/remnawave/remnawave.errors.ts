@@ -11,6 +11,7 @@ export class RemnawaveError extends Error {
     readonly kind: RemnawaveErrorKind,
     readonly status: number | null,
     message: string,
+    readonly errorCode?: string,
   ) {
     super(message);
     this.name = "RemnawaveError";

@@ -16,7 +16,7 @@ const ctx = { log: { info() {}, warn() {}, error() {} } as unknown as FastifyBas
 const PASSWORD = "correct-horse-battery";
 const mails = () => vi.mocked(sendMail).mock.calls.map(([, mail]) => mail);
 const lastMail = () => mails().at(-1)!;
-const tokenFrom = (mail: { text: string }) => new URL(mail.text.match(/https?:\/\/\S+/)![0]).searchParams.get("token")!;
+const tokenFrom = (mail: { text: string }) => new URLSearchParams(new URL(mail.text.match(/https?:\/\/\S+/)![0]).hash.slice(1)).get("token")!;
 
 beforeEach(async () => {
   await resetDatabase();

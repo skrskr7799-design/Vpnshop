@@ -1,106 +1,130 @@
-import type { Prisma, UserRole } from "@prisma/client";
+import type { Prisma, User } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { generateToken, sha256 } from "../../lib/crypto";
 import { AppError } from "../../lib/errors";
 import { prisma } from "../../lib/prisma";
 import { REFRESH_REUSE_GRACE_MS, REFRESH_TTL_MS } from "./auth.constants";
-import { signAccessToken } from "./jwt";
+import { signAccessToken, type AuthClaims } from "./jwt";
 
 export type SessionMeta = { ip?: string; userAgent?: string };
 export type IssuedTokens = { accessToken: string; refreshToken: string };
+type Db = Prisma.TransactionClient;
 
-const newExpiry = () => new Date(Date.now() + REFRESH_TTL_MS);
-
-export async function createSession(
-  user: { id: string; role: UserRole },
-  meta: SessionMeta,
-  familyId: string = randomUUID(),
-): Promise<IssuedTokens> {
-  const refreshToken = generateToken();
-  await prisma.session.create({
-    data: {
-      userId: user.id,
-      familyId,
-      tokenHash: sha256(refreshToken),
-      ip: meta.ip,
-      userAgent: meta.userAgent?.slice(0, 255),
-      expiresAt: newExpiry(),
-    },
-  });
-  const accessToken = await signAccessToken({ userId: user.id, role: user.role });
-  return { accessToken, refreshToken };
+export async function lockIdentityOwner(db: Db, userId: string) {
+  const [user] = await db.$queryRaw<User[]>`SELECT * FROM "User" WHERE id = ${userId} FOR UPDATE`;
+  return user;
 }
 
-// Ротация refresh-токена: старый гасим, выдаём новый в той же «семье».
-// Повторное предъявление уже использованного токена (вне окна гонки) трактуем как кражу
-// и отзываем всю семью.
+export async function requireLiveFamily(claims: AuthClaims, db: Db = prisma) {
+  const family = await db.sessionFamily.findFirst({ where: {
+    id: claims.sid, userId: claims.userId, revokedAt: null, expiresAt: { gt: new Date() },
+  }, include: { user: true } });
+  if (!family) throw new AppError(401, "UNAUTHENTICATED");
+  if (family.user.status !== "ACTIVE" || family.user.role !== "USER") throw new AppError(403, "ACCOUNT_BLOCKED");
+  return family;
+}
+
+export async function createSession(user: { id: string }, meta: SessionMeta, db?: Db): Promise<IssuedTokens> {
+  async function issue(tx: Db) {
+    const owner = await lockIdentityOwner(tx, user.id);
+    if (!owner || owner.status !== "ACTIVE" || owner.role !== "USER") throw new AppError(403, "ACCOUNT_BLOCKED");
+    const sid = randomUUID();
+    const expiresAt = new Date(Date.now() + REFRESH_TTL_MS);
+    const refreshToken = generateToken();
+    const userAgent = meta.userAgent?.slice(0, 200);
+    await tx.sessionFamily.create({ data: { id: sid, userId: owner.id, expiresAt, userAgent } });
+    await tx.session.create({ data: {
+      userId: owner.id, familyId: sid, liveFamilyId: sid, tokenHash: sha256(refreshToken), expiresAt, userAgent, ip: meta.ip,
+    } });
+    return { accessToken: await signAccessToken({ userId: owner.id, role: owner.role, sid }), refreshToken };
+  }
+  return db ? issue(db) : prisma.$transaction(issue);
+}
+
 export async function rotateSession(refreshToken: string, meta: SessionMeta): Promise<IssuedTokens> {
-  const session = await prisma.session.findUnique({
-    where: { tokenHash: sha256(refreshToken) },
-    include: { user: true },
-  });
-  if (!session) throw new AppError(401, "INVALID_SESSION");
-
-  const now = new Date();
-
-  if (session.revokedAt) {
-    // Окно гонки только для токена, погашенного ротацией. Отозванный выходом, сменой пароля
-    // или обнаружением кражи отклоняется сразу.
-    if (session.rotatedAt && now.getTime() - session.rotatedAt.getTime() <= REFRESH_REUSE_GRACE_MS) {
-      // две вкладки обновились одновременно: клиент просто повторит запрос с новой кукой
-      throw new AppError(401, "REFRESH_RACE");
+  const tokenHash = sha256(refreshToken);
+  const initial = await prisma.session.findUnique({ where: { tokenHash } });
+  if (!initial?.liveFamilyId) throw new AppError(401, "INVALID_SESSION");
+  const result = await prisma.$transaction(async db => {
+    const owner = await lockIdentityOwner(db, initial.userId);
+    const token = await db.session.findUniqueOrThrow({ where: { tokenHash }, include: { family: true } });
+    const now = new Date();
+    const family = token.family;
+    if (!owner || owner.status !== "ACTIVE" || owner.role !== "USER" || !family ||
+        family.revokedAt || family.expiresAt <= now || token.expiresAt <= now) return "INVALID_SESSION";
+    if (token.revokedAt) {
+      if (token.rotatedAt && +now - +token.rotatedAt <= REFRESH_REUSE_GRACE_MS) return "REFRESH_RACE";
+      await revokeFamilies(db, owner.id, { id: family.id });
+      return "INVALID_SESSION";
     }
-    await prisma.session.updateMany({
-      where: { familyId: session.familyId, revokedAt: null },
-      data: { revokedAt: now },
-    });
-    throw new AppError(401, "INVALID_SESSION");
-  }
-
-  if (session.expiresAt <= now || session.user.status !== "ACTIVE") {
-    await prisma.session.updateMany({
-      where: { familyId: session.familyId, revokedAt: null },
-      data: { revokedAt: now },
-    });
-    throw new AppError(401, "INVALID_SESSION");
-  }
-
-  const nextToken = generateToken();
-  const rotated = await prisma.$transaction(async (tx) => {
-    // атомарно: только один из параллельных запросов сможет погасить этот токен
-    const res = await tx.session.updateMany({
-      where: { id: session.id, revokedAt: null },
-      data: { revokedAt: now, rotatedAt: now },
-    });
-    if (res.count !== 1) return false;
-    await tx.session.create({
-      data: {
-        userId: session.userId,
-        familyId: session.familyId,
-        tokenHash: sha256(nextToken),
-        ip: meta.ip,
-        userAgent: meta.userAgent?.slice(0, 255),
-        expiresAt: newExpiry(),
-      },
-    });
-    return true;
+    const next = generateToken();
+    await db.session.update({ where: { id: token.id }, data: { revokedAt: now, rotatedAt: now } });
+    await db.session.create({ data: {
+      userId: owner.id, familyId: family.id, liveFamilyId: family.id, tokenHash: sha256(next),
+      expiresAt: family.expiresAt, userAgent: meta.userAgent?.slice(0, 200), ip: meta.ip,
+    } });
+    await db.sessionFamily.update({ where: { id: family.id }, data: { lastSeenAt: now } });
+    return { accessToken: await signAccessToken({ userId: owner.id, role: owner.role, sid: family.id }), refreshToken: next };
   });
-  if (!rotated) throw new AppError(401, "REFRESH_RACE");
-
-  const accessToken = await signAccessToken({ userId: session.user.id, role: session.user.role });
-  return { accessToken, refreshToken: nextToken };
+  if (typeof result === "string") throw new AppError(401, result);
+  return result;
 }
 
-// Выход: гасим всю семью токенов этого устройства.
+async function revokeFamilies(db: Db, userId: string, match: Prisma.SessionFamilyWhereInput) {
+  const where = { ...match, userId, revokedAt: null };
+  const families = await db.sessionFamily.findMany({ where, select: { id: true } });
+  const ids = families.map(family => family.id);
+  const now = new Date();
+  await db.sessionFamily.updateMany({ where, data: { revokedAt: now } });
+  await db.session.updateMany({ where: { userId, liveFamilyId: { in: ids }, revokedAt: null }, data: { revokedAt: now } });
+  await db.oAuthFlow.deleteMany({ where: { familyId: { in: ids } } });
+  await db.identityProof.deleteMany({ where: { familyId: { in: ids } } });
+}
+
 export async function revokeSessionFamily(refreshToken: string): Promise<void> {
-  const session = await prisma.session.findUnique({ where: { tokenHash: sha256(refreshToken) } });
-  if (!session) return;
-  await prisma.session.updateMany({
-    where: { familyId: session.familyId, revokedAt: null },
-    data: { revokedAt: new Date() },
+  const token = await prisma.session.findUnique({ where: { tokenHash: sha256(refreshToken) } });
+  if (token?.liveFamilyId) await revokeDevice(token.userId, token.liveFamilyId);
+}
+
+export async function revokeDevice(userId: string, sid: string, caller?: AuthClaims) {
+  await prisma.$transaction(async db => {
+    await lockIdentityOwner(db, userId);
+    if (caller) await requireLiveFamily(caller, db);
+    if (caller && !await db.sessionFamily.findFirst({ where: { id: sid, userId }, select: { id: true } })) {
+      throw new AppError(404, "NOT_FOUND");
+    }
+    await revokeFamilies(db, userId, { id: sid });
   });
 }
 
-export async function revokeAllUserSessions(userId: string, db: Prisma.TransactionClient = prisma): Promise<void> {
-  await db.session.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
+export function revokeOtherDevices(claims: AuthClaims, tx?: Db) {
+  async function revoke(db: Db) {
+    await lockIdentityOwner(db, claims.userId);
+    await requireLiveFamily(claims, db);
+    await revokeFamilies(db, claims.userId, { id: { not: claims.sid } });
+  }
+  return tx ? revoke(tx) : prisma.$transaction(revoke);
+}
+
+export async function revokeAllUserSessions(userId: string, db: Db = prisma): Promise<void> {
+  // Caller owns the User row when composed with password reset.
+  await revokeFamilies(db, userId, {});
+  await db.session.updateMany({ where: { userId, liveFamilyId: null, revokedAt: null }, data: { revokedAt: new Date() } });
+}
+
+export async function listDevices(claims: AuthClaims) {
+  const rows = await prisma.sessionFamily.findMany({ where: {
+    userId: claims.userId, expiresAt: { gt: new Date() }, revokedAt: null,
+  }, orderBy: [{ lastSeenAt: "desc" }, { id: "asc" }] });
+  return rows.map(({ id, createdAt, lastSeenAt, expiresAt, userAgent }) =>
+    ({ id, createdAt, lastSeenAt, expiresAt, device: userAgent ?? "Неизвестное устройство", current: id === claims.sid }));
+}
+
+export async function touchFamily(family: { id: string; lastSeenAt: Date }) {
+  const now = new Date();
+  const threshold = new Date(+now - 5 * 60_000);
+  if (family.lastSeenAt < threshold) await prisma.sessionFamily.updateMany({
+    where: { id: family.id, revokedAt: null, expiresAt: { gt: now }, lastSeenAt: { lt: threshold } },
+    data: { lastSeenAt: now },
+  });
 }

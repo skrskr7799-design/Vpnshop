@@ -20,7 +20,7 @@ export function registerErrorHandler(app: FastifyInstance): void {
     if (status && status >= 400 && status < 500) {
       return reply.code(status).send({ error: { code: (error as { code?: string }).code ?? "BAD_REQUEST" } });
     }
-    req.log.error(error);
+    req.log.error({ requestId: req.id, reasonCode: "UNHANDLED_REQUEST" });
     return reply.code(500).send({ error: { code: "INTERNAL" } });
   });
 }

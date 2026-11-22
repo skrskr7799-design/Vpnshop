@@ -11,6 +11,9 @@ import {
 // Маршруты в точности как в официальном контракте (проверяется тестом).
 export const REMNAWAVE_ROUTES = {
   users: "/api/users/",
+  userById: (id: number) => `/api/users/${id}`,
+  disable: (id: number) => `/api/users/${id}/actions/disable`,
+  enable: (id: number) => `/api/users/${id}/actions/enable`,
   userByUsername: (username: string) => `/api/users/by-username/${encodeURIComponent(username)}`,
   internalSquads: "/api/internal-squads/",
   metadata: "/api/system/metadata",
@@ -26,11 +29,13 @@ export type RemnawaveClientConfig = {
   timeoutMs?: number;
   /** Сколько раз повторять безопасные (GET) запросы при сбоях сети и 5xx */
   readRetries?: number;
+  strictErrors?: boolean;
   retryDelayMs?: number;
   fetchImpl?: typeof fetch;
 };
 
 export type CreateUserInput = {
+  description?: string;
   username: string; // 3-36 символов: буквы, цифры, _ и -
   expireAt: Date;
   hwidDeviceLimit: number;
@@ -46,6 +51,7 @@ export type UpdateUserInput = {
   /** Вручную можно выставить только ACTIVE или DISABLED */
   status?: "ACTIVE" | "DISABLED";
   hwidDeviceLimit?: number | null;
+  activeInternalSquads?: string[];
 };
 
 type RequestOptions<T> = {
@@ -87,9 +93,27 @@ export class RemnawaveClient {
       });
       return response;
     } catch (err) {
-      if (err instanceof RemnawaveError && err.kind === "not_found") return null;
+      if (err instanceof RemnawaveError && err.kind === "not_found" && (!this.config.strictErrors || err.errorCode === "A063")) return null;
       throw err;
     }
+  }
+
+  async getUserById(id: number): Promise<RemnawaveUser | null> {
+    try {
+      const { response } = await this.request({
+        method: "GET", path: REMNAWAVE_ROUTES.userById(id), schema: userResponseSchema,
+      });
+      return response;
+    } catch (err) {
+      if (err instanceof RemnawaveError && err.kind === "not_found" && err.errorCode === "A063") return null;
+      throw err;
+    }
+  }
+
+  async setEnabled(id: number, enabled: boolean): Promise<void> {
+    await this.request({
+      method: "POST", path: enabled ? REMNAWAVE_ROUTES.enable(id) : REMNAWAVE_ROUTES.disable(id), schema: userResponseSchema,
+    });
   }
 
   async createUser(input: CreateUserInput): Promise<RemnawaveUser> {
@@ -164,6 +188,7 @@ export class RemnawaveClient {
         method,
         headers: this.headers(hasBody),
         body: hasBody ? JSON.stringify(body) : undefined,
+        redirect: "error",
         signal: AbortSignal.timeout(this.config.timeoutMs ?? TIMEOUT_MS),
       });
     } catch (err) {
@@ -171,10 +196,10 @@ export class RemnawaveClient {
       throw new RemnawaveError("unavailable", null, `Remnawave ${method} ${path}: ${reason}`);
     }
 
-    if (!res.ok) throw await toHttpError(res, method, path);
+    if (!res.ok) throw await toHttpError(res, method, path, this.config.strictErrors === true);
 
     try {
-      return schema.parse(await res.json());
+      return schema.parse(await (this.config.strictErrors ? readBoundedJson(res) : res.json()));
     } catch {
       throw new RemnawaveError(
         "invalid_response",
@@ -185,24 +210,45 @@ export class RemnawaveClient {
   }
 }
 
-async function toHttpError(res: Response, method: string, path: string): Promise<RemnawaveError> {
-  // Тело ошибки в контракте не описано: берём message, если он есть, и обрезаем
-  let detail = "";
+async function readBoundedJson(response: Response): Promise<unknown> {
+  if (!response.body) throw new Error("Empty panel response");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const chunks: string[] = [];
+  let size = 0;
   try {
-    const json = (await res.json()) as { message?: unknown };
-    const message = Array.isArray(json.message) ? json.message.join("; ") : json.message;
-    if (typeof message === "string") detail = `: ${message.slice(0, 300)}`;
-  } catch {
-    // тело не JSON
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > 256 * 1024) throw new Error("Panel response too large");
+      chunks.push(decoder.decode(value, { stream: true }));
+    }
+    chunks.push(decoder.decode());
+    return JSON.parse(chunks.join(""));
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
   }
-  const text = `Remnawave ${method} ${path} вернул ${res.status}${detail}`;
+}
 
-  if (res.status === 401 || res.status === 403) return new RemnawaveError("unauthorized", res.status, text);
-  if (res.status === 404) return new RemnawaveError("not_found", res.status, text);
-  if (res.status === 408 || res.status === 429 || res.status >= 500) {
-    return new RemnawaveError("unavailable", res.status, text);
+async function toHttpError(res: Response, method: string, path: string, strict: boolean): Promise<RemnawaveError> {
+  let detail = "";
+  let errorCode: string | undefined;
+  try {
+    const json = (await (strict ? readBoundedJson(res) : res.json())) as { message?: unknown; errorCode?: unknown };
+    if (typeof json.errorCode === "string" && /^A[0-9]{3}$/.test(json.errorCode)) errorCode = json.errorCode;
+    if (!strict) {
+      const message = Array.isArray(json.message) ? json.message.join("; ") : json.message;
+      if (typeof message === "string") detail = `: ${message.slice(0, 300)}`;
+    }
+  } catch {
+    // A non-JSON 404 is not proof of absence for the revision adapter.
   }
-  return new RemnawaveError("rejected", res.status, text);
+  const text = strict ? `Remnawave returned ${res.status}` : `Remnawave ${method} ${path} вернул ${res.status}${detail}`;
+  const kind = res.status === 401 || res.status === 403 ? "unauthorized" : res.status === 404 ? "not_found"
+    : res.status === 408 || res.status === 429 || res.status >= 500 ? "unavailable" : "rejected";
+  return new RemnawaveError(kind, res.status, text, errorCode);
 }
 
 // ───────────── тела запросов ─────────────
@@ -210,6 +256,7 @@ async function toHttpError(res: Response, method: string, path: string): Promise
 export function toCreateBody(input: CreateUserInput) {
   return {
     username: input.username,
+    ...(input.description && { description: input.description }),
     status: input.status ?? "ACTIVE",
     expireAt: input.expireAt.toISOString(),
     trafficLimitBytes: input.trafficLimitBytes ?? 0,
@@ -224,6 +271,7 @@ export function toUpdateBody(input: UpdateUserInput) {
     id: input.id,
     ...(input.expireAt && { expireAt: input.expireAt.toISOString() }),
     ...(input.status && { status: input.status satisfies RemnawaveUserStatus }),
+    ...(input.activeInternalSquads && { activeInternalSquads: input.activeInternalSquads }),
     ...(input.hwidDeviceLimit !== undefined && { hwidDeviceLimit: input.hwidDeviceLimit }),
   };
 }

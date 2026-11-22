@@ -1,0 +1,37 @@
+# Explicit opt-in. Keep the base local rehearsals free of external storage access.
+services:
+  db:
+    command: ["postgres","-c","password_encryption=scram-sha-256","-c","max_connections=60","-c","log_statement=none","-c","log_min_error_statement=panic","-c","archive_mode=on","-c","archive_timeout=300s","-c","archive_command=pgbackrest --config=/run/secrets/pgbackrest_conf --stanza=vpnshop archive-push %p"]
+    secrets: [pgbackrest_conf]
+    volumes: [proofs:/state/proofs]
+    networks: {archive-egress: {}}
+  exporter:
+    environment: {BACKUP_MONITOR: "true"}
+  logical:
+    image: ${BACKUP_IMAGE:?Set logical backup digest}
+    profiles: [backup]
+    user: "999:999"
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: "no"
+    logging: {driver: json-file, options: {max-size: "20m", max-file: "5"}}
+    mem_limit: 512m
+    tmpfs: ["/tmp:rw,nosuid,nodev,noexec,size=768m,mode=1777"]
+    networks: [backup-db, archive-egress]
+    volumes: [proofs:/state/proofs]
+    environment:
+      S3_ENDPOINT: ${LOGICAL_S3_ENDPOINT:?Set approved TLS storage endpoint}
+      S3_BUCKET: ${LOGICAL_S3_BUCKET:?Set logical backup bucket}
+      KEY_VERSION: ${LOGICAL_KEY_VERSION:?Set logical backup key version}
+      AWS_DEFAULT_REGION: ${LOGICAL_S3_REGION:?Set logical backup region}
+    secrets: [backup_url, logical_key, logical_s3_credentials]
+
+networks:
+  archive-egress:
+secrets:
+  backup_url: {file: "${SECRETS_DIR}/backup_url"}
+  pgbackrest_conf: {file: "${SECRETS_DIR}/pgbackrest_conf"}
+  logical_key: {file: "${SECRETS_DIR}/logical_key"}
+  logical_s3_credentials: {file: "${SECRETS_DIR}/logical_s3_credentials"}

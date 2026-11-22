@@ -1,25 +1,18 @@
 import type { UserRole } from "@prisma/client";
 
-export const PERMISSIONS = [
-  "dashboard:read",
-  "users:read",
-  "users:write",
-  "orders:read",
-  "orders:write",
-  "plans:read",
-  "plans:write",
-  "jobs:read",
-  "jobs:write",
-  "audit:read",
+const operational = ["dashboard:read", "users:read", "orders:read", "plans:read", "jobs:read", "ops:read", "support:read"] as const;
+const restricted = [
+  "finance:read", "plans:write", "jobs:write", "bindings:write", "access:write", "users:write",
+  "finance:reconcile", "finance:refund", "subscription:adjust", "audit:read", "staff:read",
+  "staff:write", "settings:write", "support:write",
 ] as const;
+export const PERMISSIONS = [...operational, ...restricted] as const;
 export type Permission = (typeof PERMISSIONS)[number];
-
 export type AdminRole = Extract<UserRole, "ADMIN" | "SUPPORT">;
 
-// ADMIN может всё. SUPPORT только смотрит: без изменений тарифов, заказов и задач.
 export const ROLE_PERMISSIONS: Record<AdminRole, readonly Permission[]> = {
   ADMIN: PERMISSIONS,
-  SUPPORT: ["dashboard:read", "users:read", "orders:read", "plans:read", "jobs:read"],
+  SUPPORT: operational,
 };
 
 export const isAdminRole = (role: UserRole): role is AdminRole => role === "ADMIN" || role === "SUPPORT";

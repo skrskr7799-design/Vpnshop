@@ -13,7 +13,9 @@
     "@tanstack/react-query": "^5.0.0",
     "@vpn/shared": "workspace:*",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-router": "^8.5.1",
+    "@vpn/ui": "workspace:*"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

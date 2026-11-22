@@ -61,13 +61,51 @@ enum PaymentStatus {
   FAILED
   EXPIRED
   REFUNDED
+  CREATED
+  SUBMITTING
+  AWAITING_CUSTOMER
+  PROCESSING
+  UNKNOWN
+  SUCCEEDED
+  CANCELED
+}
+
+enum MerchantEnvironment {
+  MOCK
+  SANDBOX
+  PRODUCTION
+}
+
+enum MovementKind {
+  CAPTURE
+  REFUND
+  CHARGEBACK_DEBIT
+  CHARGEBACK_REVERSAL
+  FEE
+  ADJUSTMENT
+}
+
+enum PaymentEvidence {
+  WEBHOOK
+  LOOKUP
+}
+
+enum PaymentCaseStatus {
+  OPEN
+  INVESTIGATING
+  RESOLVED
 }
 
 enum JobStatus {
   PENDING
   RUNNING
   DONE
-  FAILED // ретраи исчерпаны, нужно вмешательство админа
+  FAILED // legacy test failure
+  CONFIRMED
+  RETRY_WAIT
+  VERIFY_PENDING
+  NEEDS_REVIEW
+  SUPERSEDED
 }
 
 // ─────────────────────── Пользователи и вход ───────────────────────
@@ -76,6 +114,7 @@ model User {
   id              String     @id @default(uuid())
   email           String?    @unique // lowercase, только подтверждённый
   emailVerifiedAt DateTime?
+  emailLoginDisabled Boolean @default(false)
   role            UserRole   @default(USER)
   status          UserStatus @default(ACTIVE)
 
@@ -86,13 +125,21 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  fulfillmentLease FulfillmentLease?
+  subscription Subscription?
   identities    AuthIdentity[]
   sessions      Session[]
+  sessionFamilies SessionFamily[]
   totp          AdminTotp?
   recoveryCodes AdminRecoveryCode[]
   adminSessions AdminSession[]
+  staffCredential StaffCredential?
+  staffChallenges StaffChallenge[]
+  staffResets StaffReset[]
   tokens     VerificationToken[]
   orders     Order[]
+  supportCases SupportCase[]
+  @@index([role, createdAt, id])
 }
 
 // Один способ входа = одна запись. Почта, Google и Telegram
@@ -119,6 +166,8 @@ model Session {
   id        String    @id @default(uuid())
   userId    String
   familyId  String
+  liveFamilyId String?
+  family SessionFamily? @relation(fields: [liveFamilyId], references: [id], onDelete: Cascade)
   tokenHash String    @unique
   userAgent String?
   ip        String?
@@ -211,6 +260,8 @@ model AdminSession {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  confirmations AdminConfirmation[]
+
   @@index([userId])
 }
 
@@ -226,8 +277,13 @@ model Plan {
   isActive    Boolean @default(true)
   sortOrder   Int     @default(0)
 
+  revision    Int @default(0)
+  createdAt   DateTime @default(now())
+
   prices PlanPrice[]
   orders Order[]
+
+  @@index([createdAt, id])
 }
 
 model PlanPrice {
@@ -239,8 +295,28 @@ model PlanPrice {
   isActive       Boolean  @default(true)
 
   plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  versions OfferVersion[]
 
   @@unique([planId, durationMonths, currency])
+}
+
+// PlanPrice is the stable offer. Each publication freezes its commercial terms.
+model OfferVersion {
+  id             String   @id @default(uuid())
+  planPriceId    String
+  version        Int
+  name           String
+  durationMonths Int
+  deviceLimit    Int
+  currency       Currency
+  amount         Int
+  publishedAt    DateTime
+  withdrawnAt    DateTime?
+
+  offer  PlanPrice @relation(fields: [planPriceId], references: [id], onDelete: Restrict)
+  orders Order[]
+
+  @@unique([planPriceId, version])
 }
 
 // ───────────────────── Заказы и платежи ─────────────────────
@@ -257,6 +333,10 @@ model Order {
   currency       Currency
   amount         Int
 
+  offerVersionId String?
+  checkoutKeyHash String?
+  checkoutPolicyVersion Int?
+
   status      OrderStatus @default(PENDING)
   expiresAt   DateTime // конец окна оплаты
   paidAt      DateTime?
@@ -268,51 +348,150 @@ model Order {
   plan     Plan            @relation(fields: [planId], references: [id])
   payments Payment[]
   job      FulfillmentJob?
+  allocation OrderAllocation?
+  period PeriodGrant?
+  offerVersion OfferVersion? @relation(fields: [offerVersionId], references: [id], onDelete: Restrict)
 
+  supportCases SupportCase[]
+
+  @@unique([id, userId])
+  @@unique([userId, checkoutKeyHash])
+  @@index([offerVersionId])
   @@index([userId, createdAt])
   @@index([status, expiresAt])
+  @@index([createdAt, id])
 }
 
-// У заказа может быть несколько попыток оплаты (разные провайдеры).
+model MerchantAccount {
+  id          String              @id @default(uuid())
+  provider    PaymentProvider
+  environment MerchantEnvironment
+  merchant    String
+  payments    Payment[]
+  events      WebhookEvent[]
+  ledger      PaymentTransaction[]
+  cases       PaymentCase[]
+
+  @@unique([provider, environment, merchant])
+}
+
+// A null account identifies a legacy attempt whose external proof has not been verified.
 model Payment {
-  id           String          @id @default(uuid())
-  orderId      String
-  provider     PaymentProvider
-  externalId   String? // id транзакции у провайдера
-  status       PaymentStatus   @default(PENDING)
-  amount       Int
-  currency     Currency
-  providerData Json?
-  paidAt       DateTime?
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
+  id                String          @id @default(uuid())
+  orderId           String
+  provider          PaymentProvider
+  externalId        String?
+  status            PaymentStatus   @default(PENDING)
+  amount            Int
+  currency          Currency
+  providerData      Json?
+  paidAt            DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
 
-  order Order @relation(fields: [orderId], references: [id])
+  accountId         String?
+  merchantReference String?
+  requestKeyHash    String?
+  channel           String?
+  expiresAt         DateTime?
+  nextCheckAt       DateTime?
+  reasonCode        String?
+  redirectUrl       String?
 
-  @@unique([provider, externalId])
+  order   Order @relation(fields: [orderId], references: [id])
+  account MerchantAccount? @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  ledger  PaymentTransaction[]
+
+  @@unique([accountId, externalId])
+  @@unique([accountId, merchantReference])
+  @@unique([orderId, requestKeyHash])
   @@index([orderId])
+  @@index([accountId, nextCheckAt])
 }
 
-// Журнал входящих вебхуков. Уникальный (provider, eventKey) —
-// основа идемпотентности: повторная доставка упрётся в constraint.
+// Managed payload is a sanitized, replayable observation. Legacy JSON is retained in place.
 model WebhookEvent {
   id             String          @id @default(uuid())
   provider       PaymentProvider
-  eventKey       String // id события или хэш(externalId + status)
+  eventKey       String
   payload        Json
   signatureValid Boolean
   receivedAt     DateTime        @default(now())
   processedAt    DateTime?
   error          String?
 
-  @@unique([provider, eventKey])
+  accountId      String?
+  fingerprint    String?
+  evidence       PaymentEvidence?
+  nextCheckAt    DateTime?
+  attempts       Int @default(0)
+
+  account MerchantAccount? @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@unique([accountId, eventKey])
+  @@index([accountId, processedAt, nextCheckAt])
+}
+
+model PaymentTransaction {
+  id                  String @id @default(uuid())
+  accountId           String
+  movementKey         String
+  kind                MovementKind
+  amountMinor         BigInt
+  currency            String
+  providerTime        DateTime?
+  receivedAt          DateTime @default(now())
+  evidence            PaymentEvidence
+  externalPaymentId   String
+  merchantReference   String?
+  originalMovementKey String?
+  paymentId           String?
+
+  account MerchantAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  payment Payment? @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+
+  allocation OrderAllocation?
+  refundIntents RefundIntent[]
+  adjustment Adjustment?
+  hold ServiceHold? @relation("HoldMovement")
+  holdRelease ServiceHold? @relation("HoldReleaseMovement")
+
+  @@unique([accountId, movementKey])
+  @@index([accountId, originalMovementKey])
+  @@index([accountId, externalPaymentId])
+  @@index([accountId, merchantReference])
+  @@index([paymentId])
+  @@index([providerTime])
+}
+
+model PaymentCase {
+  id          String @id @default(uuid())
+  accountId   String
+  objectKey   String
+  kind        String
+  reason      String
+  status      PaymentCaseStatus @default(OPEN)
+  priority    Int @default(1)
+  nextCheckAt DateTime?
+  details     Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  history     Json @default("[]")
+
+  account MerchantAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@unique([accountId, objectKey, kind])
+  @@index([status, nextCheckAt])
 }
 
 // Outbox: оплата только создаёт задачу, а воркер ходит в Remnawave
 // с ретраями. orderId unique => один заказ продлевает подписку ровно один раз.
 model FulfillmentJob {
   id            String    @id @default(uuid())
-  orderId       String    @unique
+  orderId       String?   @unique
+  assignmentId  String?   @unique
+  verificationEpoch Int @default(0)
+  writes        Int @default(0)
   status        JobStatus @default(PENDING)
   attempts      Int       @default(0)
   nextAttemptAt DateTime  @default(now())
@@ -325,9 +504,13 @@ model FulfillmentJob {
   completedAt   DateTime?
   createdAt     DateTime  @default(now())
 
-  order Order @relation(fields: [orderId], references: [id])
+  assignment DesiredAssignment? @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  order Order? @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  lease FulfillmentLease?
 
   @@index([status, nextAttemptAt])
+  @@index([createdAt, id])
 }
 
 // ─────────────────────────── Аудит ───────────────────────────
@@ -344,6 +527,416 @@ model AuditLog {
   ip        String?
   createdAt DateTime @default(now())
 
+  role          String?
+  permission    String?
+  reason        String?
+  commandId     String?
+  correlationId String?
+  outcome       String?
+
+  @@index([createdAt, id])
   @@index([entity, entityId])
   @@index([actorId, createdAt])
+}
+
+// One active slot per account, including across different orders.
+model FulfillmentLease {
+  userId     String @id
+  user       User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  generation BigInt
+  jobId      String? @unique
+  job        FulfillmentJob? @relation(fields: [jobId], references: [id], onDelete: Restrict)
+  owner      String?
+  expiresAt  DateTime? @db.Timestamptz(3)
+}
+
+model OrderAllocation {
+  id        String @id @default(uuid())
+  orderId   String @unique
+  captureId String @unique
+  createdAt DateTime
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  capture PaymentTransaction @relation(fields: [captureId], references: [id], onDelete: Restrict)
+  grant PeriodGrant?
+}
+
+model Subscription {
+  id               String @id @default(uuid())
+  userId           String @unique
+  legacyUnverified Boolean @default(false)
+  revision         Int @default(0)
+  createdAt        DateTime @default(now())
+  nextBoundaryAt   DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  periods PeriodGrant[]
+  holds ServiceHold[]
+  assignments DesiredAssignment[]
+  panelBinding PanelBinding?
+
+  @@index([nextBoundaryAt])
+  @@index([createdAt, id])
+}
+
+model PeriodGrant {
+  id              String @id @default(uuid())
+  subscriptionId  String
+  orderId         String? @unique
+  allocationId    String? @unique
+  serial          Int
+  startAt         DateTime
+  endAt           DateTime
+  createdAt       DateTime
+  calendarVersion Int
+  deviceLimit     Int
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  order Order? @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  allocation OrderAllocation? @relation(fields: [allocationId], references: [id], onDelete: Restrict)
+  adjustment Adjustment?
+  assignments DesiredAssignment[]
+
+  incidentId String?
+  basisGrantId String?
+  compensationReason String?
+  basis PeriodGrant? @relation("ServiceCompensation", fields: [basisGrantId, subscriptionId], references: [id, subscriptionId], onDelete: Restrict)
+  compensations PeriodGrant[] @relation("ServiceCompensation")
+
+  @@unique([id, subscriptionId])
+  @@unique([subscriptionId, incidentId])
+  @@unique([subscriptionId, serial])
+}
+
+model Adjustment {
+  id          String @id @default(uuid())
+  grantId     String @unique
+  movementId  String @unique
+  effectiveAt DateTime
+  createdAt   DateTime
+  reason      String
+
+  grant PeriodGrant @relation(fields: [grantId], references: [id], onDelete: Restrict)
+  movement PaymentTransaction @relation(fields: [movementId], references: [id], onDelete: Restrict)
+}
+
+model ServiceHold {
+  id                String @id @default(uuid())
+  subscriptionId    String
+  source            String
+  kind              String
+  reason            String
+  createdAt         DateTime
+  createdBy         String?
+  movementId        String? @unique
+  releasedAt        DateTime?
+  releasedBy        String?
+  releaseMovementId String? @unique
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  movement PaymentTransaction? @relation("HoldMovement", fields: [movementId], references: [id], onDelete: Restrict)
+  releaseMovement PaymentTransaction? @relation("HoldReleaseMovement", fields: [releaseMovementId], references: [id], onDelete: Restrict)
+
+  @@unique([subscriptionId, source])
+}
+
+model DesiredAssignment {
+  id             String @id @default(uuid())
+  subscriptionId String
+  revision       Int
+  grantId        String?
+  enabled        Boolean
+  deviceLimit    Int?
+  expiresAt      DateTime?
+  nextBoundaryAt DateTime?
+  internalSquads String[] @default([])
+  reason         String
+  createdAt      DateTime
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  grant PeriodGrant? @relation(fields: [grantId], references: [id], onDelete: Restrict)
+  job FulfillmentJob?
+  observations PanelObservation[]
+
+  @@unique([subscriptionId, revision])
+}
+
+model PanelBinding {
+  subscriptionId String @id
+  panelInstance String
+  origin String
+  username String
+  marker String
+  remoteUserId BigInt?
+  createDispatched Boolean @default(false)
+  disabledByShop Boolean @default(false)
+  blockedReason String?
+  confirmedRevision Int?
+  confirmedAt DateTime?
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+
+  @@unique([panelInstance, username])
+  @@unique([panelInstance, remoteUserId])
+}
+
+model PanelObservation {
+  id String @id @default(uuid())
+  assignmentId String
+  panelInstance String
+  revision Int
+  remoteUserId BigInt?
+  status String?
+  expiresAt DateTime?
+  deviceLimit Int?
+  squads String[] @default([])
+  observedAt DateTime
+  receivedAt DateTime @default(now())
+  owner String
+  generation BigInt
+  comparison String
+
+  assignment DesiredAssignment @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+
+  @@index([assignmentId, receivedAt])
+}
+
+model SessionFamily {
+  id         String @id
+  userId     String
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokens Session[]
+  flows OAuthFlow[]
+  proofs IdentityProof[]
+
+  @@index([userId, revokedAt, expiresAt])
+}
+
+model OAuthFlow {
+  state String @id
+  provider String
+  browserHash String
+  verifier String
+  nonce String?
+  returnTo String?
+  mode String
+  familyId String?
+  target AuthProvider?
+  purpose String?
+  requestKeyHash String?
+  fingerprint String?
+  proofId String?
+  expiresAt DateTime
+  consumedAt DateTime?
+  family SessionFamily? @relation(fields: [familyId], references: [id], onDelete: Cascade)
+
+  @@unique([familyId, provider, requestKeyHash])
+  @@index([expiresAt])
+}
+
+model IdentityProof {
+  id String @id @default(uuid())
+  familyId String
+  target AuthProvider
+  purpose String
+  expiresAt DateTime
+  usedAt DateTime?
+  family SessionFamily @relation(fields: [familyId], references: [id], onDelete: Cascade)
+
+  @@index([familyId, expiresAt])
+}
+
+model AuthMailWindow {
+  key String @id
+  startedAt DateTime
+  count Int
+}
+
+enum SupportCategory {
+  PAYMENT
+  DELIVERY
+  ACCESS
+  OTHER
+}
+
+enum SupportStatus {
+  OPEN
+  WAITING_CUSTOMER
+  RESOLVED
+}
+
+enum SupportAuthor {
+  CUSTOMER
+  STAFF
+}
+
+model SupportCase {
+  id             String          @id @default(uuid())
+  userId         String
+  orderId        String?
+  category       SupportCategory
+  status         SupportStatus   @default(OPEN)
+  requestKeyHash String
+  fingerprint    String
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  user     User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  order    Order?           @relation(fields: [orderId, userId], references: [id, userId], onDelete: Restrict)
+  messages SupportMessage[]
+  events   SupportEvent[]
+
+  @@unique([userId, requestKeyHash])
+  @@index([userId, createdAt, id])
+  @@index([status, createdAt, id])
+  @@index([orderId])
+}
+
+model SupportMessage {
+  id             String        @id @default(uuid())
+  caseId         String
+  author         SupportAuthor
+  text           String
+  requestKeyHash String?
+  createdAt      DateTime      @default(now())
+
+  ticket SupportCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
+
+  @@unique([caseId, requestKeyHash])
+  @@index([caseId, createdAt, id])
+}
+
+model SupportEvent {
+  id             String        @id @default(uuid())
+  caseId         String
+  author         SupportAuthor
+  fromStatus     SupportStatus
+  toStatus       SupportStatus
+  requestKeyHash String?
+  fingerprint    String?
+  reason         String?
+  createdAt      DateTime      @default(now())
+
+  ticket SupportCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
+
+  @@unique([caseId, requestKeyHash])
+  @@index([caseId, createdAt, id])
+}
+
+model StaffCredential {
+  userId       String @id
+  passwordHash String
+  version      Int @default(1)
+  user         User @relation(fields: [userId], references: [id], onDelete: Restrict)
+}
+
+model StaffChallenge {
+  id           String @id
+  userId       String
+  version      Int
+  stage        String
+  expiresAt    DateTime
+  consumedAt   DateTime?
+  user         User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, expiresAt])
+}
+
+model StaffInvite {
+  id         String @id @default(uuid())
+  email      String
+  role       UserRole
+  tokenHash  String @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+
+  @@index([email, expiresAt])
+}
+
+model StaffReset {
+  id         String @id @default(uuid())
+  userId     String
+  actorId    String
+  version    Int
+  caseId     String
+  expiresAt  DateTime
+  approvedBy String?
+  user       User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, expiresAt])
+}
+
+model AdminConfirmation {
+  id          String @id @default(uuid())
+  sessionId   String
+  fingerprint String
+  version     Int
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  session     AdminSession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+
+  @@index([sessionId, expiresAt])
+}
+
+model AdminCommand {
+  id          String @id @default(uuid())
+  actorId     String
+  operation   String
+  permission  String
+  targetId    String
+  keyHash     String
+  fingerprint String
+  result      Json
+  createdAt   DateTime @default(now())
+
+  @@unique([actorId, operation, targetId, keyHash])
+}
+
+model WorkerHeartbeat {
+  id         String @id
+  observedAt DateTime
+  ready      Boolean
+
+  @@index([observedAt])
+}
+
+model RefundIntent {
+  id          String @id @default(uuid())
+  captureId   String
+  commandId   String @unique
+  initiatorId String
+  approvedBy  String?
+  approvedAt  DateTime?
+  amountMinor BigInt
+  currency    String
+  reason      String
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  capture     PaymentTransaction @relation(fields: [captureId], references: [id], onDelete: Restrict)
+
+  @@index([captureId, expiresAt])
+  @@index([createdAt, id])
+}
+
+model AdminOperationalSettings {
+  id                       String @id
+  version                  Int @default(0)
+  fulfillmentLagWarnSeconds Int @default(900)
+  paymentLagWarnSeconds     Int @default(900)
+}
+
+model NotificationOutbox {
+  id          String   @id @default(uuid())
+  payload     String
+  expiresAt   DateTime
+  dueAt       DateTime @default(now())
+  leaseId     String?
+  leaseUntil  DateTime?
+  attempts    Int      @default(0)
+
+  @@index([dueAt])
 }

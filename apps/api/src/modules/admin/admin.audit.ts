@@ -7,18 +7,17 @@ export type AuditEntry = {
   entityId?: string;
   data?: Prisma.InputJsonValue;
   ip?: string;
+  role?: string;
+  permission?: string;
+  reason?: string;
+  commandId?: string;
+  correlationId?: string;
+  outcome?: string;
 };
 
 // Пишем журнал в той же транзакции, что и само изменение: нет действия без записи и записи без действия.
 export async function writeAudit(db: Prisma.TransactionClient, entry: AuditEntry): Promise<void> {
   await db.auditLog.create({
-    data: {
-      actorId: entry.actorId,
-      action: entry.action,
-      entity: entry.entity,
-      entityId: entry.entityId,
-      data: entry.data,
-      ip: entry.ip,
-    },
+    data: entry,
   });
 }

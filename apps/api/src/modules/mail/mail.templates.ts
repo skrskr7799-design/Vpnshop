@@ -3,7 +3,7 @@ import type { Mail } from "./mail.service";
 
 function link(path: string, token?: string): string {
   const url = new URL(path, env.WEB_ORIGIN);
-  if (token) url.searchParams.set("token", token);
+  if (token) url.hash = new URLSearchParams({ token }).toString();
   return url.toString();
 }
 

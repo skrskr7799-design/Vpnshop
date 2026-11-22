@@ -1,0 +1,108 @@
+import type { OwnerSubscription } from "@vpn/shared";
+import { useQuery } from "@tanstack/react-query";
+import { Button, Drawer, ErrorState, Icon, IconButton, Skeleton, type IconName } from "@vpn/ui";
+import { useEffect, useRef, useState } from "react";
+import { Link, NavLink, Outlet, useLocation } from "react-router";
+import { request } from "../../api/client";
+import { ApiError } from "../../api/ApiError";
+import { useLogout, useMe } from "../auth/queries";
+import "./account.css";
+
+export function useOwner<T>(path: string, refetchInterval?: number) {
+  const { data } = useMe();
+  return useQuery({
+    queryKey: ["owner", data?.id, data?.sessionId, path],
+    queryFn: ({ signal }) => request<T>(path, { signal }),
+    enabled: !!data, retry: false, refetchInterval,
+  });
+}
+
+export const date = (value: string | null | undefined) => value
+  ? new Date(value).toLocaleString("ru-RU", { dateStyle: "medium", timeStyle: "short" }) : "—";
+
+export function amount(minor: number | string, currency: string) {
+  return new Intl.NumberFormat("ru-RU", { currency, style: "currency" })
+    .format(Number(minor) / (currency === "XTR" ? 1 : 100));
+}
+
+const errors: Record<string, string> = {
+  OFFER_CHANGED: "Предложение изменилось. Проверьте актуальную цену и выберите тариф снова.",
+  OFFER_UNAVAILABLE: "Предложение больше недоступно. Выберите другой тариф.",
+  PAYMENTS_DISABLED: "Оплата пока недоступна.", REAUTH_REQUIRED: "Подтвердите вход повторно.",
+  ACCESS_HELD: "Доступ приостановлен.", ACCESS_EXPIRED: "Действующий период отсутствует.",
+  ACCESS_NOT_READY: "Выдача ещё не подтверждена. Попробуйте позже.",
+  PANEL_UNAVAILABLE: "Подключение временно недоступно. Попробуйте позже.",
+  RETRY_REQUIRED: "Сессия обновилась. Подтвердите действие ещё раз.",
+  ORDER_CLOSED: "Окно оплаты заказа закрылось.", ATTEMPT_IN_PROGRESS: "По заказу уже есть платёжная попытка.",
+  CASE_RESOLVED: "Обращение закрыто. При необходимости откройте новое.",
+};
+export const errorMessage = (error: unknown) => error instanceof ApiError ?
+  errors[error.code] ?? (error.status === 429 ? "Слишком много запросов. Подождите перед повтором." :
+    error.status === 404 ? "Запись недоступна." : error.status === 403 ? "Действие запрещено." :
+    error.status === 401 ? "Войдите снова." : "Действие не завершилось. Попробуйте позже.")
+  : "Связь прервалась. Проверьте соединение.";
+
+export const labels: Record<string, string> = {
+  ACTIVE: "Право действует", READY: "Доступ подтверждён", WAITING: "Ожидает подтверждения", HELD: "Приостановлено",
+  SCHEDULED: "Запланировано", EXPIRED: "Срок истёк", EMPTY: "Периода нет", LEGACY_REVIEW: "Требуется сверка",
+  NOT_REQUESTED: "Выдача не начата", REVIEW: "Требуется проверка", OPEN: "Открыт", ALLOCATED: "Зачтён",
+  CANCELED: "Отменён", LEGACY: "Историческая запись", UNKNOWN: "Исход операции уточняется",
+  CAPTURE_RECORDED: "Поступление подтверждено", LATE_CAPTURE: "Позднее поступление",
+  REFUNDED: "Возврат подтверждён", PARTIAL_REFUND: "Частичный возврат",
+  CREATED: "Создана", SUBMITTING: "Отправляется", AWAITING_CUSTOMER: "Ожидается оплата",
+  PROCESSING: "Обрабатывается", SUCCEEDED: "Платёж подтверждён", FAILED: "Отклонена",
+  WAITING_CUSTOMER: "Ждём вашего ответа", RESOLVED: "Закрыто",
+};
+export const label = (state: string) => labels[state] ?? state;
+
+const navigation: { path: string; title: string; icon: IconName }[] = [
+  { path: "/account", title: "Обзор", icon: "grid" },
+  { path: "/account/plans", title: "Тарифы", icon: "layers" },
+  { path: "/account/subscription", title: "Подписка", icon: "pulse" },
+  { path: "/account/connect", title: "Подключение", icon: "connect" },
+  { path: "/account/orders", title: "Заказы", icon: "receipt" },
+  { path: "/account/support", title: "Поддержка", icon: "support" },
+  { path: "/account/security", title: "Безопасность", icon: "key" },
+];
+
+export function displayDelivery(subscription: NonNullable<OwnerSubscription["subscription"]>) {
+  return subscription.delivery.status === "READY" && !subscription.delivery.observationFresh ? "WAITING" : subscription.delivery.status;
+}
+
+export function AccountShell() {
+  const logout = useLogout();
+  const { data } = useMe();
+  const { pathname } = useLocation();
+  const [menu, setMenu] = useState(false);
+  const main = useRef<HTMLElement>(null);
+  const active = navigation.find(item => item.path !== "/account" && pathname.startsWith(item.path)) ?? navigation[0]!;
+  useEffect(() => {
+    main.current?.focus({ preventScroll: true });
+    document.title = active.title + " — MZT";
+  }, [pathname, active.title]);
+  const links = (close?: () => void) => <nav className="mzt-nav" aria-label="Разделы кабинета">{navigation.map(({ path, title, icon }) =>
+    <NavLink end={path === "/account"} key={path} to={path} onClick={close}><Icon name={icon} size={18} />{title}</NavLink>)}</nav>;
+  return <div className="mzt-account">
+    <a className="mz-skip" href="#account-main">Перейти к содержимому</a>
+    <aside className="mzt-rail"><Link to="/account" className="mz-wordmark">MZT</Link>{links()}</aside>
+    <div className="mzt-workspace">
+      <header className="mzt-top">
+        <div className="mzt-top__mobile"><IconButton icon="menu" label="Открыть меню" aria-expanded={menu} onClick={() => setMenu(true)} />
+          <Link to="/account" className="mz-wordmark">MZT</Link></div>
+        <span className="mzt-top__context">Личный кабинет</span>
+        <Button variant="quiet" className="mzt-top__exit" onClick={() => logout.mutate()}><Icon name="out" size={17} />Выйти</Button>
+      </header>
+      <Drawer open={menu} title="Личный кабинет" onClose={() => setMenu(false)}>{links(() => {
+        setMenu(false);
+        requestAnimationFrame(() => main.current?.focus({ preventScroll: true }));
+      })}</Drawer>
+      <main id="account-main" className="mzt-content" ref={main} tabIndex={-1}><Outlet key={data?.sessionId} /></main>
+    </div>
+  </div>;
+}
+
+export function LoadState({ pending, error, retry }: { pending: boolean; error: unknown; retry: () => unknown }) {
+  if (pending) return <Skeleton />;
+  if (error) return <ErrorState message={errorMessage(error)} retry={retry} />;
+  return null;
+}

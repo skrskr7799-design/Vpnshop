@@ -1,0 +1,11 @@
+# Enable only after the host firewall restricts this bridge to the approved SMTP relay.
+services:
+  notifications:
+    environment:
+      MAIL_FROM: ${MAIL_FROM:?Set the verified SMTP sender address}
+    networks:
+      smtp-egress:
+
+networks:
+  smtp-egress:
+    driver: bridge

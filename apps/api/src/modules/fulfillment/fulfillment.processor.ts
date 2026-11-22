@@ -5,6 +5,7 @@ import { remnawaveUsernameFor } from "../remnawave/remnawave.username";
 import { backoffMs } from "./fulfillment.backoff";
 import { MAX_ATTEMPTS, OPERATOR_RETRY_MS } from "./fulfillment.constants";
 import {
+  LeaseLost,
   closeJobAsAlreadyDone,
   completeJob,
   failJob,
@@ -19,6 +20,7 @@ export type ProcessorDeps = {
   log: Logger;
   now?: () => Date;
   random?: () => number;
+  beforePanelCall?: () => Promise<void>;
 };
 
 export type JobOutcome = "done" | "retry" | "failed";
@@ -34,24 +36,29 @@ export async function processJob(job: ClaimedJob, deps: ProcessorDeps): Promise<
 
   try {
     if (job.order.status === "FULFILLED") {
-      await closeJobAsAlreadyDone(job.id, now());
+      await closeJobAsAlreadyDone(job, now());
       return "done";
     }
     if (job.order.status !== "PAID") {
-      await failJob(job.id, `order status is ${job.order.status}, expected PAID`);
+      await failJob(job, `order status is ${job.order.status}, expected PAID`);
       log.error(ctx, "fulfillment: заказ не в статусе PAID, задача остановлена");
       return "failed";
     }
 
     const username = remnawaveUsernameFor(job.order.userId);
 
+    const api: RemnawaveApi = {
+      async getUserByUsername(name) { await deps.beforePanelCall?.(); return deps.api.getUserByUsername(name); },
+      async createUser(input) { await deps.beforePanelCall?.(); return deps.api.createUser(input); },
+      async updateUser(input) { await deps.beforePanelCall?.(); return deps.api.updateUser(input); },
+    };
     let targetExpireAt = job.targetExpireAt;
     if (!targetExpireAt) {
-      targetExpireAt = await planExpiry(deps.api, username, job.order.durationMonths, now());
-      await savePlannedExpiry(job.id, targetExpireAt);
+      targetExpireAt = await planExpiry(api, username, job.order.durationMonths, now());
+      targetExpireAt = await savePlannedExpiry(job, targetExpireAt);
     }
 
-    const result = await applySubscription(deps.api, {
+    const result = await applySubscription(api, {
       username,
       targetExpireAt,
       deviceLimit: job.order.deviceLimit,
@@ -66,6 +73,7 @@ export async function processJob(job: ClaimedJob, deps: ProcessorDeps): Promise<
     else log.info({ ...ctx, created: result.created }, "fulfillment: подписка выдана");
     return "done";
   } catch (err) {
+    if (err instanceof LeaseLost) throw err;
     return handleFailure(job, err, deps, ctx);
   }
 }
@@ -82,25 +90,25 @@ async function handleFailure(
   // Токен/версия панели неверны: нужен человек. Задачу не бросаем, а держим в очереди,
   // чтобы после исправления настройки она выполнилась сама.
   if (err instanceof RemnawaveError && err.needsOperator) {
-    await rescheduleJob(job.id, new Date(now.getTime() + OPERATOR_RETRY_MS), message);
+    await rescheduleJob(job, new Date(now.getTime() + OPERATOR_RETRY_MS), message);
     deps.log.error({ ...ctx, kind: err.kind }, `fulfillment: нужно вмешательство оператора: ${message}`);
     return "retry";
   }
 
   // Панель отклонила запрос по существу (например, неверные данные): повтор бессмыслен
   if (err instanceof RemnawaveError && !err.retryable) {
-    await failJob(job.id, message);
+    await failJob(job, message);
     deps.log.error({ ...ctx, kind: err.kind }, `fulfillment: панель отклонила запрос: ${message}`);
     return "failed";
   }
 
   // Временная недоступность панели или неожиданная ошибка: повторяем с нарастающей паузой
   if (job.attempts >= MAX_ATTEMPTS) {
-    await failJob(job.id, `gave up after ${job.attempts} attempts: ${message}`);
+    await failJob(job, `gave up after ${job.attempts} attempts: ${message}`);
     deps.log.error(ctx, `fulfillment: попытки исчерпаны: ${message}`);
     return "failed";
   }
-  await rescheduleJob(job.id, new Date(now.getTime() + backoffMs(job.attempts, deps.random)), message);
+  await rescheduleJob(job, new Date(now.getTime() + backoffMs(job.attempts, deps.random)), message);
   deps.log.warn(ctx, `fulfillment: временный сбой, повторим позже: ${message}`);
   return "retry";
 }

@@ -2,6 +2,9 @@ import {
   CreateUserCommand,
   GetInternalSquadsCommand,
   GetMetadataCommand,
+  GetUserByIdCommand,
+  DisableUserCommand,
+  EnableUserCommand,
   GetUserByUsernameCommand,
   UpdateUserCommand,
 } from "@remnawave/backend-contract";
@@ -19,6 +22,11 @@ describe("контракт Remnawave 3.4.17", () => {
     expect(REMNAWAVE_ROUTES.users).toBe(CreateUserCommand.url);
     expect(REMNAWAVE_ROUTES.users).toBe(UpdateUserCommand.url);
     expect(REMNAWAVE_ROUTES.userByUsername("vs_abc")).toBe(GetUserByUsernameCommand.url("vs_abc"));
+    expect(REMNAWAVE_ROUTES.userById(7)).toBe(GetUserByIdCommand.url("7"));
+    expect(REMNAWAVE_ROUTES.disable(7)).toBe(DisableUserCommand.url("7"));
+    expect(REMNAWAVE_ROUTES.enable(7)).toBe(EnableUserCommand.url("7"));
+    expect(DisableUserCommand.endpointDetails.REQUEST_METHOD.toLowerCase()).toBe("post");
+    expect(EnableUserCommand.endpointDetails.REQUEST_METHOD.toLowerCase()).toBe("post");
     expect(REMNAWAVE_ROUTES.internalSquads).toBe(GetInternalSquadsCommand.url);
     expect(REMNAWAVE_ROUTES.metadata).toBe(GetMetadataCommand.url);
 
@@ -29,6 +37,7 @@ describe("контракт Remnawave 3.4.17", () => {
 
   it("тело создания пользователя проходит официальную валидацию", () => {
     const body = toCreateBody({
+      description: "vpnshop:staging-contract:fixture",
       username: remnawaveUsernameFor("0f8fad5b-d9cb-469f-a165-70867728950e"),
       expireAt: new Date("2030-01-31T10:00:00.000Z"),
       hwidDeviceLimit: 5,
@@ -41,7 +50,8 @@ describe("контракт Remnawave 3.4.17", () => {
   it("тело обновления проходит официальную валидацию (в том числе правило «дата в будущем»)", () => {
     const future = new Date(Date.now() + 30 * 24 * 3600 * 1000);
     const parsed = UpdateUserCommand.RequestBodySchema.safeParse(
-      toUpdateBody({ id: 7, expireAt: future, status: "ACTIVE", hwidDeviceLimit: 5 }),
+      toUpdateBody({ id: 7, expireAt: future, status: "ACTIVE", hwidDeviceLimit: 5,
+        activeInternalSquads: ["11111111-1111-4111-8111-111111111111"] }),
     );
     expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true);
   });

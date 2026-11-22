@@ -10,7 +10,8 @@ export type RemnawaveUserStatus = (typeof USER_STATUSES)[number];
 const isoDate = z.iso.datetime().transform((value) => new Date(value));
 
 export const remnawaveUserSchema = z.object({
-  id: z.number().int(), // в API 3.x пользователь адресуется по числовому id или username
+  id: z.number().int().positive(), // в API 3.x пользователь адресуется по числовому id или username
+  description: z.string().nullable().optional(),
   shortUuid: z.string(),
   username: z.string(),
   status: z.enum(USER_STATUSES),

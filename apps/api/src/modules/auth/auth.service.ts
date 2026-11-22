@@ -1,3 +1,5 @@
+import { env } from "../../config/env";
+import { enqueueMail } from "../mail/outbox";
 import type { FastifyBaseLogger } from "fastify";
 import type {
   ForgotPasswordInput,
@@ -6,7 +8,7 @@ import type {
   RegisterInput,
   ResetPasswordInput,
 } from "@vpn/shared";
-import type { Prisma, User } from "@prisma/client";
+import type { User } from "@prisma/client";
 import { generateToken, sha256 } from "../../lib/crypto";
 import { isUniqueViolation } from "../../lib/db-errors";
 import { AppError } from "../../lib/errors";
@@ -15,11 +17,25 @@ import { sendMail } from "../mail/mail.service";
 import { accountExistsMail, resetPasswordMail, verifyEmailMail } from "../mail/mail.templates";
 import { MAX_MAILS_PER_EMAIL_PER_HOUR, RESET_TTL_MS, VERIFY_TTL_MS } from "./auth.constants";
 import { hashPassword, verifyAgainstDummy, verifyPassword } from "./password";
-import { createSession, revokeAllUserSessions, type IssuedTokens } from "./session.service";
+import { createSession, lockIdentityOwner, revokeAllUserSessions, type IssuedTokens } from "./session.service";
 
 export type AuthContext = { log: FastifyBaseLogger; ip?: string; userAgent?: string };
 
 const HOUR_MS = 60 * 60 * 1000;
+
+async function consumeMailBudget(email: string, purpose: string) {
+  const key = sha256(`${purpose}:${email}`);
+  const now = new Date();
+  const expired = new Date(+now - HOUR_MS);
+  const rows = await prisma.$queryRaw<{ count: number }[]>`
+    INSERT INTO "AuthMailWindow" (key, "startedAt", count) VALUES (${key}, ${now}, 1)
+    ON CONFLICT (key) DO UPDATE SET
+      count = CASE WHEN "AuthMailWindow"."startedAt" <= ${expired} THEN 1 ELSE "AuthMailWindow".count + 1 END,
+      "startedAt" = CASE WHEN "AuthMailWindow"."startedAt" <= ${expired} THEN ${now} ELSE "AuthMailWindow"."startedAt" END
+    WHERE "AuthMailWindow"."startedAt" <= ${expired} OR "AuthMailWindow".count < ${MAX_MAILS_PER_EMAIL_PER_HOUR}
+    RETURNING count`;
+  return rows.length > 0;
+}
 
 export const toPublicUser = (user: Pick<User, "id" | "email" | "role">): PublicUser => ({
   id: user.id,
@@ -31,6 +47,7 @@ export const toPublicUser = (user: Pick<User, "id" | "email" | "role">): PublicU
 // Всегда отвечает одинаково (наружу ничего не утекает): есть такой аккаунт или нет,
 // узнать можно только из письма на этот адрес.
 export async function register({ email, password }: RegisterInput, ctx: AuthContext): Promise<void> {
+  if (!await consumeMailBudget(email, "register")) return;
   // хэшируем всегда, чтобы время ответа не зависело от наличия аккаунта
   const passwordHash = await hashPassword(password);
   const now = new Date();
@@ -43,20 +60,20 @@ export async function register({ email, password }: RegisterInput, ctx: AuthCont
     select: { id: true },
   });
   if (existing) {
-    void sendMail(ctx.log, accountExistsMail(email));
+    const mail = accountExistsMail(email);
+    if (env.MAIL_QUEUE_KEY) await enqueueMail(prisma, mail, new Date(+now + VERIFY_TTL_MS));
+    else void sendMail(ctx.log, mail);
     return;
   }
 
-  const recent = await prisma.pendingRegistration.count({
-    where: { email, createdAt: { gt: new Date(now.getTime() - HOUR_MS) } },
-  });
-  if (recent >= MAX_MAILS_PER_EMAIL_PER_HOUR) return;
-
   const token = generateToken();
-  await prisma.pendingRegistration.create({
-    data: { email, passwordHash, tokenHash: sha256(token), expiresAt: new Date(now.getTime() + VERIFY_TTL_MS) },
+  const mail = verifyEmailMail(email, token);
+  const expiresAt = new Date(+now + VERIFY_TTL_MS);
+  await prisma.$transaction(async db => {
+    await db.pendingRegistration.create({ data: { email, passwordHash, tokenHash: sha256(token), expiresAt } });
+    await enqueueMail(db, mail, expiresAt);
   });
-  void sendMail(ctx.log, verifyEmailMail(email, token));
+  if (!env.MAIL_QUEUE_KEY) void sendMail(ctx.log, mail);
 }
 
 // Аккаунт появляется только здесь, после подтверждения владения почтой.
@@ -114,39 +131,44 @@ export async function login(
   // одна и та же ошибка для «нет аккаунта» и «неверный пароль»
   if (!identity || !valid) throw new AppError(401, "INVALID_CREDENTIALS");
 
-  if (identity.user.status !== "ACTIVE") throw new AppError(403, "ACCOUNT_BLOCKED");
-
-  const tokens = await createSession(identity.user, { ip: ctx.ip, userAgent: ctx.userAgent });
-  return { user: toPublicUser(identity.user), ...tokens };
+  return prisma.$transaction(async db => {
+    const owner = await lockIdentityOwner(db, identity.userId);
+    if (owner?.status !== "ACTIVE" || owner.role !== "USER") throw new AppError(403, "ACCOUNT_BLOCKED");
+    const current = await db.authIdentity.findUnique({ where: { id: identity.id } });
+    if (!current || current.passwordHash !== identity.passwordHash) throw new AppError(401, "INVALID_CREDENTIALS");
+    const tokens = await createSession(owner, { ip: ctx.ip, userAgent: ctx.userAgent }, db);
+    return { user: toPublicUser(owner), ...tokens };
+  });
 }
 
 // ───────────── Сброс пароля ─────────────
 export async function forgotPassword({ email }: ForgotPasswordInput, ctx: AuthContext): Promise<void> {
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user || user.status !== "ACTIVE") return;
-
-  const recent = await prisma.verificationToken.count({
-    where: { userId: user.id, type: "PASSWORD_RESET", createdAt: { gt: new Date(Date.now() - HOUR_MS) } },
-  });
-  if (recent >= MAX_MAILS_PER_EMAIL_PER_HOUR) return;
-
+  if (!await consumeMailBudget(email, "reset")) return;
+  const candidate = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+  if (!candidate) return;
   const token = generateToken();
-  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+  const issued = await prisma.$transaction(async tx => {
+    const user = await lockIdentityOwner(tx, candidate.id);
+    if (!user || user.role !== "USER" || user.status !== "ACTIVE" || user.email !== email ||
+        !user.emailVerifiedAt || user.emailLoginDisabled) return false;
     // новая ссылка гасит все прежние
     await tx.verificationToken.updateMany({
       where: { userId: user.id, type: "PASSWORD_RESET", usedAt: null },
       data: { usedAt: new Date() },
     });
+    const expiresAt = new Date(Date.now() + RESET_TTL_MS);
     await tx.verificationToken.create({
       data: {
         userId: user.id,
         type: "PASSWORD_RESET",
         tokenHash: sha256(token),
-        expiresAt: new Date(Date.now() + RESET_TTL_MS),
+        expiresAt,
       },
     });
+    await enqueueMail(tx, resetPasswordMail(email, token), expiresAt);
+    return true;
   });
-  void sendMail(ctx.log, resetPasswordMail(email, token));
+  if (issued && !env.MAIL_QUEUE_KEY) void sendMail(ctx.log, resetPasswordMail(email, token));
 }
 
 export async function resetPassword({ token, password }: ResetPasswordInput): Promise<void> {
@@ -158,14 +180,14 @@ export async function resetPassword({ token, password }: ResetPasswordInput): Pr
     if (!record || record.type !== "PASSWORD_RESET" || record.usedAt || record.expiresAt <= now) {
       throw new AppError(400, "INVALID_TOKEN");
     }
+    const user = await lockIdentityOwner(tx, record.userId);
+    if (!user?.email || !user.emailVerifiedAt || user.role !== "USER" || user.status !== "ACTIVE" ||
+        user.emailLoginDisabled) throw new AppError(400, "INVALID_TOKEN");
     const consumed = await tx.verificationToken.updateMany({
-      where: { id: record.id, usedAt: null },
+      where: { id: record.id, usedAt: null, expiresAt: { gt: new Date() } },
       data: { usedAt: now },
     });
     if (consumed.count !== 1) throw new AppError(400, "INVALID_TOKEN");
-
-    const user = await tx.user.findUniqueOrThrow({ where: { id: record.userId } });
-    if (!user.email) throw new AppError(400, "INVALID_TOKEN");
 
     // upsert: пользователь, пришедший через Google/Telegram, получает вход по паролю
     await tx.authIdentity.upsert({

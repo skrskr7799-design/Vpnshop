@@ -1,0 +1,123 @@
+name: Toolchain CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, fnd-01-toolchain-ci, fnd-02-migrations, 'work/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  checks:
+    name: Install, generate, lint, build and test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17-alpine@sha256:526f86d93c6ea08fd3f1fe5605650cacc781b2c6013169a0ad8f42c7d3d84f32
+        env:
+          POSTGRES_PASSWORD: disposable-ci-only
+          VPNSHOP_DISPOSABLE: integration
+        ports:
+          - 5432/tcp
+        options: --health-cmd pg_isready --health-interval 2s --health-timeout 3s --health-retries 30
+
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0 # Read the immutable pre-migration schema for the legacy rehearsal.
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+
+      - name: Record toolchain
+        run: |
+          {
+            echo "Commit: $(git rev-parse HEAD)"
+            echo "Node: $(node --version)"
+            echo "pnpm: $(pnpm --version)"
+            uname -sm
+            getconf GNU_LIBC_VERSION
+            openssl version
+            sha256sum pnpm-lock.yaml
+            echo 'Prisma engine source: https://binaries.prisma.sh'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Locked dependency install
+        env:
+          PRISMA_SKIP_POSTINSTALL_GENERATE: 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate Prisma schema
+        env:
+          DATABASE_URL: postgresql://schema_validation@127.0.0.1:1/schema_validation
+        run: pnpm --filter @vpn/api exec prisma validate
+
+      - name: Generate Prisma Client and record engine target
+        run: |
+          pnpm db:generate
+          pnpm --filter @vpn/api exec prisma version | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Typecheck workspace
+        run: pnpm typecheck
+
+      - name: Lint workspace
+        run: pnpm lint
+
+      - name: Build workspace
+        id: build
+        run: pnpm build
+
+      - name: Unit tests
+        run: pnpm test:unit
+
+      - name: API contract tests
+        run: pnpm test:contract
+
+      - name: Rehearse migrations and run PostgreSQL integration tests
+        env:
+          VPNSHOP_SERVICE_ID: ${{ job.services.postgres.id }}
+        run: pnpm --filter @vpn/api test:integration
+
+      - name: Responsive browser smoke and visual evidence
+        env:
+          MZT_VISUAL_DIR: ${{ runner.temp }}/mzt-visual
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          CHROMIUM_BIN="$(command -v google-chrome || command -v chromium)"
+          export CHROMIUM_BIN
+          test -x "$CHROMIUM_BIN"
+          "$CHROMIUM_BIN" --version
+          for site in web admin; do
+            script=account
+            if [[ "$site" == admin ]]; then script=admin; fi
+            output="$(mktemp)"
+            if ! node "apps/$site/scripts/$script-browser-smoke.mjs" >"$output" 2>&1; then
+              cat "$output"
+              detail="$(sed -n -E '/Error|Assertion|Expected|actual|expected|at until/p' "$output" | head -8 | tr '\n%' '  ' | cut -c1-550)"
+              printf '::error::Chromium %s: %s\n' "$site" "$detail"
+              exit 1
+            fi
+            cat "$output"
+          done
+
+
+      - name: Upload screenshot and performance evidence
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: mzt-visual-${{ github.sha }}
+          path: ${{ runner.temp }}/mzt-visual
+          if-no-files-found: warn

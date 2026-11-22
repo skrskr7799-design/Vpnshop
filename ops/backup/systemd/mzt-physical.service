@@ -1,0 +1,8 @@
+[Unit]
+Description=MZT encrypted physical backup
+After=docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/mzt/operator.env
+ExecStart=/opt/vpnshop/ops/backup/run.sh physical

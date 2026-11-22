@@ -11,7 +11,7 @@ export function RequireAuth() {
   if (me.isPending) return <PageStatus kind="loading" />;
   if (me.isError) return <PageStatus kind="error" onRetry={() => void me.refetch()} />;
   if (!me.data) return <Navigate to="/login" replace state={{ from: location }} />;
-  return <Outlet />;
+  return <Outlet key={me.data.sessionId} />;
 }
 
 // Страницы входа и регистрации: вошедшего пользователя отправляем дальше.

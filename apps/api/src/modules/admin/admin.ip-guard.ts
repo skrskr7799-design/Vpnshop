@@ -5,6 +5,7 @@ export function createIpGuard(cidrs: string[]): (ip: string) => boolean {
   if (cidrs.length === 0) return () => true;
   const ranges = cidrs.map((cidr) => {
     const parsed = ipaddr.parseCIDR(cidr); // бросит на мусоре: лучше упасть при старте
+    if (parsed[1] === 0) throw new Error("An unrestricted admin CIDR is forbidden");
     return parsed;
   });
   return (ip) => {

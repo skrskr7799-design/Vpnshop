@@ -1,221 +1,195 @@
-import { randomBytes } from "node:crypto";
-import type { UserRole } from "@prisma/client";
-import { sha256 } from "../../../lib/crypto";
+import { randomBytes, randomUUID } from "node:crypto";
+import type { AdminTotp, Prisma, User } from "@prisma/client";
+import { generateToken, sha256 } from "../../../lib/crypto";
 import { AppError } from "../../../lib/errors";
 import { prisma } from "../../../lib/prisma";
 import { decrypt, encrypt } from "../../../lib/secret-box";
+import { lockIdentityOwner } from "../../auth/session.service";
 import { hashPassword, verifyAgainstDummy, verifyPassword } from "../../auth/password";
+import { dbNow } from "../../commerce/offers";
 import { writeAudit } from "../admin.audit";
 import { totpEncryptionKey } from "../admin.keys";
-import { isAdminRole } from "../admin.permissions";
-import { createAdminSession, revokeAdminSession, revokeAllAdminSessions, type SessionMeta } from "./admin-session.service";
-import { signStageToken, verifyStageToken } from "./stage-token";
+import { isAdminRole, type AdminRole } from "../admin.permissions";
+import { createAdminSession, revokeAdminSession, type SessionMeta } from "./admin-session.service";
 import { generateTotpSecret, totpUri, verifyTotp } from "./totp";
 
 export const MAX_FAILED_ATTEMPTS = 5;
 export const LOCK_MS = 15 * 60_000;
-const RECOVERY_CODE_COUNT = 10;
-const RECOVERY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // без похожих символов, 32 знака = 5 бит на символ
+const STAGE_TTL = 5 * 60_000;
+const RECOVERY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+type Db = Prisma.TransactionClient;
 
-export type AdminAuthContext = SessionMeta;
-export type LoginStep = "verify_2fa" | "enroll_2fa";
+export async function lockStaffWrites(db: Db) {
+  await db.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(394662, 1)`;
+}
 
-// ───────────── Шаг 1: пароль ─────────────
-export async function adminLogin(
-  { email, password }: { email: string; password: string },
-  ctx: AdminAuthContext,
-): Promise<{ step: LoginStep; stageToken: string }> {
-  const identity = await prisma.authIdentity.findUnique({
-    where: { provider_providerId: { provider: "EMAIL", providerId: email } },
-    include: { user: true },
-  });
-
-  let valid = false;
-  if (identity?.passwordHash) valid = await verifyPassword(identity.passwordHash, password);
-  else await verifyAgainstDummy(password); // та же работа, что и для существующего аккаунта
-
-  // Одна и та же ошибка для «нет аккаунта», «неверный пароль», «не админ» и «заблокирован»
-  const eligible = identity && valid && identity.user.status === "ACTIVE" && isAdminRole(identity.user.role);
-  if (!eligible) {
-    await writeAudit(prisma, {
-      actorId: identity?.userId ?? null,
-      action: "admin.login.failed",
-      entity: "admin",
-      data: { email: email.slice(0, 254) },
-      ip: ctx.ip,
-    });
+export async function adminLogin({ email, password }: { email: string; password: string }, ctx: SessionMeta) {
+  const before = await prisma.user.findUnique({ where: { email }, include: { staffCredential: true } });
+  const hash = before?.staffCredential?.passwordHash;
+  const valid = hash ? await verifyPassword(hash, password) : (await verifyAgainstDummy(password), false);
+  if (!before || !valid) {
+    await writeAudit(prisma, { actorId: before?.staffCredential ? before.id : null, action: "admin.login.failed", entity: "admin", ip: ctx.ip });
     throw new AppError(401, "INVALID_CREDENTIALS");
   }
-
-  const totp = await prisma.adminTotp.findUnique({ where: { userId: identity.userId } });
-  const enrolled = Boolean(totp?.confirmedAt);
-  await writeAudit(prisma, { actorId: identity.userId, action: "admin.login.password_ok", entity: "admin", ip: ctx.ip });
-  return {
-    step: enrolled ? "verify_2fa" : "enroll_2fa",
-    stageToken: await signStageToken(identity.userId, enrolled ? "verify" : "enroll"),
-  };
-}
-
-// ───────────── Подключение 2FA (первый вход) ─────────────
-export async function startEnrollment(stageToken: string): Promise<{ secret: string; otpauthUri: string }> {
-  const userId = await verifyStageToken(stageToken, "enroll");
-  const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
-  const existing = await prisma.adminTotp.findUnique({ where: { userId } });
-  if (existing?.confirmedAt) throw new AppError(409, "ALREADY_ENROLLED");
-
-  const secret = generateTotpSecret();
-  const data = { secretEnc: encrypt(secret, totpEncryptionKey()), confirmedAt: null, lastUsedStep: null, failedAttempts: 0, lockedUntil: null };
-  await prisma.adminTotp.upsert({ where: { userId }, create: { userId, ...data }, update: data });
-  return { secret, otpauthUri: totpUri(secret, user.email ?? user.id) };
-}
-
-export async function confirmEnrollment(
-  stageToken: string,
-  code: string,
-  ctx: AdminAuthContext,
-  now: Date = new Date(),
-): Promise<{ sessionToken: string; expiresAt: Date; recoveryCodes: string[] }> {
-  const userId = await verifyStageToken(stageToken, "enroll");
-  const totp = await prisma.adminTotp.findUnique({ where: { userId } });
-  if (!totp || totp.confirmedAt) throw new AppError(400, "ENROLLMENT_NOT_STARTED");
-  assertNotLocked(totp.lockedUntil, now);
-
-  const step = verifyTotp(decrypt(totp.secretEnc, totpEncryptionKey()), code, now.getTime());
-  if (step === null) {
-    await registerFailure(totp.id, now);
-    throw new AppError(401, "INVALID_CODE");
-  }
-
-  const recoveryCodes = Array.from({ length: RECOVERY_CODE_COUNT }, generateRecoveryCode);
-  await prisma.$transaction(async (tx) => {
-    await tx.adminTotp.update({
-      where: { userId },
-      data: { confirmedAt: now, lastUsedStep: step, failedAttempts: 0, lockedUntil: null },
-    });
-    await tx.adminRecoveryCode.deleteMany({ where: { userId } });
-    await tx.adminRecoveryCode.createMany({ data: recoveryCodes.map((c) => ({ userId, codeHash: sha256(normalizeRecoveryCode(c)) })) });
-    await writeAudit(tx, { actorId: userId, action: "admin.2fa.enrolled", entity: "admin", entityId: userId, ip: ctx.ip });
+  const result = await prisma.$transaction(async db => {
+    const owner = await lockIdentityOwner(db, before.id);
+    const credential = await db.staffCredential.findUnique({ where: { userId: before.id } });
+    if (!owner || owner.status !== "ACTIVE" || !isAdminRole(owner.role) || !credential || credential.passwordHash !== hash) {
+      await writeAudit(db, { actorId: before.id, action: "admin.login.failed", entity: "admin", ip: ctx.ip });
+      return null;
+    }
+    const totp = await db.adminTotp.findUnique({ where: { userId: owner.id } });
+    const stage = totp?.confirmedAt ? "verify" : "enroll";
+    const token = generateToken();
+    const now = await dbNow(db);
+    await db.staffChallenge.create({ data: {
+      id: sha256(token), stage, userId: owner.id, version: credential.version, expiresAt: new Date(+now + STAGE_TTL),
+    } });
+    await writeAudit(db, { actorId: owner.id, action: "admin.login.password_ok", entity: "admin", ip: ctx.ip });
+    return { step: stage === "enroll" ? "enroll_2fa" as const : "verify_2fa" as const, stageToken: token };
   });
-
-  const session = await createAdminSession(userId, ctx, now);
-  await writeAudit(prisma, { actorId: userId, action: "admin.login", entity: "admin", entityId: userId, ip: ctx.ip });
-  return { sessionToken: session.token, expiresAt: session.expiresAt, recoveryCodes };
+  if (!result) throw new AppError(401, "INVALID_CREDENTIALS");
+  return result;
 }
 
-// ───────────── Шаг 2: второй фактор ─────────────
-export async function verifySecondFactor(
-  stageToken: string,
-  input: { code?: string; recoveryCode?: string },
-  ctx: AdminAuthContext,
-  now: Date = new Date(),
-): Promise<{ sessionToken: string; expiresAt: Date; recoveryCodesLeft?: number }> {
-  const userId = await verifyStageToken(stageToken, "verify");
-  const totp = await prisma.adminTotp.findUnique({ where: { userId } });
-  if (!totp?.confirmedAt) throw new AppError(401, "INVALID_STAGE");
-  assertNotLocked(totp.lockedUntil, now);
+async function stageIn(db: Db, token: string, stage: string) {
+  const id = sha256(token);
+  const before = await db.staffChallenge.findUnique({ where: { id } });
+  if (!before) throw new AppError(401, "INVALID_STAGE");
+  const user = await lockIdentityOwner(db, before.userId);
+  const challenge = await db.staffChallenge.findUnique({ where: { id } });
+  const credential = await db.staffCredential.findUnique({ where: { userId: before.userId } });
+  const now = await dbNow(db);
+  if (!user || user.status !== "ACTIVE" || !isAdminRole(user.role) || !challenge ||
+      challenge.stage !== stage || challenge.consumedAt || challenge.expiresAt <= now ||
+      credential?.version !== challenge.version) throw new AppError(401, "INVALID_STAGE");
+  return { user, challenge, now };
+}
 
-  let recoveryCodesLeft: number | undefined;
-  if (input.recoveryCode) {
-    const used = await consumeRecoveryCode(userId, input.recoveryCode, now);
-    if (!used) return failSecondFactor(totp.id, userId, ctx, now);
-    recoveryCodesLeft = await prisma.adminRecoveryCode.count({ where: { userId, usedAt: null } });
-    await prisma.adminTotp.update({ where: { id: totp.id }, data: { failedAttempts: 0, lockedUntil: null } });
-    await writeAudit(prisma, { actorId: userId, action: "admin.login.recovery_code", entity: "admin", entityId: userId, data: { left: recoveryCodesLeft }, ip: ctx.ip });
-  } else {
-    const step = verifyTotp(decrypt(totp.secretEnc, totpEncryptionKey()), input.code ?? "", now.getTime());
-    if (step === null) return failSecondFactor(totp.id, userId, ctx, now);
+export function startEnrollment(stageToken: string) {
+  return prisma.$transaction(async db => {
+    const { user } = await stageIn(db, stageToken, "enroll");
+    const existing = await db.adminTotp.findUnique({ where: { userId: user.id } });
+    if (existing?.confirmedAt) throw new AppError(409, "ALREADY_ENROLLED");
+    const secret = existing ? decrypt(existing.secretEnc, totpEncryptionKey()) : generateTotpSecret();
+    if (!existing) await db.adminTotp.create({ data: { userId: user.id, secretEnc: encrypt(secret, totpEncryptionKey()) } });
+    return { secret, otpauthUri: totpUri(secret, user.email ?? user.id) };
+  });
+}
 
-    // Код принимается один раз: шаг должен быть строго больше последнего использованного.
-    // Условное обновление атомарно, поэтому два параллельных запроса с одним кодом не пройдут оба.
-    const accepted = await prisma.adminTotp.updateMany({
-      where: { id: totp.id, OR: [{ lastUsedStep: null }, { lastUsedStep: { lt: step } }] },
-      data: { lastUsedStep: step, failedAttempts: 0, lockedUntil: null },
+export async function acceptStaffTotp(db: Db, totp: AdminTotp, code: string, now: Date) {
+  if (totp.lockedUntil && totp.lockedUntil > now) throw new AppError(429, "ACCOUNT_LOCKED");
+  const step = verifyTotp(decrypt(totp.secretEnc, totpEncryptionKey()), code, +now);
+  const accepted = step === null ? 0 : (await db.adminTotp.updateMany({
+    where: { id: totp.id, OR: [{ lastUsedStep: null }, { lastUsedStep: { lt: step } }] },
+    data: { lastUsedStep: step, failedAttempts: 0, lockedUntil: null },
+  })).count;
+  if (!accepted) await recordFailure(db, totp, now);
+  return accepted === 1;
+}
+
+async function recordFailure(db: Db, totp: AdminTotp, now: Date) {
+  const attempts = totp.failedAttempts + 1;
+  await db.adminTotp.update({ where: { id: totp.id }, data: attempts >= MAX_FAILED_ATTEMPTS
+    ? { failedAttempts: 0, lockedUntil: new Date(+now + LOCK_MS) } : { failedAttempts: attempts } });
+  await writeAudit(db, { actorId: totp.userId, action: "admin.2fa.failed", entity: "admin", entityId: totp.userId });
+}
+
+const normalize = (code: string) => code.replace(/[\s-]/g, "").toUpperCase();
+function generateRecoveryCode() {
+  const chars = Array.from(randomBytes(10), byte => RECOVERY_ALPHABET[byte & 31]).join("");
+  return chars.slice(0, 5) + "-" + chars.slice(5);
+}
+
+export async function confirmEnrollment(stageToken: string, code: string, ctx: SessionMeta, time?: Date) {
+  const result = await prisma.$transaction(async db => {
+    const { user, challenge, now } = await stageIn(db, stageToken, "enroll");
+    const totp = await db.adminTotp.findUnique({ where: { userId: user.id } });
+    if (!totp || totp.confirmedAt) throw new AppError(400, "ENROLLMENT_NOT_STARTED");
+    if (!await acceptStaffTotp(db, totp, code, time ?? now)) return null;
+    await db.adminTotp.update({ where: { userId: user.id }, data: { confirmedAt: now } });
+    await db.staffChallenge.update({ where: { id: challenge.id }, data: { consumedAt: now } });
+    const recoveryCodes = Array.from({ length: 10 }, generateRecoveryCode);
+    await db.adminRecoveryCode.deleteMany({ where: { userId: user.id } });
+    await db.adminRecoveryCode.createMany({
+      data: recoveryCodes.map(code => ({ userId: user.id, codeHash: sha256(normalize(code)) })),
     });
-    if (accepted.count !== 1) return failSecondFactor(totp.id, userId, ctx, now);
-  }
-
-  const session = await createAdminSession(userId, ctx, now);
-  await writeAudit(prisma, { actorId: userId, action: "admin.login", entity: "admin", entityId: userId, ip: ctx.ip });
-  return { sessionToken: session.token, expiresAt: session.expiresAt, recoveryCodesLeft };
+    await writeAudit(db, { actorId: user.id, action: "admin.2fa.enrolled", entity: "admin", entityId: user.id, ip: ctx.ip });
+    const session = await issueSession(db, user, ctx, time ?? now);
+    return { ...session, recoveryCodes };
+  });
+  if (!result) throw new AppError(401, "INVALID_CODE");
+  return result;
 }
 
-export async function logoutAdmin(token: string, actorId: string | null, ip?: string): Promise<void> {
-  await revokeAdminSession(token);
-  if (actorId) await writeAudit(prisma, { actorId, action: "admin.logout", entity: "admin", entityId: actorId, ip });
+export async function verifySecondFactor(stageToken: string, input: { code?: string; recoveryCode?: string },
+  ctx: SessionMeta, time?: Date) {
+  const result = await prisma.$transaction(async db => {
+    const { user, challenge, now } = await stageIn(db, stageToken, "verify");
+    const totp = await db.adminTotp.findUnique({ where: { userId: user.id } });
+    if (!totp?.confirmedAt) throw new AppError(401, "INVALID_STAGE");
+    const at = time ?? now;
+    if (totp.lockedUntil && totp.lockedUntil > at) throw new AppError(429, "ACCOUNT_LOCKED");
+    let recoveryCodesLeft: number | undefined;
+    if (input.recoveryCode) {
+      const { count } = await db.adminRecoveryCode.updateMany({
+        where: { userId: user.id, codeHash: sha256(normalize(input.recoveryCode)), usedAt: null }, data: { usedAt: at },
+      });
+      if (!count) { await recordFailure(db, totp, at); return null; }
+      recoveryCodesLeft = await db.adminRecoveryCode.count({ where: { userId: user.id, usedAt: null } });
+      await db.adminTotp.update({ where: { id: totp.id }, data: { failedAttempts: 0, lockedUntil: null } });
+      await writeAudit(db, { actorId: user.id, action: "admin.login.recovery_code", entity: "admin", ip: ctx.ip });
+    } else if (!await acceptStaffTotp(db, totp, input.code ?? "", at)) return null;
+    await db.staffChallenge.update({ where: { id: challenge.id }, data: { consumedAt: now } });
+    return { ...await issueSession(db, user, ctx, at), recoveryCodesLeft };
+  });
+  if (!result) throw new AppError(401, "INVALID_CODE");
+  return result;
 }
 
-// ───────────── Управление админами (CLI) ─────────────
-export async function createAdminUser(
-  { email, password, role }: { email: string; password: string; role: Extract<UserRole, "ADMIN" | "SUPPORT"> },
-): Promise<{ userId: string; created: boolean }> {
-  if (password.length < 12) throw new Error("Пароль админа должен быть не короче 12 символов");
+async function issueSession(db: Db, user: User, ctx: SessionMeta, at: Date) {
+  const result = await createAdminSession(user.id, ctx, at, db);
+  await writeAudit(db, { actorId: user.id, role: user.role, action: "admin.login", entity: "admin", entityId: user.id, ip: ctx.ip });
+  return { sessionToken: result.token, expiresAt: result.expiresAt };
+}
+
+export async function logoutAdmin(token: string, actorId: string | null, ip?: string) {
+  await prisma.$transaction(async db => {
+    await lockStaffWrites(db);
+    await revokeAdminSession(token, db);
+    if (actorId) await writeAudit(db, { actorId, action: "admin.logout", entity: "admin", entityId: actorId, ip });
+  });
+}
+
+export async function createAdminUser({ email, password, role }: { email: string; password: string; role: AdminRole }) {
+  if (password.length < 12) throw new Error("Staff passwords require 12 characters");
   const passwordHash = await hashPassword(password);
-  const now = new Date();
-
-  return prisma.$transaction(async (tx) => {
-    const existing = await tx.user.findUnique({ where: { email } });
-    const user = existing
-      ? await tx.user.update({ where: { id: existing.id }, data: { role, status: "ACTIVE" } })
-      : await tx.user.create({ data: { email, emailVerifiedAt: now, role } });
-    await tx.authIdentity.upsert({
-      where: { userId_provider: { userId: user.id, provider: "EMAIL" } },
-      create: { userId: user.id, provider: "EMAIL", providerId: email, passwordHash, verifiedAt: now },
-      update: { passwordHash },
-    });
-    await writeAudit(tx, { actorId: null, action: existing ? "admin.promote" : "admin.create", entity: "user", entityId: user.id, data: { role } });
-    return { userId: user.id, created: !existing };
+  return prisma.$transaction(async db => {
+    await lockStaffWrites(db);
+    if (await db.user.findUnique({ where: { email } })) throw new AppError(409, "STAFF_ADDRESS_IN_USE");
+    const user = await db.user.create({ data: { email, emailVerifiedAt: new Date(), role, staffCredential: { create: { passwordHash } } } });
+    await writeAudit(db, { actorId: null, action: "admin.bootstrap", entity: "admin", entityId: user.id, data: { role } });
+    return { userId: user.id, created: true };
   });
 }
 
-// Потеряны и телефон, и резервные коды: сброс второго фактора. Админ пройдёт подключение заново.
-export async function resetAdminTotp(email: string): Promise<boolean> {
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user) return false;
-  await prisma.$transaction(async (tx) => {
-    await tx.adminTotp.deleteMany({ where: { userId: user.id } });
-    await tx.adminRecoveryCode.deleteMany({ where: { userId: user.id } });
-    await writeAudit(tx, { actorId: null, action: "admin.2fa.reset", entity: "admin", entityId: user.id });
-  });
-  await revokeAllAdminSessions(user.id);
-  return true;
-}
-
-// ───────────── внутреннее ─────────────
-function assertNotLocked(lockedUntil: Date | null, now: Date): void {
-  if (lockedUntil && lockedUntil > now) throw new AppError(429, "ACCOUNT_LOCKED");
-}
-
-// 5 неверных кодов подряд блокируют ввод на 15 минут (шестизначный код иначе подбирается)
-async function registerFailure(totpId: string, now: Date): Promise<void> {
-  const updated = await prisma.adminTotp.update({ where: { id: totpId }, data: { failedAttempts: { increment: 1 } } });
-  if (updated.failedAttempts >= MAX_FAILED_ATTEMPTS) {
-    await prisma.adminTotp.update({
-      where: { id: totpId },
-      data: { failedAttempts: 0, lockedUntil: new Date(now.getTime() + LOCK_MS) },
-    });
+export async function invalidateStaff(db: Db, userId: string, now: Date, resetFactor = false) {
+  await db.staffCredential.update({ where: { userId }, data: { version: { increment: 1 } } });
+  await db.adminSession.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: now } });
+  if (resetFactor) {
+    await db.adminRecoveryCode.deleteMany({ where: { userId } });
+    await db.adminTotp.deleteMany({ where: { userId } });
   }
 }
 
-async function failSecondFactor(totpId: string, userId: string, ctx: AdminAuthContext, now: Date): Promise<never> {
-  await registerFailure(totpId, now);
-  await writeAudit(prisma, { actorId: userId, action: "admin.2fa.failed", entity: "admin", entityId: userId, ip: ctx.ip });
-  throw new AppError(401, "INVALID_CODE");
-}
-
-function generateRecoveryCode(): string {
-  const bytes = randomBytes(10);
-  const chars = Array.from(bytes, (b) => RECOVERY_ALPHABET[b & 31]).join("");
-  return `${chars.slice(0, 5)}-${chars.slice(5)}`;
-}
-
-const normalizeRecoveryCode = (code: string): string => code.replace(/[\s-]/g, "").toUpperCase();
-
-async function consumeRecoveryCode(userId: string, code: string, now: Date): Promise<boolean> {
-  // Условное обновление: один код нельзя использовать дважды даже при параллельных запросах
-  const { count } = await prisma.adminRecoveryCode.updateMany({
-    where: { userId, codeHash: sha256(normalizeRecoveryCode(code)), usedAt: null },
-    data: { usedAt: now },
+export async function resetAdminTotp(email: string, incident: string) {
+  return prisma.$transaction(async db => {
+    await lockStaffWrites(db);
+    const user = await db.user.findUnique({ where: { email }, include: { staffCredential: true } });
+    if (!user || !isAdminRole(user.role) || !user.staffCredential) return false;
+    await lockIdentityOwner(db, user.id);
+    await invalidateStaff(db, user.id, await dbNow(db), true);
+    await writeAudit(db, { actorId: null, action: "admin.break_glass.totp_reset", entity: "admin", entityId: user.id, correlationId: randomUUID(), data: { incident } });
+    return true;
   });
-  return count === 1;
 }
-

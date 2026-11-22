@@ -42,7 +42,7 @@ describe("шаг 1: пароль", () => {
     // обычный пользователь с паролем (не админ)
     const plain = await createUser({ email: "plain@example.com" });
     await prisma.authIdentity.create({
-      data: { userId: plain.id, provider: "EMAIL", providerId: "plain@example.com", passwordHash: (await prisma.authIdentity.findFirstOrThrow({ where: { providerId: "ok@example.com" } })).passwordHash, verifiedAt: new Date() },
+      data: { userId: plain.id, provider: "EMAIL", providerId: "plain@example.com", passwordHash: (await prisma.staffCredential.findFirstOrThrow()).passwordHash, verifiedAt: new Date() },
     });
 
     const attempts = [
@@ -61,12 +61,11 @@ describe("шаг 1: пароль", () => {
     await expect(createAdminUser({ email: "weak@example.com", password: "short", role: "ADMIN" })).rejects.toThrow("12");
   });
 
-  it("createAdminUser повышает существующего пользователя и обновляет пароль", async () => {
+  it("rejects a bootstrap email already used by a customer", async () => {
     const user = await createUser({ email: "promote@example.com" });
-    const result = await createAdminUser({ email: "promote@example.com", password: PASSWORD, role: "SUPPORT" });
-    expect(result).toEqual({ userId: user.id, created: false });
-    expect((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).role).toBe("SUPPORT");
-    expect((await adminLogin({ email: "promote@example.com", password: PASSWORD }, ctx)).step).toBe("enroll_2fa");
+    await expect(createAdminUser({ email: "promote@example.com", password: PASSWORD, role: "SUPPORT" }))
+      .rejects.toMatchObject({ code: "STAFF_ADDRESS_IN_USE" });
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).role).toBe("USER");
   });
 });
 
@@ -107,14 +106,15 @@ describe("подключение 2FA", () => {
     await expect(startEnrollment(verifyStage)).rejects.toMatchObject({ code: "INVALID_STAGE" });
   });
 
-  it("повторный старт подключения выдаёт новый секрет (старый QR недействителен)", async () => {
+  it("retries the same enrollment and issues one recovery-code set across concurrent confirmations", async () => {
     await createAdminUser({ email: "restart@example.com", password: PASSWORD, role: "ADMIN" });
     const token = await stage("restart@example.com");
     const first = await startEnrollment(token);
-    const second = await startEnrollment(token);
-    expect(second.secret).not.toBe(first.secret);
-    await expect(confirmEnrollment(token, currentCode(first.secret), ctx)).rejects.toMatchObject({ code: "INVALID_CODE" });
-    await expect(confirmEnrollment(token, currentCode(second.secret), ctx)).resolves.toBeTruthy();
+    expect(await startEnrollment(token)).toEqual(first);
+    const results = await Promise.allSettled([1, 2].map(() => confirmEnrollment(token, currentCode(first.secret), ctx)));
+    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    expect(await prisma.adminRecoveryCode.count()).toBe(10);
+    expect(await prisma.adminSession.count()).toBe(1);
   });
 });
 
@@ -256,10 +256,10 @@ describe("сессии", () => {
     const admin = await createEnrolledAdmin("cli@example.com");
     expect(await resolveAdminSession(admin.sessionToken)).not.toBeNull();
 
-    expect(await resetAdminTotp("cli@example.com")).toBe(true);
+    expect(await resetAdminTotp("cli@example.com", "INC-123")).toBe(true);
     expect(await resolveAdminSession(admin.sessionToken)).toBeNull();
     expect((await adminLogin({ email: "cli@example.com", password: PASSWORD }, ctx)).step).toBe("enroll_2fa");
-    expect(await resetAdminTotp("ghost@example.com")).toBe(false);
+    expect(await resetAdminTotp("ghost@example.com", "INC-123")).toBe(false);
   });
 });
 

@@ -1,6 +1,8 @@
 // Read-only проверка связи с панелью Remnawave: ничего не создаёт и не меняет.
 // Запуск: pnpm --filter @vpn/api remnawave:check
-import { env } from "../src/config/env";
+import { z } from "zod";
+import { panelSettings } from "../src/config/panel-env";
+const env = z.object(panelSettings).parse(process.env);
 import { SUPPORTED_PANEL_SERIES } from "../src/modules/remnawave/remnawave.compat";
 import { RemnawaveError } from "../src/modules/remnawave/remnawave.errors";
 import { remnawave } from "../src/modules/remnawave";
