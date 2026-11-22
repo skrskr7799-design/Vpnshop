@@ -57,7 +57,7 @@ export const commerceRoutes: FastifyPluginAsync<{ payments?: PaymentProviderAdap
       return reply.code(201).send({ orderId: order.id, snapshot: snapshot(order), expiresAt: order.expiresAt.toISOString() });
     });
 
-    orders.get("/me/subscription", req => subscriptionOverview(req.auth!.userId));
+    orders.get("/me/subscription", req => subscriptionOverview(req.auth!.userId, panel));
     orders.get("/me/subscription/periods", req => {
       const { limit, cursor } = keysetQuery.parse(req.query);
       return listPeriods(req.auth!.userId, limit, cursor);

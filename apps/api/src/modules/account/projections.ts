@@ -5,6 +5,7 @@ import { keysetPage, keysetWhere, newestFirst } from "../../lib/keyset";
 import { AppError } from "../../lib/errors";
 import { dbNow } from "../commerce/offers";
 import { snapshot } from "../commerce/orders";
+import type { AssignmentPanel } from "../remnawave/remnawave.assignment";
 import { driftIntervalMs } from "../fulfillment/revision.queue";
 
 const periodInclude = { adjustment: true, order: { include: { offerVersion: true } } } as const;
@@ -16,7 +17,7 @@ const periodDto = (grant: PeriodRow): OwnerPeriod => ({
   adjustments: grant.adjustment ? [{ id: grant.adjustment.id, effectiveAt: grant.adjustment.effectiveAt.toISOString(), kind: grant.adjustment.reason }] : [],
 });
 
-export async function subscriptionOverview(userId: string): Promise<OwnerSubscription> {
+export async function subscriptionOverview(userId: string, panel?: AssignmentPanel): Promise<OwnerSubscription> {
   return prisma.$transaction(async db => {
     const now = await dbNow(db);
     const serverTime = now.toISOString();
@@ -40,7 +41,8 @@ export async function subscriptionOverview(userId: string): Promise<OwnerSubscri
       subscriptionId: sub.id, revision: sub.revision,
     } }, include: { job: true } });
     const observedAt = sub.panelBinding?.confirmedAt ?? null;
-    const observationFresh = !!observedAt && +now - +observedAt <= 2 * driftIntervalMs &&
+    const observationFresh = !!panel && sub.panelBinding?.panelInstance === panel.instance &&
+      sub.panelBinding.origin === panel.origin && !!observedAt && +now - +observedAt <= 2 * driftIntervalMs &&
       sub.panelBinding?.confirmedRevision === sub.revision && assignment?.job?.status === "CONFIRMED";
     const rightStatus = sub.legacyUnverified ? "LEGACY_REVIEW" : sub.holds.length || sub.panelBinding?.blockedReason ? "HELD"
       : active ? "ACTIVE" : remaining.length ? "SCHEDULED" : tail ? "EXPIRED" : "EMPTY";

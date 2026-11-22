@@ -83,25 +83,27 @@ async function revokeFamilies(db: Db, userId: string, match: Prisma.SessionFamil
 
 export async function revokeSessionFamily(refreshToken: string): Promise<void> {
   const token = await prisma.session.findUnique({ where: { tokenHash: sha256(refreshToken) } });
-  if (token?.liveFamilyId) await revokeDevice(token.userId, token.liveFamilyId, false);
+  if (token?.liveFamilyId) await revokeDevice(token.userId, token.liveFamilyId);
 }
 
-export async function revokeDevice(userId: string, sid: string, requireOwner = true) {
+export async function revokeDevice(userId: string, sid: string, caller?: AuthClaims) {
   await prisma.$transaction(async db => {
     await lockIdentityOwner(db, userId);
-    if (requireOwner && !await db.sessionFamily.findFirst({ where: { id: sid, userId }, select: { id: true } })) {
+    if (caller) await requireLiveFamily(caller, db);
+    if (caller && !await db.sessionFamily.findFirst({ where: { id: sid, userId }, select: { id: true } })) {
       throw new AppError(404, "NOT_FOUND");
     }
     await revokeFamilies(db, userId, { id: sid });
   });
 }
 
-export function revokeOtherDevices(claims: AuthClaims) {
-  return prisma.$transaction(async db => {
+export function revokeOtherDevices(claims: AuthClaims, tx?: Db) {
+  async function revoke(db: Db) {
     await lockIdentityOwner(db, claims.userId);
     await requireLiveFamily(claims, db);
     await revokeFamilies(db, claims.userId, { id: { not: claims.sid } });
-  });
+  }
+  return tx ? revoke(tx) : prisma.$transaction(revoke);
 }
 
 export async function revokeAllUserSessions(userId: string, db: Db = prisma): Promise<void> {
@@ -116,4 +118,13 @@ export async function listDevices(claims: AuthClaims) {
   }, orderBy: [{ lastSeenAt: "desc" }, { id: "asc" }] });
   return rows.map(({ id, createdAt, lastSeenAt, expiresAt, userAgent }) =>
     ({ id, createdAt, lastSeenAt, expiresAt, device: userAgent ?? "Неизвестное устройство", current: id === claims.sid }));
+}
+
+export async function touchFamily(family: { id: string; lastSeenAt: Date }) {
+  const now = new Date();
+  const threshold = new Date(+now - 5 * 60_000);
+  if (family.lastSeenAt < threshold) await prisma.sessionFamily.updateMany({
+    where: { id: family.id, revokedAt: null, expiresAt: { gt: now }, lastSeenAt: { lt: threshold } },
+    data: { lastSeenAt: now },
+  });
 }

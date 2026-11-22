@@ -23,6 +23,17 @@ export function setLogoutHidden(hidden: boolean) {
   } catch { /* in-memory fallback */ }
 }
 
+type SessionEvent = "logout-started" | "logout-confirmed" | "login";
+const channel = typeof window !== "undefined" && typeof BroadcastChannel !== "undefined"
+  ? new BroadcastChannel("mzt-account-session") : null;
+
+export function publishSessionEvent(event: SessionEvent) { channel?.postMessage(event); }
+export function onSessionEvent(handler: (event: SessionEvent) => void) {
+  channel?.addEventListener("message", event => {
+    if (["logout-started", "logout-confirmed", "login"].includes(event.data)) handler(event.data);
+  });
+}
+
 // Эндпоинты авторизации сами выдают и проверяют сессию, поэтому skipRefresh.
 const auth = { method: "POST", skipRefresh: true } as const;
 

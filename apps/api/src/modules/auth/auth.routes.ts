@@ -73,7 +73,7 @@ export async function authRoutes(app: FastifyInstance) {
     if (token) await revokeSessionFamily(token);
     const access = req.cookies[ACCESS_COOKIE];
     const claims = access ? await verifyAccessToken(access) : null;
-    if (claims) await revokeDevice(claims.userId, claims.sid, false);
+    if (claims) await revokeDevice(claims.userId, claims.sid);
     clearAuthCookies(reply);
     return reply.code(204).send();
   });
@@ -91,7 +91,7 @@ export async function authRoutes(app: FastifyInstance) {
   app.get("/sessions", { preHandler: authenticate }, async req => ({ sessions: await listDevices(req.auth!) }));
   app.delete("/sessions/:id", { preHandler: authenticate }, async (req, reply) => {
     const { id } = z.object({ id: z.uuid() }).parse(req.params);
-    await revokeDevice(req.auth!.userId, id);
+    await revokeDevice(req.auth!.userId, id, req.auth!);
     if (id === req.auth!.sid) clearAuthCookies(reply);
     return reply.code(204).send();
   });

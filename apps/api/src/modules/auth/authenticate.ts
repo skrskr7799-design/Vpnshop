@@ -1,7 +1,7 @@
 import type { FastifyRequest } from "fastify";
 import { AppError } from "../../lib/errors";
 import { ACCESS_COOKIE } from "./auth.constants";
-import { requireLiveFamily } from "./session.service";
+import { requireLiveFamily, touchFamily } from "./session.service";
 import { verifyAccessToken, type AuthClaims } from "./jwt";
 
 declare module "fastify" {
@@ -18,5 +18,6 @@ export async function authenticate(req: FastifyRequest): Promise<void> {
   const expected = req.headers["x-mzt-session"];
   if (expected !== undefined && expected !== claims.sid) throw new AppError(401, "SESSION_CHANGED");
   const family = await requireLiveFamily(claims);
+  await touchFamily(family);
   req.auth = { ...claims, role: family.user.role };
 }

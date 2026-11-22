@@ -17,9 +17,11 @@ async function accessTarget(userId: string, panel: AssignmentPanel) {
     }
     const desired = await db.desiredAssignment.findUnique({
       where: { subscriptionId_revision: { subscriptionId: subscription.id, revision: subscription.revision } },
-      include: { job: true },
+      include: { job: true, grant: { include: { adjustment: true } } },
     });
-    if (desired && (!desired.enabled || !desired.expiresAt || desired.expiresAt <= now)) {
+    if (desired && (!desired.enabled || !desired.expiresAt || desired.expiresAt <= now ||
+        !desired.grant || desired.grant.startAt > now ||
+        (desired.grant.adjustment?.effectiveAt ?? desired.grant.endAt) <= now)) {
       throw new AppError(409, "ACCESS_EXPIRED");
     }
     const binding = subscription.panelBinding;

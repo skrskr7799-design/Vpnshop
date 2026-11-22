@@ -9,10 +9,10 @@ import { prisma } from "../../lib/prisma";
 import { authenticate } from "../auth/authenticate";
 import { setAuthCookies } from "../auth/cookies";
 import { verifyAgainstDummy, verifyPassword } from "../auth/password";
-import { createSession, lockIdentityOwner, requireLiveFamily } from "../auth/session.service";
+import { createSession, lockIdentityOwner, requireLiveFamily, revokeOtherDevices } from "../auth/session.service";
 import { clearFlowCookie, FLOW_TTL_MS, readFlowCookie, setFlowCookie } from "./flow-cookie";
 import { buildAuthorizationUrl, exchangeCode, verifyIdToken } from "./oidc";
-import { consumeProof, linkProfile, loginWithProfile } from "./oauth.service";
+import { consumeProof, linkProfile, loginWithProfile, requireConsumedFlow } from "./oauth.service";
 import type { OAuthProvider, ProviderMap } from "./oauth.types";
 import { codeChallengeFromVerifier, generateCodeVerifier } from "./pkce";
 import { sanitizeReturnTo } from "./return-to";
@@ -175,6 +175,7 @@ export const oauthRoutes: FastifyPluginAsync<{ providers: ProviderMap }> = async
       if (!rows.some(row => row.id !== target.id && validIdentity(row, providers))) throw new AppError(409, "LAST_LOGIN_METHOD");
       if (!(await consumeProof(db, claims, confirmationId, provider, "UNLINK")).count) throw new AppError(403, "REAUTH_REQUIRED");
       await db.authIdentity.delete({ where: { id: target.id } });
+      await revokeOtherDevices(claims, db);
       if (provider === "EMAIL") await db.user.update({ where: { id: claims.userId }, data: { emailLoginDisabled: true } });
       await db.identityProof.deleteMany({ where: { family: { userId: claims.userId } } });
       await db.oAuthFlow.deleteMany({ where: { family: { userId: claims.userId } } });
@@ -207,7 +208,7 @@ export const oauthRoutes: FastifyPluginAsync<{ providers: ProviderMap }> = async
       const claims = await verifyIdToken(provider, idToken, { nonce: flow.nonce ?? undefined });
       const profile = provider.toProfile(claims);
       if (flow.mode === "link") {
-        await linkProfile(req.auth!, provider.authProvider, profile);
+        await linkProfile(req.auth!, provider.authProvider, profile, flow.state);
         return toWeb(reply, flow.returnTo ?? "/account/security", { linked: provider.id });
       }
       if (flow.mode === "reauth" && flow.target && flow.purpose) {
@@ -220,6 +221,7 @@ export const oauthRoutes: FastifyPluginAsync<{ providers: ProviderMap }> = async
         await prisma.$transaction(async db => {
           await lockIdentityOwner(db, session.userId);
           await requireLiveFamily(session, db);
+          await requireConsumedFlow(db, session, flow.state, "reauth");
           const identity = await db.authIdentity.findUnique({ where: { userId_provider: { userId: session.userId, provider: provider.authProvider } } });
           if (!identity?.verifiedAt || identity.providerId !== profile.providerId) throw new AppError(403, "REAUTH_FAILED");
           await db.identityProof.create({ data: { familyId: session.sid, target, purpose, expiresAt: proofExpiry() } });

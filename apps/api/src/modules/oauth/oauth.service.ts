@@ -45,11 +45,12 @@ export async function loginWithProfile(provider: AuthProvider, profile: Provider
 }
 
 // Привязка внешнего аккаунта к уже вошедшему пользователю.
-export async function linkProfile(claims: AuthClaims, provider: AuthProvider, profile: ProviderProfile): Promise<void> {
+export async function linkProfile(claims: AuthClaims, provider: AuthProvider, profile: ProviderProfile, state?: string): Promise<void> {
   try {
     await prisma.$transaction(async db => {
       const user = await lockIdentityOwner(db, claims.userId);
       await requireLiveFamily(claims, db);
+      if (state) await requireConsumedFlow(db, claims, state, "link");
       if (!user) throw new AppError(401, "UNAUTHENTICATED");
       const existing = await db.authIdentity.findUnique({
         where: { provider_providerId: { provider, providerId: profile.providerId } },
@@ -87,4 +88,12 @@ export async function listLinkedProviders(userId: string): Promise<AuthProvider[
 function assertActive(user: User): User {
   if (user.status !== "ACTIVE" || user.role !== "USER") throw new AppError(403, "ACCOUNT_BLOCKED");
   return user;
+}
+
+export async function requireConsumedFlow(db: Prisma.TransactionClient, claims: AuthClaims, state: string, mode: "link" | "reauth") {
+  const flow = await db.oAuthFlow.findFirst({
+    where: { state, familyId: claims.sid, mode, expiresAt: { gt: new Date() }, consumedAt: { not: null } },
+    select: { state: true },
+  });
+  if (!flow) throw new AppError(403, "OAUTH_STATE");
 }

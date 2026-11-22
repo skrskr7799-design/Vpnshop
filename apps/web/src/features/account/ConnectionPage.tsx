@@ -26,6 +26,12 @@ export function ConnectionPage() {
   const periodId = sub?.currentPeriod?.id;
   const visible = ready && revealed?.id === periodId ? revealed : null;
   useEffect(() => {
+    setRevealed(current => ready && current?.id === periodId ? current : null);
+    const hide = () => setRevealed(null);
+    window.addEventListener("pagehide", hide);
+    return () => window.removeEventListener("pagehide", hide);
+  }, [ready, periodId]);
+  useEffect(() => {
     if (!visible) return;
     const t = setTimeout(() => setRevealed(null), 60_000);
     return () => clearTimeout(t);

@@ -5,7 +5,7 @@ import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { resetDatabase } from "../../test/db";
 import { createUser } from "../../test/factories";
-import { createSession } from "../auth/session.service";
+import { createSession, revokeSessionFamily } from "../auth/session.service";
 import { dbNow } from "../commerce/offers";
 import { recordLookup } from "../payments/ledger";
 import type { AbsoluteProfile, AssignmentPanel, PanelUser } from "../remnawave/remnawave.assignment";
@@ -272,6 +272,14 @@ it("checks ownership and revokes local links across multiple holds, enabling onl
     await tick();
     expect(fixture.panel.enableUser).toHaveBeenCalledTimes(1);
     expect((await link(token)).statusCode).toBe(200);
+    const next = await createSession(user, {});
+    fixture.panel.getSubscriptionLink.mockImplementationOnce(async () => {
+      await revokeSessionFamily(next.refreshToken);
+      return { user: fixture.current!, url: secret };
+    });
+    const revoked = await link(next.accessToken);
+    expect(revoked.statusCode).toBe(401);
+    expect(revoked.body).not.toContain(secret);
     const history = await prisma.panelObservation.findMany({ select: { comparison: true, status: true, squads: true } });
     expect(JSON.stringify(history)).not.toContain(secret);
   } finally { await app.close(); }

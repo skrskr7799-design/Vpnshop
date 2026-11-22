@@ -114,6 +114,8 @@ GRANT SELECT ON test_guard.instance TO vpnshop_suite;
 GRANT SELECT, INSERT, UPDATE, DELETE ON "User","AuthIdentity","Session","PendingRegistration",
   "VerificationToken","AdminTotp","AdminRecoveryCode","AdminSession","Plan","PlanPrice","OfferVersion","Order",
   "Payment","WebhookEvent","FulfillmentJob","FulfillmentLease","AuditLog","MerchantAccount","PaymentCase","SessionFamily","OAuthFlow","IdentityProof","AuthMailWindow" TO vpnshop_suite;
+GRANT SELECT, INSERT, UPDATE, DELETE ON "SupportCase" TO vpnshop_suite;
+GRANT SELECT, INSERT, DELETE ON "SupportMessage", "SupportEvent" TO vpnshop_suite;
 -- TRUNCATE permits guarded suite reset without allowing ledger UPDATE/DELETE.
 GRANT SELECT, INSERT, TRUNCATE ON "PaymentTransaction", "OrderAllocation", "PeriodGrant",
   "Adjustment", "DesiredAssignment" TO vpnshop_suite;

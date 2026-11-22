@@ -10,7 +10,7 @@ import { OAuthButtons } from "../../../components/OAuthButtons/OAuthButtons";
 import { useConsumedSearchParam } from "../../../hooks/useConsumedSearchParam";
 import { PasswordField } from "../../../components/Field/PasswordField";
 import { getErrorMessage, getMessageByCode } from "../errors";
-import { authApi, logoutHidden, setLogoutHidden } from "../api";
+import { authApi, logoutHidden, publishSessionEvent, setLogoutHidden } from "../api";
 import { useState } from "react";
 import { useLogin } from "../queries";
 import { getRedirectTarget } from "../redirect";
@@ -33,7 +33,7 @@ export function LoginPage() {
       {logoutPending && <Alert variant="error">
         Данные скрыты. Серверный выход ещё не подтверждён.
         <button type="button" onClick={() => void authApi.logout().then(() => {
-          setLogoutHidden(false); setLogoutPending(false);
+          setLogoutHidden(false); setLogoutPending(false); publishSessionEvent("logout-confirmed");
         }).catch(() => {})}>Повторить выход</button>
       </Alert>}
       <form className="auth-form" noValidate onSubmit={handleSubmit((values) => login.mutate(values))}>

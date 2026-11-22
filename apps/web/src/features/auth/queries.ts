@@ -1,8 +1,15 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { bindPrivateSession, resetPrivateRequests } from "../../api/client";
-import { authApi, fetchMe, setLogoutHidden } from "./api";
+import { authApi, fetchMe, publishSessionEvent, setLogoutHidden } from "./api";
 
 export const meQueryKey = ["auth", "me"] as const;
+
+export function clearAccountCache(queryClient: QueryClient) {
+  resetPrivateRequests();
+  void queryClient.cancelQueries();
+  queryClient.removeQueries({ predicate: q => q.queryKey[0] !== "auth" });
+  queryClient.setQueryData(meQueryKey, null);
+}
 
 export function useMe() {
   return useQuery({ queryKey: meQueryKey, queryFn: ({ signal }) => fetchMe(signal), staleTime: 0, retry: false, refetchInterval: 30_000 });
@@ -19,6 +26,7 @@ export function useLogin() {
       queryClient.removeQueries({ predicate: query => query.queryKey[0] !== "auth" });
       bindPrivateSession(sessionId);
       queryClient.setQueryData(meQueryKey, { ...user, sessionId });
+      publishSessionEvent("login");
     },
   });
 }
@@ -29,12 +37,10 @@ export function useLogout() {
     mutationFn: authApi.logout,
     onMutate: () => {
       setLogoutHidden(true);
-      resetPrivateRequests();
-      void queryClient.cancelQueries();
-      queryClient.removeQueries({ predicate: q => q.queryKey[0] !== "auth" });
-      queryClient.setQueryData(meQueryKey, null);
+      clearAccountCache(queryClient);
+      publishSessionEvent("logout-started");
     },
-    onSuccess: () => { setLogoutHidden(false); },
+    onSuccess: () => { setLogoutHidden(false); publishSessionEvent("logout-confirmed"); },
   });
 }
 
