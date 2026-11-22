@@ -129,13 +129,13 @@ export function registerCommandProtocol(app: FastifyInstance, commands: Commands
       const commandId = randomUUID();
       const output = await entry.run({ db, actor: current.actor, targetId, reason: input.reason,
         expectedVersion: input.expectedVersion, now: current.now, commandId, transient }, input.command);
-      // Object lock waits are included in the freshness check. Failure rolls back the effect.
-      const proof = await db.adminConfirmation.findUniqueOrThrow({ where: { id: input.confirmationId } });
-      if (proof.expiresAt <= await dbNow(db)) throw new AppError(403, "STEP_UP_REQUIRED");
       await db.adminCommand.create({ data: { ...key, id: commandId, fingerprint: fingerprintValue, permission: entry.permission, result: output } });
       await writeAudit(db, { actorId: actor.userId, role: current.actor.role, permission: entry.permission,
         reason: input.reason, action: operation, entity: operation.split(".")[0]!, entityId: targetId,
         commandId, correlationId: req.id, outcome: "SUCCEEDED", ip: req.ip, data: output });
+      // Object lock waits are included in the freshness check. Failure rolls back the effect.
+      const proof = await db.adminConfirmation.findUniqueOrThrow({ where: { id: input.confirmationId } });
+      if (proof.expiresAt <= await dbNow(db)) throw new AppError(403, "STEP_UP_REQUIRED");
       return { commandId, status: "SUCCEEDED", targetId, result: output };
     });
     return { ...result, ...transient };

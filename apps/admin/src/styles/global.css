@@ -49,3 +49,6 @@ th { background: var(--surface); min-width: 8rem; }
   .sidebar { padding: .75rem 1rem; border-inline-end: 0; border-bottom: 1px solid var(--border); }
   nav { display: flex; flex-wrap: wrap; margin-top: .5rem; }
 }
+.command summary { cursor: pointer; font-weight: 650; min-height: 28px; }
+.command form { max-width: 40rem; margin-block: 1rem; }
+.command button { justify-self: start; }

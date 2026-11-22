@@ -76,12 +76,15 @@ it("rejects stale/expired proofs and rolls back the local effect on failed audit
   });
   try {
     await acquired;
+    await prisma.adminConfirmation.update({ where: { id: proof.confirmationId }, data: { expiresAt: new Date(Date.now() + 400) } });
     const pending = send(alice, "plan.publish", plan.id, proof);
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await new Promise(resolve => setTimeout(resolve, 550));
     unblock();
-    expect((await pending).statusCode).toBe(200);
+    expect((await pending).json().error.code).toBe("STEP_UP_REQUIRED");
   } finally { unblock(); await contention; }
-  expect((await second.command("plan.publish", plan.id, 0, offer)).json().error.code).toBe("VERSION_CONFLICT");
+  expect(await prisma.offerVersion.count()).toBe(0);
+  expect((await second.command("plan.publish", plan.id, 0, offer)).statusCode).toBe(200);
+  expect((await first.command("plan.publish", plan.id, 0, offer)).json().error.code).toBe("VERSION_CONFLICT");
 });
 
 it("prevents two concurrent mutual demotions and invalidates a revoked actor's pre-issued proof", async () => {

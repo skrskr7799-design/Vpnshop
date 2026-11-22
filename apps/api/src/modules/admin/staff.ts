@@ -117,6 +117,19 @@ export const staffRoutes: FastifyPluginAsync = async app => {
       enrollmentState: !row.staffCredential ? "REVIEW" : row.totp?.confirmedAt ? "ENROLLED" : "PENDING",
     }));
   });
+  app.get("/staff/:id", { preHandler: requireAdmin("staff:read") }, async req => {
+    const { id } = idParams.parse(req.params);
+    const row = await prisma.user.findFirst({ where: { id, role: { in: [...staffRoles] } }, select: {
+      id: true, role: true, status: true, email: true, createdAt: true, updatedAt: true,
+      totp: { select: { confirmedAt: true } }, staffCredential: { select: { version: true } },
+      staffResets: { take: 25, orderBy: [{ expiresAt: "desc" }, { id: "desc" }],
+        select: { id: true, actorId: true, approvedBy: true, caseId: true, expiresAt: true } },
+    } });
+    if (!row) throw new AppError(404, "NOT_FOUND");
+    return { id: row.id, role: row.role, status: row.status, email: row.email, createdAt: row.createdAt,
+      updatedAt: row.updatedAt, enrolledAt: row.totp?.confirmedAt ?? null, version: row.staffCredential?.version ?? null,
+      resets: row.staffResets };
+  });
   async function sessionPage(userId: string, current: string, { limit, cursor }: z.infer<typeof keysetQuery>) {
     const scope = "staff-sessions:" + userId;
     const rows = await prisma.adminSession.findMany({

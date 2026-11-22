@@ -56,8 +56,9 @@ export function guardedRevision<T>(job: RevisionJob, budgetMs: number,
     if (!lease.enough) throw new LeaseWindowTooShort();
     if (subscription?.id !== job.subscriptionId || subscription.revision !== job.revision ||
         subscription.legacyUnverified) throw new Superseded();
+    const allocation = { include: { capture: { include: { account: true } } } } as const;
     const desired = await db.desiredAssignment.findUniqueOrThrow({ where: { id: job.assignmentId },
-      include: { grant: { include: { adjustment: true, allocation: { include: { capture: { include: { account: true } } } } } } },
+      include: { grant: { include: { adjustment: true, allocation, basis: { include: { allocation } } } } },
     });
     const now = await dbNow(db);
     if (subscription.nextBoundaryAt && subscription.nextBoundaryAt <= now) throw new Superseded();
@@ -66,10 +67,13 @@ export function guardedRevision<T>(job: RevisionJob, budgetMs: number,
           await db.serviceHold.findFirst({ where: { subscriptionId: subscription.id, releasedAt: null } })) {
         throw new Superseded();
       }
-      if (desired.grant?.allocation.capture.account.environment !== "MOCK" ||
-          desired.grant.subscriptionId !== subscription.id || desired.grant.deviceLimit !== desired.deviceLimit ||
-          desired.grant.startAt > now ||
-          (desired.grant.adjustment?.effectiveAt ?? desired.grant.endAt).getTime() !== desired.expiresAt.getTime() ||
+      const grant = desired.grant;
+      const source = grant?.allocation ?? (grant?.incidentId && grant.basis?.subscriptionId === subscription.id
+        ? grant.basis.allocation : null);
+      if (!grant || source?.capture.account.environment !== "MOCK" ||
+          grant.subscriptionId !== subscription.id || grant.deviceLimit !== desired.deviceLimit ||
+          grant.startAt > now ||
+          (grant.adjustment?.effectiveAt ?? grant.endAt).getTime() !== desired.expiresAt.getTime() ||
           desired.internalSquads.length === 0) {
         throw new RevisionReview("STAGING_TARGET_UNAPPROVED");
       }

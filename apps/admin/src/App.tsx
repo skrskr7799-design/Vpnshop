@@ -1,6 +1,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { BrowserRouter, Link, NavLink, Navigate, Outlet, Route, Routes, useNavigate, useParams } from "react-router";
+import { Action } from "./commands";
+import { AccessActions, Invite, OrderActions, PlanActions, PlanCreate, Settings, StaffActions } from "./actions";
 import { api, ApiError, errorText } from "./api";
 import { Login, Session, useCan, useSession, type Principal } from "./session";
 import { Dashboard, Detail, Facts, jobColumns, jobFilters, List, orderColumns, orderFilters, PlanDetail,
@@ -64,6 +66,7 @@ function UserDetails() {
         <Link to={"/users/" + row.id + "/periods"}>Периоды</Link>
       </div>
     </section>
+    <AccessActions row={row} />
   </>}</Detail>;
 }
 function OrderDetails() {
@@ -74,6 +77,7 @@ function OrderDetails() {
       {finance && <Link to={"/orders/" + row.id + "/finance"}>Подтверждённые движения</Link>}</section>
     <section className="panel"><h2>Выдача и наблюдения</h2><Facts data={row} keys={["job", "observations"]} />
       <Link to={"/support?orderId=" + row.id}>Обращения по заказу</Link></section>
+    <OrderActions row={row} />
   </>}</Detail>;
 }
 
@@ -98,7 +102,7 @@ function OwnSessions() {
 }
 function Operations() {
   const service = useAdmin<Record<string, unknown>>("/operations/status", 30_000);
-  return <><h1>Сервисы</h1><RequestState state={service} />{service.data && <section className="panel"><Facts data={service.data} /></section>}</>;
+  return <><h1>Сервисы</h1><RequestState state={service} />{service.data && <section className="panel"><Facts data={service.data} /></section>}<Settings /></>;
 }
 
 export function App() {
@@ -123,27 +127,48 @@ export function App() {
         <Link to="/payments/cases">Дела сверки</Link></List></Permit>} />
       <Route path="payments/cases" element={<Permit permission="finance:read"><List title="Дела сверки" path="/payments/cases"
         columns={["id", "kind", "status", "priority", "nextCheckAt", "updatedAt"]}
-        filters={[["status", "Статус", ["OPEN", "INVESTIGATING", "RESOLVED"]]]} /></Permit>} />
+        filters={[["status", "Статус", ["OPEN", "INVESTIGATING", "RESOLVED"]]]} destination={row => "/payments/cases/" + row.id} /></Permit>} />
+      <Route path="payments/cases/:id" element={<Permit permission="finance:read">
+        <Detail title="Дело сверки" path="/payments/cases">{row => <><section className="panel"><Facts data={row} /></section>
+          <Action title="Записать результат разбора" operation="payment.case_review" permission="finance:reconcile"
+            target={row.id} version={String(row.version)} fields={[{ name: "disposition", label: "Исход", options: ["INVESTIGATING", "RESOLVED"] }]} />
+        </>}</Detail>
+      </Permit>} />
       <Route path="subscriptions" element={<List title="Подписки" path="/subscriptions"
         columns={["userId", "revision", "panelBinding", "_count", "nextBoundaryAt"]} filters={[["userId", "ID пользователя"]]}
         destination={row => "/users/" + row.userId} />} />
       <Route path="jobs" element={<List title="Очередь выдачи" path="/jobs" columns={jobColumns} filters={jobFilters}
         destination={row => "/jobs/" + row.id} />} />
-      <Route path="jobs/:id" element={<Detail title="Задача выдачи" path="/jobs">{row => <section className="panel"><Facts data={row} /></section>}</Detail>} />
+      <Route path="jobs/:id" element={<Detail title="Задача выдачи" path="/jobs">{row => <>
+        <section className="panel"><Facts data={row} /></section>
+        {row.revision !== null && row.currentRevision === row.revision && <Action title="Запросить повторную проверку"
+          operation="job.requeue" permission="jobs:write" target={row.id} version={String(row.revision)} />}
+      </>}</Detail>} />
       <Route path="plans" element={<List title="Тарифы" path="/plans" columns={["name", "code", "revision", "deviceLimit", "isActive"]}
-        filters={[["active", "Активен", ["true", "false"]]]} destination={row => "/plans/" + row.id} />} />
-      <Route path="plans/:id" element={<PlanDetail />} />
+        filters={[["active", "Активен", ["true", "false"]]]} destination={row => "/plans/" + row.id}><PlanCreate /></List>} />
+      <Route path="plans/:id" element={<PlanDetail actions={(plan, versions) => <PlanActions plan={plan} versions={versions} />} />} />
       <Route path="support" element={<List title="Обращения" path="/support/cases" columns={ticketColumns} filters={ticketFilters}
         destination={row => "/support/" + row.id} />} />
-      <Route path="support/:id" element={<SupportDetail />} />
+      <Route path="support/:id" element={<SupportDetail command={ticket => <Action title="Ответить или изменить статус" operation="support.action" permission="support:write"
+        target={ticket.id} version={String(ticket.updatedAt)} fields={[
+          { name: "status", label: "Новый статус", options: ["OPEN", "WAITING_CUSTOMER", "RESOLVED"], required: false },
+          { name: "publicReply", label: "Публичный ответ", type: "textarea", required: false },
+        ]} />} />} />
       <Route path="audit" element={<Permit permission="audit:read"><List title="Аудит" path="/audit"
         columns={["action", "actorId", "permission", "entityId", "reason", "commandId", "createdAt"]}
         filters={[["action", "Действие"], ["entity", "Объект"], ["actorId", "ID сотрудника"]]} /></Permit>} />
       <Route path="staff" element={<Permit permission="staff:read"><List title="Сотрудники" path="/staff"
         columns={["email", "role", "status", "enrollmentState", "version"]} filters={[["role", "Роль", ["ADMIN", "SUPPORT"]]]}
-        destination={row => "/staff/" + row.id} /></Permit>} />
-      <Route path="staff/:id" element={<Permit permission="staff:read"><ForId render={id => <List title="Сессии сотрудника"
-        path={`/staff/${id}/sessions`} columns={["id", "userAgent", "lastSeenAt", "expiresAt", "revokedAt"]} />} /></Permit>} />
+        destination={row => "/staff/" + row.id}><Invite /></List></Permit>} />
+      <Route path="staff/:id" element={<Permit permission="staff:read"><Detail title="Сотрудник" path="/staff">{row => <>
+        <section className="panel"><Facts data={row} /></section><StaffActions row={row} />
+      </>}</Detail></Permit>} />
+      <Route path="staff/:id/sessions" element={<Permit permission="staff:read">
+        <Detail title="Сессии сотрудника" path="/staff">{staff => <List title="Устройства" path={`/staff/${staff.id}/sessions`}
+          columns={["id", "userAgent", "lastSeenAt", "expiresAt", "revokedAt"]} actions={rows => rows.filter(row => !row.revokedAt).map(row =>
+            <Action key={row.id} title={"Отозвать сессию · " + row.id.slice(0, 8)} operation="staff.session.revoke"
+              permission="staff:write" version={String(staff.version)} target={staff.id} payload={{ sessionId: row.id }} />)} />}
+        </Detail></Permit>} />
       <Route path="security" element={<OwnSessions />} />
       <Route path="operations" element={<Operations />} />
       <Route path="*" element={<><h1>Страница не найдена</h1><Link to="/">Вернуться к обзору</Link></>} />

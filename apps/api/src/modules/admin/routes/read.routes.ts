@@ -231,6 +231,16 @@ export const adminReadRoutes: FastifyPluginAsync = async app => {
       orderBy: newestFirst, take: limit + 1 });
     return keysetPage(scope, rows, limit, row => ({ ...row, version: row.updatedAt }));
   });
+  app.get("/payments/cases/:id", { preHandler: requireAdmin("finance:read") }, async req => {
+    const caseId = params.parse(req.params).id;
+    const row = await prisma.paymentCase.findUnique({ where: { id: caseId }, select: {
+      id: true, kind: true, status: true, priority: true, createdAt: true, updatedAt: true, nextCheckAt: true,
+      history: true,
+    } });
+    if (!row) throw missing();
+    const history = z.array(z.object({ status: z.string(), at: z.string().optional() })).safeParse(row.history);
+    return { ...row, version: row.updatedAt, history: history.success ? history.data.slice(-50) : [] };
+  });
   app.get("/jobs/:id", { preHandler: requireAdmin("jobs:read") }, async req => {
     const jobId = params.parse(req.params).id;
     const row = await prisma.fulfillmentJob.findUnique({ where: { id: jobId }, select: jobSelect });

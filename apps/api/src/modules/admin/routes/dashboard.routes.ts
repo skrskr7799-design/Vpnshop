@@ -78,13 +78,15 @@ export const adminDashboardRoutes: FastifyPluginAsync<DashboardDeps> = async (ap
         LEFT JOIN "FulfillmentJob" j ON j."assignmentId" = d.id
         WHERE g."startAt" <= ${asOf} AND COALESCE(a."effectiveAt",g."endAt") > ${asOf} AND NOT s."legacyUnverified"
           AND NOT EXISTS (SELECT 1 FROM "ServiceHold" h WHERE h."subscriptionId" = s.id AND h."releasedAt" IS NULL)`;
-      const overdue = new Date(+asOf - 15 * 60_000);
+      const settings = await db.adminOperationalSettings.findUnique({ where: { id: "default" } });
+      const overdue = new Date(+asOf - (settings?.paymentLagWarnSeconds ?? 900) * 1000);
+      const jobCutoff = new Date(+asOf - (settings?.fulfillmentLagWarnSeconds ?? 900) * 1000);
       const [paid, stuckPayments, awaiting, errors, overdueJobs, cases] = await Promise.all([
         db.orderAllocation.count({ where: { createdAt: range } }),
         db.payment.count({ where: { OR: [{ status: "UNKNOWN" }, { status: { in: ["SUBMITTING", "PROCESSING"] }, updatedAt: { lt: overdue } }] } }),
         db.payment.count({ where: { status: "AWAITING_CUSTOMER", expiresAt: { gt: asOf } } }),
         db.fulfillmentJob.count({ where: { status: { in: ["FAILED", "NEEDS_REVIEW"] } } }),
-        db.fulfillmentJob.count({ where: { status: { in: ["VERIFY_PENDING", "RETRY_WAIT", "PENDING"] }, nextAttemptAt: { lt: overdue } } }),
+        db.fulfillmentJob.count({ where: { status: { in: ["VERIFY_PENDING", "RETRY_WAIT", "PENDING"] }, nextAttemptAt: { lt: jobCutoff } } }),
         db.supportCase.count({ where: { status: { not: "RESOLVED" } } }),
       ]);
       const finance = financeAllowed ? await db.$queryRaw<{
