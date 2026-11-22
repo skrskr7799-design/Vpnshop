@@ -39,11 +39,11 @@ async function rawRequest<T>(path: string, opts: RequestOptions): Promise<T> {
   const res = await fetch(`${API_PREFIX}${path}`, {
     method: opts.method ?? "GET",
     // Content-Type только вместе с телом: Fastify отклоняет пустое тело с JSON-заголовком
-    headers: {
+    headers: hasBody || opts.sessionId || opts.idempotencyKey ? {
       ...(hasBody && { "Content-Type": "application/json" }),
       ...(opts.sessionId && { "X-MZT-Session": opts.sessionId }),
       ...(opts.idempotencyKey && { "Idempotency-Key": opts.idempotencyKey }),
-    },
+    } : undefined,
     cache: "no-store",
     body: hasBody ? JSON.stringify(opts.body) : undefined,
     credentials: "same-origin",
@@ -51,7 +51,9 @@ async function rawRequest<T>(path: string, opts: RequestOptions): Promise<T> {
   });
 
   if (res.ok) {
-    return (res.status === 204 ? undefined : await res.json()) as T;
+    const data = res.status === 204 ? undefined : await res.json();
+    opts.signal?.throwIfAborted();
+    return data as T;
   }
 
   const payload = (await res.json().catch(() => null)) as {
