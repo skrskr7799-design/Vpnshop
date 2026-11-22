@@ -76,7 +76,7 @@ async function booking(deviceLimit = 5) {
     requestKeyHash: randomUUID(), externalId: randomUUID(), expiresAt: order.expiresAt, channel: "SBP",
     currency: order.currency, amount: order.amount, status: "PROCESSING",
   } });
-  const capture = async () => {
+  const capture = async (fixtureWindow?: { startAt: Date; endAt: Date; serial: number }) => {
     const key = randomUUID();
     await recordLookup(merchant, {
       externalPaymentId: payment.externalId!, merchantReference: payment.merchantReference, status: "CONFIRMED",
@@ -84,6 +84,18 @@ async function booking(deviceLimit = 5) {
         originalMovementKey: null },
     });
     const fact = await prisma.paymentTransaction.findUniqueOrThrow({ where: { accountId_movementKey: { accountId: merchant.id, movementKey: key } } });
+    if (fixtureWindow) return subscriptionTransaction(async db => {
+      const subscription = await lockSubscription(db, user.id);
+      if (!subscription) throw new Error("Missing boundary fixture subscription");
+      const time = await dbNow(db);
+      const allocation = await db.orderAllocation.create({ data: { orderId: order.id, captureId: fact.id, createdAt: time } });
+      const grant = await db.periodGrant.create({ data: {
+        subscriptionId: subscription.id, orderId: order.id, allocationId: allocation.id,
+        ...fixtureWindow, createdAt: time, calendarVersion: 1, deviceLimit,
+      } });
+      await projectAssignment(db, subscription, time, "BOUNDARY_FIXTURE", true);
+      return grant;
+    });
     const result = await allocateCapture(fact.id);
     if (result.status !== "ALLOCATED") throw new Error(result.reason);
     return result.grant;
@@ -262,4 +274,25 @@ it("projects the boundary and ignores an expired lease before issuing any HTTP",
   await tick("new");
   expect(await refreshDueAssignments()).toBe(0);
   expect((await jobFor()).status).toBe("CONFIRMED");
+});
+
+it("disables across a real period boundary and applies the new profile only at the future start", async () => {
+  await prisma.subscription.create({ data: { userId: user.id } });
+  const first = await booking();
+  const second = await booking(9);
+  const now = await dbNow(prisma);
+  const firstEnd = new Date(+now + 2000);
+  const secondStart = new Date(+now + 3800);
+  await first.capture({ startAt: new Date(+now - 1000), endAt: firstEnd, serial: 1 });
+  const future = await second.capture({ startAt: secondStart, endAt: new Date(+secondStart + 86_400_000), serial: 2 });
+  await tick();
+  expect(fixture.current).toMatchObject({ status: "ACTIVE", deviceLimit: 5, expiresAt: firstEnd });
+  await vi.waitFor(async () => { expect(+await dbNow(prisma)).toBeGreaterThanOrEqual(+firstEnd); }, { timeout: 4000 });
+  expect(await refreshDueAssignments()).toBe(1);
+  await tick();
+  expect(fixture.current?.status).toBe("DISABLED");
+  await vi.waitFor(async () => { expect(+await dbNow(prisma)).toBeGreaterThanOrEqual(+secondStart); }, { timeout: 4000 });
+  expect(await refreshDueAssignments()).toBe(1);
+  await tick();
+  expect(fixture.current).toMatchObject({ status: "ACTIVE", deviceLimit: 9, expiresAt: future.endAt });
 });

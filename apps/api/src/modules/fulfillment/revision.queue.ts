@@ -10,6 +10,7 @@ export type RevisionJob = OwnedLease & {
 
 export class Superseded extends Error {}
 export class RevisionReview extends Error {}
+export class LeaseWindowTooShort extends Error {}
 
 const markRevisionWriter = (db: Db) => db.$queryRaw`SELECT set_config('vpnshop.fulfillment_writer', 'revision-v1', true)`;
 const maxWrites = 6;
@@ -51,11 +52,11 @@ export function guardedRevision<T>(job: RevisionJob, budgetMs: number,
       SELECT "expiresAt" > clock_timestamp() + ${budgetMs} * interval '1 millisecond' AS enough
       FROM "FulfillmentLease" WHERE ${leaseOwnership(job)} FOR UPDATE`;
     if (!lease) throw new LeaseLost();
-    if (!lease.enough) throw new RevisionReview("LEASE_DEADLINE");
+    if (!lease.enough) throw new LeaseWindowTooShort();
     if (subscription?.id !== job.subscriptionId || subscription.revision !== job.revision ||
         subscription.legacyUnverified) throw new Superseded();
     const desired = await db.desiredAssignment.findUniqueOrThrow({ where: { id: job.assignmentId },
-      include: { grant: { include: { allocation: { include: { capture: { include: { account: true } } } } } } },
+      include: { grant: { include: { adjustment: true, allocation: { include: { capture: { include: { account: true } } } } } } },
     });
     const now = await dbNow(db);
     if (subscription.nextBoundaryAt && subscription.nextBoundaryAt <= now) throw new Superseded();
@@ -65,7 +66,10 @@ export function guardedRevision<T>(job: RevisionJob, budgetMs: number,
         throw new Superseded();
       }
       if (desired.grant?.allocation.capture.account.environment !== "MOCK" ||
-          desired.grant.startAt > now || desired.internalSquads.length === 0) {
+          desired.grant.subscriptionId !== subscription.id || desired.grant.deviceLimit !== desired.deviceLimit ||
+          desired.grant.startAt > now ||
+          (desired.grant.adjustment?.effectiveAt ?? desired.grant.endAt).getTime() !== desired.expiresAt.getTime() ||
+          desired.internalSquads.length === 0) {
         throw new RevisionReview("STAGING_TARGET_UNAPPROVED");
       }
     }
@@ -138,10 +142,10 @@ export async function requestRevisionCheck(job: RevisionJob) {
     } }, select: { id: true } });
     if (!desired) return;
     await db.fulfillmentJob.updateMany({ where: { assignmentId: desired.id }, data: {
-      verificationEpoch: { increment: 1 }, nextAttemptAt: await dbNow(db), lastError: "LATE_WRITE_RECHECK",
+      verificationEpoch: { increment: 1 }, nextAttemptAt: await dbNow(db),
     } });
     await db.fulfillmentJob.updateMany({ where: { assignmentId: desired.id, status: "CONFIRMED" },
-      data: { status: "VERIFY_PENDING" } });
+      data: { status: "VERIFY_PENDING", lastError: "LATE_WRITE_RECHECK" } });
   });
 }
 

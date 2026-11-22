@@ -22,9 +22,9 @@ describe("контракт Remnawave 3.4.17", () => {
     expect(REMNAWAVE_ROUTES.users).toBe(CreateUserCommand.url);
     expect(REMNAWAVE_ROUTES.users).toBe(UpdateUserCommand.url);
     expect(REMNAWAVE_ROUTES.userByUsername("vs_abc")).toBe(GetUserByUsernameCommand.url("vs_abc"));
-    expect(REMNAWAVE_ROUTES.userById(7)).toBe(GetUserByIdCommand.url(7));
-    expect(REMNAWAVE_ROUTES.disable(7)).toBe(DisableUserCommand.url(7));
-    expect(REMNAWAVE_ROUTES.enable(7)).toBe(EnableUserCommand.url(7));
+    expect(REMNAWAVE_ROUTES.userById(7)).toBe(GetUserByIdCommand.url("7"));
+    expect(REMNAWAVE_ROUTES.disable(7)).toBe(DisableUserCommand.url("7"));
+    expect(REMNAWAVE_ROUTES.enable(7)).toBe(EnableUserCommand.url("7"));
     expect(DisableUserCommand.endpointDetails.REQUEST_METHOD.toLowerCase()).toBe("post");
     expect(EnableUserCommand.endpointDetails.REQUEST_METHOD.toLowerCase()).toBe("post");
     expect(REMNAWAVE_ROUTES.internalSquads).toBe(GetInternalSquadsCommand.url);

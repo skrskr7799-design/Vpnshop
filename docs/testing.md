@@ -106,3 +106,7 @@ Phase 5. До коммерческого запуска каждый обяза�
 ## Регрессия COM-03
 
 PostgreSQL suite проверяет повтор и конкуренцию зачёта, два merchant lock и два независимых backend PID, запрет пересечения, откат до commit, UTC v1, связанные обратные движения и ожидающий inbox, полный/частичный возврат, независимые hold, сценарий R03, смену лимита на границе и восстановление пропущенной границы. Отдельный worker process в обычном режиме тестируется с loopback-счётчиком HTTP. Legacy rehearsal дважды применяет миграции/идемпотентный backfill, проверяет 15 исходных записей, пустую непроверенную подписку и отклонение старого writer. [Subscription suite](../apps/api/src/modules/subscriptions/subscriptions.int.test.ts)
+
+## Регрессия COM-04
+
+Публичный CI использует pinned TypeScript-контракт, loopback HTTP-сервер и disposable PostgreSQL. Проверяются разные соединения и владение lease, неоднозначный create, восстановление после внешней записи, устаревший HTTP после подтверждённого запрета, планирование повторной сверки, drift при CONFIRMED, конфликт имени/ID, ручной DISABLED, C4 после commit удержания, смена лимита и будущая граница после разрыва. Реальная сеть панели не участвует. [Интеграционные проверки](../apps/api/src/modules/fulfillment/revision.int.test.ts) · [HTTP contract](../apps/api/src/modules/remnawave/remnawave.http.contract.test.ts)

@@ -3,12 +3,14 @@ import { buildApp } from "./app";
 import { env } from "./config/env";
 import { prisma } from "./lib/prisma";
 import { buildAdminApp } from "./modules/admin/admin-app";
-import { remnawave } from "./modules/remnawave";
 
-const app = await buildApp({ panel: stagingPanel(5_000)?.panel });
+const staging = stagingPanel(5_000);
+const app = await buildApp({ panel: staging?.panel });
 
 // Админка: отдельный сервер на своём порту. Маршрутов админки в публичном API нет вообще.
-const adminApp = env.ADMIN_ENABLED ? await buildAdminApp({ panel: remnawave }) : null;
+const adminApp = env.ADMIN_ENABLED ? await buildAdminApp({
+  panel: staging?.client ?? { async getMetadata() { throw new Error("Panel operations disabled"); } },
+}) : null;
 
 async function shutdown(signal: string) {
   app.log.info({ signal }, "shutting down");

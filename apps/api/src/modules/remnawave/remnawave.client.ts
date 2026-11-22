@@ -199,7 +199,7 @@ export class RemnawaveClient {
     if (!res.ok) throw await toHttpError(res, method, path, this.config.strictErrors === true);
 
     try {
-      return schema.parse(await res.json());
+      return schema.parse(await (this.config.strictErrors ? readBoundedJson(res) : res.json()));
     } catch {
       throw new RemnawaveError(
         "invalid_response",
@@ -210,11 +210,33 @@ export class RemnawaveClient {
   }
 }
 
+async function readBoundedJson(response: Response): Promise<unknown> {
+  if (!response.body) throw new Error("Empty panel response");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const chunks: string[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > 256 * 1024) throw new Error("Panel response too large");
+      chunks.push(decoder.decode(value, { stream: true }));
+    }
+    chunks.push(decoder.decode());
+    return JSON.parse(chunks.join(""));
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+}
+
 async function toHttpError(res: Response, method: string, path: string, strict: boolean): Promise<RemnawaveError> {
   let detail = "";
   let errorCode: string | undefined;
   try {
-    const json = (await res.json()) as { message?: unknown; errorCode?: unknown };
+    const json = (await (strict ? readBoundedJson(res) : res.json())) as { message?: unknown; errorCode?: unknown };
     if (typeof json.errorCode === "string" && /^A[0-9]{3}$/.test(json.errorCode)) errorCode = json.errorCode;
     if (!strict) {
       const message = Array.isArray(json.message) ? json.message.join("; ") : json.message;

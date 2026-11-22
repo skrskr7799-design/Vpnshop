@@ -8,7 +8,7 @@ import { backoffMs } from "./fulfillment.backoff";
 import { LeaseLost } from "./fulfillment.queue";
 import {
   bindingIdentityMatches, driftIntervalMs, guardedRevision, markDispatch, requestRevisionCheck,
-  RevisionReview, settleRevision, Superseded, type RevisionJob,
+  LeaseWindowTooShort, RevisionReview, settleRevision, Superseded, type RevisionJob,
 } from "./revision.queue";
 
 const maxAttempts = 8;
@@ -59,6 +59,7 @@ export async function processRevision(job: RevisionJob, panel: AssignmentPanel) 
   }
 
   try {
+    if (job.attempts > maxAttempts) throw new RevisionReview("ATTEMPT_BUDGET_EXHAUSTED");
     const target = await guardedRevision(job, budget, async (db, desired) => {
       const username = `stg_${remnawaveUsernameFor(job.userId).slice(3)}`;
       await db.panelBinding.createMany({ data: [{
@@ -130,7 +131,8 @@ export async function processRevision(job: RevisionJob, panel: AssignmentPanel) 
     const identityConflict = isUniqueViolation(error);
     const review = error instanceof RevisionReview || identityConflict ||
       (error instanceof RemnawaveError && (error.kind === "unauthorized" || (!error.retryable && !sentWrite)));
-    const code = stale ? "REVISION_CHANGED" : error instanceof RevisionReview ? error.message
+    const code = stale ? "REVISION_CHANGED" : error instanceof LeaseWindowTooShort ? "LEASE_DEADLINE"
+      : error instanceof RevisionReview ? error.message
       : identityConflict ? "PANEL_IDENTITY_CONFLICT"
       : error instanceof RemnawaveError ? `PANEL_${error.kind.toUpperCase()}` : "SYNC_INTERRUPTED";
     const manualBlock = ["MANUAL_DISABLE_REVIEW", "PANEL_IDENTITY_CONFLICT", "BOUND_USER_MISSING"].includes(code);

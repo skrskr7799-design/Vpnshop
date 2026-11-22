@@ -42,14 +42,14 @@ export const adminDashboardRoutes: FastifyPluginAsync<DashboardDeps> = async (ap
       prisma.order.groupBy({ by: ["status"], _count: { _all: true } }),
       prisma.order.groupBy({ by: ["currency"], where: { ...paid, paidAt: { gte: new Date(now - 30 * DAY) } }, _sum: { amount: true }, _count: { _all: true } }),
       prisma.order.groupBy({ by: ["currency"], where: paid, _sum: { amount: true }, _count: { _all: true } }),
-      prisma.fulfillmentJob.groupBy({ by: ["status"], _count: { _all: true } }),
+      prisma.fulfillmentJob.groupBy({ by: ["status"], where: { assignmentId: null }, _count: { _all: true } }),
       panelHealth(),
     ]);
 
     const orders = zeroed(ORDER_STATUSES);
     for (const row of ordersByStatus) orders[row.status] = row._count._all;
     const jobs = zeroed(JOB_STATUSES);
-    for (const row of jobsByStatus) jobs[row.status] = row._count._all;
+    for (const status of JOB_STATUSES) jobs[status] = jobsByStatus.find(row => row.status === status)?._count._all ?? 0;
 
     const money = (rows: typeof revenueAll) =>
       rows.map((r) => ({ currency: r.currency, amount: r._sum.amount ?? 0, orders: r._count._all }));

@@ -62,6 +62,11 @@
 - **VERIFIED** На SHA `ac09b834a939c8cae290795963017751b924dca7` прошли Prisma generation, typecheck, lint, сборка, unit/contract, PostgreSQL, clean/legacy migrate, повторный backfill и регрессии COM-01/02/FND-03. Worker в обычном режиме создал локальную ревизию при нуле запросов к loopback-панели. [CI](https://github.com/skrskr7799-design/Vpnshop/actions/runs/44934429148)
 - **BLOCKED** Коммерческий допуск ждёт подтверждённой интеграции Platega, политики B2/R06 и COM-04 с безопасным применением и сверкой ревизий. Потеря исходного grantTime при полном откате commit остаётся отдельным случаем R07. [Переход и откат](deployment.md#com-03--переключение-и-откат)
 
+### COM-04 — статус реализации
+
+- **IMPLEMENTED** Адаптер 3.4.17 с revision-aware lease, PanelBinding, PanelObservation, verify-first, C4, сверкой и поздним read-back. [Матрица](remnawave-integration.md#com-04--матрица-реализации)
+- **BLOCKED / PENDING STAGING** Реальная панель согласована как отдельный этап. Коммерческий запуск также ждёт Platega и релизные проверки. [Регламент](deployment.md#com-04--изолированная-панель)
+
 [Контракты денег](payments.md) · [Периоды](subscriptions.md) · [Матрица панели](remnawave-integration.md)
 
 ## Phase 3 — User Account

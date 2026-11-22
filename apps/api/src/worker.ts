@@ -15,7 +15,7 @@ const settings = z.object({
   WORKER_DRAIN_MS: z.coerce.number().int().min(100).max(300_000).default(55_000),
   WORKER_LEASE_MS: z.coerce.number().int().min(3000).max(600_000).default(DEFAULT_LEASE_MS),
   WORKER_HTTP_TIMEOUT_MS: z.coerce.number().int().positive().max(120_000).default(20_000),
-}).refine(v => v.WORKER_HTTP_TIMEOUT_MS < v.WORKER_LEASE_MS, "HTTP deadline must fit inside lease").safeParse(process.env);
+}).refine(v => v.WORKER_HTTP_TIMEOUT_MS + 250 < v.WORKER_LEASE_MS, "HTTP deadline must fit inside lease").safeParse(process.env);
 if (!settings.success) throw new Error("Invalid worker configuration: " +
   settings.error.issues.map(i => i.path.join(".") || i.message).join(", "));
 const config = settings.data;
