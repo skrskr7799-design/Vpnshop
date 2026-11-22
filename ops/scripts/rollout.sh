@@ -4,17 +4,24 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 : "${MZT_DEPLOY_DIR:?Use a protected deployment directory}"
 : "${COMPOSE_PROJECT_NAME:?Set the fixed stack project name}"
+: "${MZT_DEPLOY_ENV:?Explicitly select staging or production}"
+[[ "$MZT_DEPLOY_ENV" == staging || "$MZT_DEPLOY_ENV" == production ]]
 action=${1:?Use stage or rollback}
 candidate=${2:?Provide a reviewed manifest path}
 previous=${3:-}
 [[ "$action" == stage || "$action" == rollback ]]
+if [[ "$MZT_DEPLOY_ENV" == production ]]; then
+  approved=$(sha256sum "$candidate" | cut -d' ' -f1)
+  [[ "${MZT_APPROVED_MANIFEST:-}" == "$approved" && "${MZT_ENABLE_OFFSITE:-0}" == 1 ]]
+  [[ -e "$MZT_DEPLOY_DIR/production-approved" && "$(cat "$MZT_DEPLOY_DIR/production-approved")" == "$approved" ]]
+fi
 exec 9>"$MZT_DEPLOY_DIR/release.lock"
 flock -n 9
 umask 077
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 jq -e '.version == 1 and (.gitSha | test("^[0-9a-f]{40}$")) and (.schema | test("^[0-9]{14}_[a-z0-9_]+$")) and
-  (.images | [.application,.migrator,.db,.web,.admin,.edge] | all(test("^ghcr\\.io/skrskr7799-design/vpnshop/[a-z]+@sha256:[a-f0-9]{64}$")))' \
+  (.images | [.application,.migrator,.db,.web,.admin,.edge,.backup] | all(test("^ghcr\\.io/skrskr7799-design/vpnshop/[a-z]+@sha256:[a-f0-9]{64}$")))' \
   "$candidate" >/dev/null
 if [[ "$action" == stage && "$(jq -r .previousManifest "$candidate")" != first-release ]]; then
   [[ -n "$previous" && "sha256:$(sha256sum "$previous" | cut -d' ' -f1)" == "$(jq -r .previousManifest "$candidate")" ]]
@@ -39,6 +46,10 @@ if [[ "${MZT_ENABLE_OFFSITE:-0}" == 1 ]]; then stack+=(-f ops/compose.backup.yml
 dc() { docker compose --env-file "$tmp/settings" --profile migration --profile monitoring "${stack[@]}" "$@"; }
 dc config --format json | python3 ops/scripts/preflight.py
 dc up -d --wait db
+if [[ "$MZT_DEPLOY_ENV" == production && -e "$MZT_DEPLOY_DIR/live-manifest.json" ]]; then
+  dc exec -T db pgbackrest --config=/run/secrets/pgbackrest_conf --stanza=vpnshop check
+  dc exec -T db sh -ec 'test -s /state/proofs/physical_epoch && test "$(($(date -u +%s)-$(cat /state/proofs/physical_epoch)))" -lt 93600'
+fi
 dc stop -t 60 worker billing notifications public-api admin-api
 if [[ "$action" == stage ]]; then dc run --rm --no-deps migrator; fi
 dc up -d --wait --wait-timeout 100 web admin public-api admin-api public-edge admin-edge

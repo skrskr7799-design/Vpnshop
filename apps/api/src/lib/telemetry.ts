@@ -69,7 +69,7 @@ export function addHttpTelemetry(app: FastifyInstance) {
 export async function startMetrics(read: () => string | Promise<string>) {
   const host = process.env.METRICS_HOST;
   if (!host) return;
-  if (!/^172\.30\.75\.(1[0-6])$/.test(host)) throw new Error("Metrics must bind to the monitoring network");
+  if (!/^172\.30\.(75\.12|76\.10|77\.11)$/.test(host)) throw new Error("Metrics must bind to the monitoring network");
   const metrics = Fastify({ logger: false, disableRequestLogging: true });
   metrics.get("/metrics", async (_req, reply) => reply.type("text/plain; version=0.0.4; charset=utf-8").send(await read()));
   await metrics.listen({ host, port: 9100 });

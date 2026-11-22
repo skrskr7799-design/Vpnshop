@@ -65,7 +65,14 @@ wait_readiness() {
     if dc exec -T "$service" node -e 'fetch(process.argv[1]).then(r=>process.exit(r.status===Number(process.argv[2])?0:1)).catch(()=>process.exit(1))'       "http://127.0.0.1:$port$route" "$status"; then return 0; fi
     sleep 1
   done
-  dc logs --tail 10 "$service"; return 1
+  local logs
+  logs=$(dc logs --tail 15 --no-color "$service" 2>&1)
+  printf '%s\n' "$logs"
+  if [[ "${GITHUB_ACTIONS:-}" == true ]]; then
+    detail=$(printf '%s\n' "$logs" | grep -E 'Error|reasonCode|Invalid|Configuration|Module' | tail -6 | tr '\n%' '  ' | cut -c1-550)
+    printf '::error::%s failed readiness %s %s: %s\n' "$service" "$route" "$status" "$detail"
+  fi
+  return 1
 }
 wait_readiness public-api 3000 /api/health 200
 wait_readiness public-api 3000 /api/ready 503
@@ -108,6 +115,8 @@ done
 dc exec -T public-api test ! -e /run/secrets/admin_key
 dc exec -T admin-api test ! -e /run/secrets/web_jwt
 dc exec -T worker test ! -e /run/secrets/smtp_url
+dc exec -T public-api node -e 'fetch("http://172.30.77.11:3001/ready",{signal:AbortSignal.timeout(1200)}).then(()=>process.exit(1)).catch(()=>{})'
+dc exec -T admin-api node -e 'fetch("http://172.30.76.10:3000/api/ready",{signal:AbortSignal.timeout(1200)}).then(()=>process.exit(1)).catch(()=>{})'
 
 # Exporter isolation, rule syntax, alert delivery and secret-free log records.
 dc exec -T prometheus promtool check config /etc/prometheus/prometheus.yml

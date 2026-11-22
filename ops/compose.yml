@@ -66,7 +66,7 @@ services:
     <<: *node
     depends_on: {db: {condition: service_healthy}}
     environment:
-      METRICS_HOST: 172.30.75.10
+      METRICS_HOST: 172.30.76.10
       MZT_PROCESS: public
       WEB_ORIGIN: ${PUBLIC_ORIGIN:?Set public HTTPS origin}
       WEB_TRUSTED_PROXIES: 172.30.72.2
@@ -79,7 +79,7 @@ services:
     networks:
       public-api-edge:
       public-db:
-      monitoring: {ipv4_address: 172.30.75.10}
+      public-metrics: {ipv4_address: 172.30.76.10}
     healthcheck:
       test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 5s
@@ -90,7 +90,7 @@ services:
     command: [node, dist/admin.js]
     depends_on: {db: {condition: service_healthy}}
     environment:
-      METRICS_HOST: 172.30.75.11
+      METRICS_HOST: 172.30.77.11
       MZT_PROCESS: admin
       WEB_ORIGIN: ${PUBLIC_ORIGIN}
       ADMIN_ENABLED: "true"
@@ -105,7 +105,7 @@ services:
     networks:
       admin-api-edge:
       admin-db:
-      monitoring: {ipv4_address: 172.30.75.11}
+      admin-metrics: {ipv4_address: 172.30.77.11}
     healthcheck:
       test: [CMD, node, -e, "fetch('http://127.0.0.1:3001/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 5s
@@ -207,7 +207,7 @@ services:
       - prometheus:/prometheus
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
-    networks: [monitoring]
+    networks: [monitoring, public-metrics, admin-metrics]
   alertmanager:
     <<: *hardened
     profiles: [monitoring]
@@ -247,6 +247,12 @@ networks:
   monitoring:
     internal: true
     ipam: {config: [{subnet: 172.30.75.0/27}]}
+  public-metrics:
+    internal: true
+    ipam: {config: [{subnet: 172.30.76.0/27}]}
+  admin-metrics:
+    internal: true
+    ipam: {config: [{subnet: 172.30.77.0/27}]}
   alerting: {internal: true}
   backup-db: {internal: true}
   migration-db: {internal: true}

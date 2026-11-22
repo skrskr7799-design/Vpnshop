@@ -13,10 +13,12 @@ COPY packages/shared/package.json packages/shared/
 RUN --mount=type=secret,id=proxy_ca     if [ -r /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi;     PRISMA_SKIP_POSTINSTALL_GENERATE=true CI=true pnpm install --frozen-lockfile
 COPY . .
 RUN --mount=type=secret,id=proxy_ca     if [ -r /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi;     pnpm db:generate && pnpm build
-RUN --mount=type=secret,id=proxy_ca     if [ -r /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi;     pnpm --filter @vpn/api deploy --prod --legacy /runtime && \
-    mkdir -p /runtime/node_modules/.prisma && \
-    engine="$(find node_modules/.pnpm -path '*/node_modules/.prisma/client' -type d -print -quit)" && \
-    test -n "$engine" && cp -a "$engine" /runtime/node_modules/.prisma/client && \
+RUN --mount=type=secret,id=proxy_ca     if [ -r /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi;     PRISMA_SKIP_POSTINSTALL_GENERATE=true pnpm --filter @vpn/api deploy --prod --legacy /runtime && \
+    engine="$(dirname "$(find node_modules/.pnpm -path '*/node_modules/.prisma/client/libquery_engine-debian-openssl-3.0.x.so.node' -type f -print -quit)")" && \
+    test -f "$engine/schema.prisma" && \
+    client="$(cd /runtime && node -p 'require.resolve("@prisma/client/package.json")')" && \
+    generated="$(dirname "$(dirname "$(dirname "$client")")")/.prisma/client" && \
+    rm -rf "$generated" && mkdir -p "$(dirname "$generated")" && cp -a "$engine" "$generated" && \
     rm -rf /runtime/src /runtime/prisma /runtime/*.ts /runtime/dist/*.map
 
 FROM node-runtime AS application
@@ -25,6 +27,7 @@ LABEL org.opencontainers.image.revision=${REVISION}
 ENV NODE_ENV=production
 COPY --from=build --chown=1000:1000 /runtime /app
 USER 1000:1000
+RUN node -e 'const {PrismaClient}=require("@prisma/client"); new PrismaClient().$disconnect()' && test -f dist/server.js
 CMD ["node","dist/server.js"]
 
 FROM build AS migrator
