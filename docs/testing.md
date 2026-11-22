@@ -145,3 +145,9 @@ PostgreSQL suite проверяет повтор и конкуренцию за�
 - Проверяются Tab, Escape, возврат фокуса и accessible name модального checkout, контраст выбранных пар токенов, reflow при 200% zoom и reduced motion. Полный аудит WCAG и отдельный скринридер остаются частью релизной приёмки.
 - qa.json содержит gzip размеры, результат viewport sweep и три холодных замера login/dashboard при 390 px, CPU 4×, RTT 150 мс и 1,6 Мбит/с. Это синтетические LCP, CLS и transfer. Полевой INP не измеряется этим тестом.
 - Кадры используют только синтетические данные. На экране подключения ссылка и QR закрыты. PostgreSQL, API и инфраструктура проверяются отдельно. [Workflow](../.github/workflows/ci.yml) · [Сценарий](../scripts/visual-qa.mjs)
+
+## REL · Проверка связного кандидата
+
+Toolchain CI запускает customer/admin journey против настоящего PostgreSQL и реальных HTTP handlers с локальными провайдерами. Путь объединяет регистрацию, одноразовое письмо, логин, публикацию и checkout, повтор webhook, одну запись своего CAPTURE, одну allocation, grant, worker, владельческую выдачу, продление, поддержку, Hold, независимое одобрение возвратного intent и отзыв сессии. Сценарии истечения, UNKNOWN, двух capture, stale revision и гонок проверяются специализированными suite из COM, ACC и ADM. [Связный сценарий](../apps/api/src/test/release-journey.int.test.ts)
+
+Infrastructure verification повторяет HTTP/TLS на образах-кандидатах, scoped grants, выкладку предыдущего runtime на той же схеме, остановку БД, SIGTERM/SIGKILL, восстановление доступности и durable retry SMTP. Полный и differential restore проверяют UTC target, migration history, checksum и отсутствие дублей. CSP из edge применяется также к Chromium HTTP fixture. [Инфраструктура](../.github/workflows/infrastructure.yml) · [Матрица допуска](release-acceptance.md)

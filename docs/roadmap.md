@@ -142,6 +142,8 @@
 | **REL-01 · Security hardening и отрицательные проверки · P0**. Закрыть угрозы из Security. | API, config/proxy, web/admin boundary, auth, webhook и секреты. ACC-01, ADM-01, OPS-01, COM-02/04. Исправления по затронутым областям, без общего переписывания. | BOLA, RBAC, TOTP, CSRF, proxy, forged events, secret/URL leakage, dependency/image scans. DoD — P0 закрыты проверками, остаточные риски приняты. | Блокер без workaround. Приостановить релиз, ограничить интеграцию или вернуться к последнему безопасному релизу. |
 | **REL-02 · Release candidate, E2E и restore drill · P0**. Подтвердить деньги, сроки, доступ и восстановление. | CI, release manifest, staging и runbooks. REL-01, COM-04, ACC-03, ADM-03, OPS-02 и UX-02/03. | Обязательные gates по одному candidate, sandbox покупка и сверка, реальные стендовые подключения, rollback и restore. DoD — чек-лист ниже, evidence с digest, контрольными итогами и решением владельца. | Неизвестная операция или несовместимый rollback. Держать продажи/возвраты закрытыми до сверки, forward fix при необходимости. |
 
+REL-01 добавляет исправления ingress CSP, безопасного OIDC обмена, обновляет pinned Nginx и проводит supply-chain scan. REL-02 связывает HTTP, PostgreSQL и fixtures в сквозной сценарий, расширяет PITR, проверяет предыдущий runtime и готовит OCI-кандидат. Внешние коммерческие критерии остаются BLOCKED до стенда и решения владельца. [Приёмка REL](release-acceptance.md)
+
 ## Phase 8 — Product Expansion
 
 Цель — расширять стабильный MVP по отдельным продуктовым решениям. Вход — принятый коммерческий релиз, эксплуатационная стабильность и согласованный scope. Выход — отдельные допуски каждой возможности.

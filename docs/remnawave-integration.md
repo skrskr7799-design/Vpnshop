@@ -246,3 +246,7 @@ sequenceDiagram
 [snodes]: https://github.com/remnawave/backend/blob/01a4059f2da3e22e1b82be58751a408f3d3de750/libs/contract/commands/internal-squads/get-internal-squad-accessible-nodes.command.ts
 [delete]: https://github.com/remnawave/backend/blob/01a4059f2da3e22e1b82be58751a408f3d3de750/libs/contract/commands/users/delete-user.command.ts
 [revoke]: https://github.com/remnawave/backend/blob/01a4059f2da3e22e1b82be58751a408f3d3de750/libs/contract/commands/users/actions/revoke-user-subscription.command.ts
+
+## Релизный gate панели
+
+Протокол и безопасный smoke сохраняют отдельный допуск для изолированного стенда. Для следующей приёмки нужны точный образ панели, HTTPS origins API и выдачи ссылок, UUID разрешённых тестовых групп, scoped token в secret store, тестовый VPN-клиент и согласованное окно. Проверить выдачу, продление, удержание, read-back, восстановление после таймаута и зачистку стендовых данных. При отсутствии CAS по-прежнему необходима повторная сверка поздних эффектов. [Внешние условия](release-acceptance.md#commercial-release-gate)
