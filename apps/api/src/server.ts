@@ -1,31 +1,7 @@
-import { stagingPanel } from "./config/staging-panel";
 import { buildApp } from "./app";
 import { env } from "./config/env";
-import { prisma } from "./lib/prisma";
-import { buildAdminApp } from "./modules/admin/admin-app";
+import { stagingPanel } from "./config/staging-panel";
+import { listen } from "./lib/listener";
 
-const staging = stagingPanel(5_000);
-const app = await buildApp({ panel: staging?.panel });
-
-// Админка: отдельный сервер на своём порту. Маршрутов админки в публичном API нет вообще.
-const adminApp = env.ADMIN_ENABLED ? await buildAdminApp({
-  panel: staging?.client ?? { async getMetadata() { throw new Error("Panel operations disabled"); } },
-}) : null;
-
-async function shutdown(signal: string) {
-  app.log.info({ signal }, "shutting down");
-  await adminApp?.close();
-  await app.close();
-  await prisma.$disconnect();
-  process.exit(0);
-}
-process.on("SIGINT", () => void shutdown("SIGINT"));
-process.on("SIGTERM", () => void shutdown("SIGTERM"));
-
-try {
-  await app.listen({ host: env.HOST, port: env.PORT });
-  await adminApp?.listen({ host: env.ADMIN_HOST, port: env.ADMIN_PORT });
-} catch (err) {
-  app.log.error(err);
-  process.exit(1);
-}
+const app = await buildApp({ panel: stagingPanel(5000)?.panel });
+await listen(app, { host: env.HOST, port: env.PORT });

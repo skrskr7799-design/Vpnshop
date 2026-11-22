@@ -10,7 +10,7 @@ export async function merchantAccount(adapter: PaymentProviderAdapter) {
 }
 
 export async function lockOrder(db: Db, id: string) {
-  const [order] = await db.$queryRaw<Order[]>`SELECT * FROM "Order" WHERE id = ${id} FOR UPDATE`;
+  const [order] = await db.$queryRaw<Order[]>`SELECT * FROM mzt_lock_order(${id})`;
   return order;
 }
 

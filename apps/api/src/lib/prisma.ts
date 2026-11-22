@@ -1,3 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 
-export const prisma = new PrismaClient();
+import { readSecret } from "../config/secrets";
+
+const datasourceUrl = readSecret("DATABASE_URL");
+export const prisma = new PrismaClient({ datasourceUrl });

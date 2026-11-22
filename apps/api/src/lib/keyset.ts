@@ -11,7 +11,7 @@ export const keysetQuery = z.strictObject({
 type Key = { id: string; createdAt: Date };
 const payload = z.tuple([z.string().min(1).max(128), z.iso.datetime()]);
 const sign = (scope: string, encoded: string) =>
-  createHmac("sha256", env.JWT_SECRET).update(JSON.stringify(["mzt-keyset-v1", scope, encoded])).digest("base64url");
+  createHmac("sha256", (env.MZT_PROCESS === "admin" ? env.ADMIN_ENCRYPTION_KEY : env.JWT_SECRET)!).update(JSON.stringify(["mzt-keyset-v1", scope, encoded])).digest("base64url");
 
 export function keysetWhere(scope: string, cursor?: string) {
   if (!cursor) return {};

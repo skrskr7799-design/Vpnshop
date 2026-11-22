@@ -1,3 +1,5 @@
+import { env } from "../../config/env";
+import { enqueueMail } from "../mail/outbox";
 import type { FastifyBaseLogger } from "fastify";
 import type {
   ForgotPasswordInput,
@@ -58,15 +60,20 @@ export async function register({ email, password }: RegisterInput, ctx: AuthCont
     select: { id: true },
   });
   if (existing) {
-    void sendMail(ctx.log, accountExistsMail(email));
+    const mail = accountExistsMail(email);
+    if (env.MAIL_QUEUE_KEY) await enqueueMail(prisma, mail, new Date(+now + VERIFY_TTL_MS));
+    else void sendMail(ctx.log, mail);
     return;
   }
 
   const token = generateToken();
-  await prisma.pendingRegistration.create({
-    data: { email, passwordHash, tokenHash: sha256(token), expiresAt: new Date(now.getTime() + VERIFY_TTL_MS) },
+  const mail = verifyEmailMail(email, token);
+  const expiresAt = new Date(+now + VERIFY_TTL_MS);
+  await prisma.$transaction(async db => {
+    await db.pendingRegistration.create({ data: { email, passwordHash, tokenHash: sha256(token), expiresAt } });
+    await enqueueMail(db, mail, expiresAt);
   });
-  void sendMail(ctx.log, verifyEmailMail(email, token));
+  if (!env.MAIL_QUEUE_KEY) void sendMail(ctx.log, mail);
 }
 
 // Аккаунт появляется только здесь, после подтверждения владения почтой.
@@ -149,17 +156,19 @@ export async function forgotPassword({ email }: ForgotPasswordInput, ctx: AuthCo
       where: { userId: user.id, type: "PASSWORD_RESET", usedAt: null },
       data: { usedAt: new Date() },
     });
+    const expiresAt = new Date(Date.now() + RESET_TTL_MS);
     await tx.verificationToken.create({
       data: {
         userId: user.id,
         type: "PASSWORD_RESET",
         tokenHash: sha256(token),
-        expiresAt: new Date(Date.now() + RESET_TTL_MS),
+        expiresAt,
       },
     });
+    await enqueueMail(tx, resetPasswordMail(email, token), expiresAt);
     return true;
   });
-  if (issued) void sendMail(ctx.log, resetPasswordMail(email, token));
+  if (issued && !env.MAIL_QUEUE_KEY) void sendMail(ctx.log, resetPasswordMail(email, token));
 }
 
 export async function resetPassword({ token, password }: ResetPasswordInput): Promise<void> {

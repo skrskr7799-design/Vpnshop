@@ -7,7 +7,7 @@ import type { AssignmentPanel } from "../remnawave/remnawave.assignment";
 import { processRevision } from "./revision.processor";
 import { claimRevision } from "./revision.queue";
 
-export type WorkerOptions = ProcessorDeps & { pollIntervalMs?: number; leaseMs?: number; maintenance?: () => Promise<number>; panel?: AssignmentPanel };
+export type WorkerOptions = Omit<ProcessorDeps, "api"> & { api?: ProcessorDeps["api"] } & { pollIntervalMs?: number; leaseMs?: number; maintenance?: () => Promise<number>; panel?: AssignmentPanel };
 export type FulfillmentWorker = ReturnType<typeof createFulfillmentWorker>;
 
 export function createFulfillmentWorker(options: WorkerOptions) {
@@ -70,6 +70,8 @@ export function createFulfillmentWorker(options: WorkerOptions) {
       }
       return processed;
     }
+    const api = options.api;
+    if (!api) throw new Error("No legacy processor configured");
     let processed = 0;
     while (!stopping && processed < MAX_JOBS_PER_TICK) {
       const job = await claimNextJob(owner, leaseMs, options.now?.());
@@ -80,7 +82,7 @@ export function createFulfillmentWorker(options: WorkerOptions) {
         break;
       }
       await execute(job.id, () => renewLease(job, leaseMs), async renew => {
-        await processJob(job, { ...options, beforePanelCall: renew });
+        await processJob(job, { ...options, api, beforePanelCall: renew });
       });
       processed++;
     }

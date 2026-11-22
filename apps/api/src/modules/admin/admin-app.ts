@@ -1,3 +1,4 @@
+import { healthRoutes, setDrain } from "../health/health.routes";
 import { staffSupportRoutes } from "../support/support.routes";
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
@@ -57,6 +58,7 @@ export async function buildAdminApp(options: AdminAppOptions) {
           },
   });
   registerErrorHandler(app);
+  setDrain(app);
 
   await app.register(helmet);
   await app.register(cors, { origin: env.ADMIN_ORIGIN, credentials: true });
@@ -66,8 +68,11 @@ export async function buildAdminApp(options: AdminAppOptions) {
 
   const ipAllowed = createIpGuard(cidrs);
 
+  await app.register(healthRoutes);
+
   // Чужому адресу админка отвечает как несуществующая
   app.addHook("onRequest", async (req) => {
+    if (req.routeOptions.url === "/health" || req.routeOptions.url === "/ready") return;
     if (!ipAllowed(req.ip)) throw new AppError(404, "NOT_FOUND");
   });
   // CSRF: изменяющие запросы только с нашего фронта (вдобавок к SameSite=Strict)
@@ -85,6 +90,7 @@ export async function buildAdminApp(options: AdminAppOptions) {
       const execute = registerCommandProtocol(api, { ...staffCommands, ...storeCommands, ...supportCommands });
       registerStoreRoutes(api, execute);
       await api.register(staffRoutes);
+      await api.register(healthRoutes);
       await api.register(adminAuthRoutes);
       await api.register(adminDashboardRoutes, { panel: options.panel });
       await api.register(adminPlansRoutes);

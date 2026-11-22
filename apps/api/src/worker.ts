@@ -1,3 +1,4 @@
+import { databaseReady } from "./modules/health/health.routes";
 import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import { z } from "zod";
@@ -10,8 +11,8 @@ import { refreshDueAssignments } from "./modules/subscriptions/store";
 import { RemnawaveClient } from "./modules/remnawave/remnawave.client";
 
 const settings = z.object({
-  ...panelSettings,
-  DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
+
+  WORKER_HEALTH_HOST: z.string().default("127.0.0.1"),
   WORKER_HEALTH_PORT: z.coerce.number().int().min(1).max(65535).default(3002),
   WORKER_DRAIN_MS: z.coerce.number().int().min(100).max(300_000).default(55_000),
   WORKER_LEASE_MS: z.coerce.number().int().min(3000).max(600_000).default(DEFAULT_LEASE_MS),
@@ -30,22 +31,24 @@ if (staging) {
     throw new Error("Unknown staging internal squad");
   }
 }
+const legacy = process.env.NODE_ENV === "test" && !staging ? z.object(panelSettings).parse(process.env) : undefined;
 const worker = createFulfillmentWorker({
   // Staging is explicit. Default runtime processes local period boundaries only.
   panel: staging?.panel,
-  maintenance: process.env.NODE_ENV === "test" && !staging ? undefined : refreshDueAssignments,
-  api: new RemnawaveClient({
-    baseUrl: config.REMNAWAVE_URL, token: config.REMNAWAVE_TOKEN, apiKey: config.REMNAWAVE_API_KEY,
-    trustedProxyHeaders: config.REMNAWAVE_TRUSTED_PROXY_HEADERS, timeoutMs: config.WORKER_HTTP_TIMEOUT_MS,
+  maintenance: legacy ? undefined : async () => { if (!await databaseReady()) throw new Error("SCHEMA_NOT_READY"); return refreshDueAssignments(); },
+  api: legacy && new RemnawaveClient({
+    baseUrl: legacy.REMNAWAVE_URL, token: legacy.REMNAWAVE_TOKEN, apiKey: legacy.REMNAWAVE_API_KEY,
+    trustedProxyHeaders: legacy.REMNAWAVE_TRUSTED_PROXY_HEADERS, timeoutMs: config.WORKER_HTTP_TIMEOUT_MS,
   }),
-  internalSquadUuids: config.REMNAWAVE_INTERNAL_SQUAD_UUIDS,
+  internalSquadUuids: legacy?.REMNAWAVE_INTERNAL_SQUAD_UUIDS ?? [],
   leaseMs: config.WORKER_LEASE_MS,
   log: probes.log,
 });
 probes.get("/health", async () => ({ status: "alive" }));
 probes.get("/ready", async (_req, reply) => {
   const state = worker.status();
-  return reply.code(state.ready ? 200 : 503).send(state);
+  const ready = state.ready && await databaseReady();
+  return reply.code(ready ? 200 : 503).send({ ...state, ready });
 });
 
 const heartbeatId = randomUUID();
@@ -80,7 +83,7 @@ async function shutdown() {
     clearTimeout(deadline);
   }
 }
-await probes.listen({ host: "127.0.0.1", port: config.WORKER_HEALTH_PORT });
+await probes.listen({ host: config.WORKER_HEALTH_HOST, port: config.WORKER_HEALTH_PORT });
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
 worker.start();

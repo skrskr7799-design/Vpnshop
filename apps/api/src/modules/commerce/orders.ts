@@ -30,9 +30,7 @@ export async function checkout(userId: string, key: string, offerVersionId: stri
     // Lock the same plan row as all staff publication and retirement commands.
     // Concurrent buyers can hold this lock together.
     const [lock] = await db.$queryRaw<{ id: string }[]>`
-      SELECT p.id FROM "Plan" p JOIN "PlanPrice" price ON price."planId" = p.id
-      JOIN "OfferVersion" v ON v."planPriceId" = price.id WHERE v.id = ${offerVersionId}
-      FOR SHARE OF p
+      SELECT id FROM mzt_lock_offer_plan(${offerVersionId})
     `;
     if (!lock) throw new AppError(409, "OFFER_UNAVAILABLE");
     const version = await db.offerVersion.findUniqueOrThrow({

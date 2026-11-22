@@ -928,3 +928,15 @@ model AdminOperationalSettings {
   fulfillmentLagWarnSeconds Int @default(900)
   paymentLagWarnSeconds     Int @default(900)
 }
+
+model NotificationOutbox {
+  id          String   @id @default(uuid())
+  payload     String
+  expiresAt   DateTime
+  dueAt       DateTime @default(now())
+  leaseId     String?
+  leaseUntil  DateTime?
+  attempts    Int      @default(0)
+
+  @@index([dueAt])
+}

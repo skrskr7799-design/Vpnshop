@@ -3,7 +3,7 @@ import { jwtVerify, SignJWT } from "jose";
 import { env } from "../../config/env";
 import { ACCESS_TTL_SECONDS } from "./auth.constants";
 
-const secret = new TextEncoder().encode(env.JWT_SECRET);
+const secret = new TextEncoder().encode(env.JWT_SECRET!);
 const ISSUER = "vpn-shop";
 // Админский API потом получит свой audience и свой секрет, токены не пересекутся.
 const AUDIENCE = "vpn-shop:user";

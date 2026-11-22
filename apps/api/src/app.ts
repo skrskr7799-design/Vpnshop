@@ -9,7 +9,7 @@ import { AppError } from "./lib/errors";
 import { registerErrorHandler } from "./lib/error-handler";
 import { authRoutes } from "./modules/auth/auth.routes";
 import { commerceRoutes } from "./modules/commerce/commerce.routes";
-import { healthRoutes } from "./modules/health/health.routes";
+import { healthRoutes, setDrain } from "./modules/health/health.routes";
 import { oauthRoutes } from "./modules/oauth/oauth.routes";
 import { loadProviders } from "./modules/oauth/providers";
 import { paymentFixture, paymentWebhookRoutes } from "./modules/payments/payments.routes";
@@ -32,6 +32,7 @@ export async function buildApp(options: { payments?: PaymentProviderAdapter; pan
     },
   });
 
+  setDrain(app);
   await app.register(helmet);
   await app.register(cors, { origin: env.WEB_ORIGIN, credentials: true });
   await app.register(cookie, { secret: env.COOKIE_SECRET });

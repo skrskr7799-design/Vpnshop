@@ -1,3 +1,4 @@
+import { readSecret } from "./secrets";
 import { z } from "zod";
 import { RemnawaveClient } from "../modules/remnawave/remnawave.client";
 import { assignmentPanel } from "../modules/remnawave/remnawave.assignment";
@@ -17,7 +18,8 @@ export function stagingPanelSettings() {
     REMNAWAVE_STAGING_SQUADS: z.string().transform(value =>
       Array.from(new Set(value.split(",").map(id => id.trim().toLowerCase()))).sort(),
     ).pipe(z.array(z.uuid()).min(1)),
-  }).safeParse(process.env);
+  }).safeParse({ ...process.env, REMNAWAVE_STAGING_TOKEN: readSecret("REMNAWAVE_STAGING_TOKEN"),
+    REMNAWAVE_STAGING_API_KEY: readSecret("REMNAWAVE_STAGING_API_KEY") });
   if (!result.success) throw new Error("Invalid isolated Remnawave staging configuration");
   return result.data;
 }
