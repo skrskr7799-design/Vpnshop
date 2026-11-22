@@ -1,7 +1,7 @@
 // Run with node >=22 and a local Chromium after building @vpn/web.
 // All backend responses are synthetic; the browser uses the real bundled client.
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { launchChromium } from "../../../scripts/smoke-chromium.mjs";
 import { once } from "node:events";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -84,25 +84,14 @@ const server = createServer(async (req, res) => {
   return json({ error: { code: "NOT_FOUND" } }, 404);
 });
 
-let browser;
-let ws;
+let chromium;
 try {
   await readFile(join(dist, "index.html"));
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const origin = "http://127.0.0.1:" + server.address().port;
-  browser = spawn(process.env.CHROMIUM_BIN ?? "chromium", ["--headless", "--no-sandbox", "--disable-dev-shm-usage",
-    "--disable-gpu", "--no-first-run", "--disable-background-networking", "--remote-debugging-port=0",
-    "--user-data-dir=" + profile, "about:blank"], { stdio: "ignore" });
-  let debugPort;
-  for (let i = 0; i < 100 && !debugPort; i++) {
-    debugPort = await readFile(join(profile, "DevToolsActivePort"), "utf8").then(value => value.split("\n")[0], () => "");
-    if (!debugPort) await delay(50);
-  }
-  assert.ok(debugPort, "Chromium DevTools unavailable");
-  const targets = await fetch("http://127.0.0.1:" + debugPort + "/json/list").then(r => r.json());
-  ws = new WebSocket(targets.find(target => target.type === "page").webSocketDebuggerUrl);
-  await once(ws, "open");
+  chromium = await launchChromium(profile);
+  const { ws } = chromium;
   let sequence = 0;
   const calls = new Map();
   const requests = [];
@@ -177,8 +166,8 @@ try {
   assert.equal(signedIn, false);
   console.log("Chromium 360 px: account, checkout retry, order support with literal HTML, security, local QR and failed/retried logout passed");
 } finally {
-  ws?.close();
-  if (browser?.pid) { browser.kill("SIGTERM"); await once(browser, "exit"); }
+  chromium?.ws.close();
+  await chromium?.close();
   server.closeAllConnections();
   server.close();
   await rm(profile, { recursive: true, force: true });
