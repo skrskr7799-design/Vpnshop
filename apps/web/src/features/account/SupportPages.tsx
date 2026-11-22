@@ -1,3 +1,4 @@
+import { Breadcrumbs, Button, Icon, PageHeader, StatusIndicator, Timeline } from "@vpn/ui";
 import type { CaseSummary, OwnerOrderSummary, Page, SupportDetail } from "@vpn/shared";
 import { supportCategory } from "@vpn/shared";
 import { useRef, useState, type FormEvent } from "react";
@@ -52,7 +53,7 @@ export function SupportPage() {
     });
     if (result) navigate(`/account/support/${result.case.id}`);
   }
-  return <><h1>Поддержка</h1>
+  return <><PageHeader title="Поддержка" description="Вопросы об оплате, доступе и подключении." />
     <section className="mzt-panel"><h2>Новое обращение</h2>
       <p>Если оплата подтверждена, а доступ ещё готовится, приложите номер заказа. Пароли, платёжные данные и ссылки для подключения оставьте при себе.</p>
       <form className="mzt-form" onSubmit={event => void submit(event)}>
@@ -65,14 +66,14 @@ export function SupportPage() {
         </select></label>
         {orders.isError && <LoadState pending={false} error={orders.error} retry={orders.refetch} />}
         <label>Сообщение<textarea name="message" rows={4} maxLength={2000} required /></label>
-        <div className="mzt-actions"><button type="submit" disabled={pending}>{pending ? "Отправляем…" : "Создать обращение"}</button></div>
+        <div className="mzt-actions"><Button type="submit" loading={pending}>Создать обращение</Button></div>
         {error && <p role="alert">{error}</p>}
       </form>
     </section>
     <h2>Мои обращения</h2>
     <PageList<CaseSummary> path={path} empty="Обращений пока нет." render={ticket => <>
       <h3><Link to={`/account/support/${ticket.id}`}>{categories[ticket.category]}</Link></h3>
-      <p>{label(ticket.status)} · {date(ticket.updatedAt)}</p>
+      <p><StatusIndicator status={ticket.status}>{label(ticket.status)}</StatusIndicator> · {date(ticket.updatedAt)}</p>
     </>} />
   </>;
 }
@@ -103,24 +104,24 @@ function SupportThread({ ticketPath }: { ticketPath: string }) {
     }
   }
   const ticket = query.data?.case;
-  return <><Link to="/account/support">Все обращения</Link><h1>Обращение</h1>
+  return <><Breadcrumbs><Link to="/account/support"><Icon name="back" size={16} />Все обращения</Link></Breadcrumbs><PageHeader title="Обращение" />
     <LoadState pending={query.isPending} error={query.error} retry={query.refetch} />
     {ticket && <section className="mzt-panel"><h2>{categories[ticket.category]}</h2>
-      <p>{label(ticket.status)} · {date(ticket.updatedAt)}</p>
+      <p><StatusIndicator status={ticket.status}>{label(ticket.status)}</StatusIndicator> · {date(ticket.updatedAt)}</p>
       {ticket.orderId && <Link to={`/account/orders/${ticket.orderId}`}>Связанный заказ</Link>}
-      <ol className="mzt-messages" aria-label="Переписка">
-        {query.data?.messages.items.slice().reverse().map(message => <li key={message.id}>
+      <div className="mzt-messages" aria-label="Переписка"><Timeline>
+        {query.data?.messages.items.slice().reverse().map(message => <li key={message.id} data-author={message.author}>
           <p><strong>{message.author === "STAFF" ? "Поддержка" : "Вы"}</strong> · {date(message.createdAt)}</p>
           <p className="mzt-message">{message.text}</p>
         </li>)}
-      </ol>
+      </Timeline></div>
       <div className="mzt-actions">
         {cursor && <button onClick={() => setCursor(undefined)}>Новые сообщения</button>}
         {query.data?.messages.nextCursor && <button onClick={() => setCursor(query.data!.messages.nextCursor!)}>Ранние сообщения</button>}
       </div>
       {ticket.status === "RESOLVED" ? <p>Обращение закрыто.</p> : <form className="mzt-form" onSubmit={event => void submit(event)}>
         <label>Ответ<textarea value={draft} onChange={event => setDraft(event.target.value)} rows={3} maxLength={2000} required /></label>
-        <div className="mzt-actions"><button disabled={pending}>{pending ? "Отправляем…" : "Отправить"}</button></div>
+        <div className="mzt-actions"><Button type="submit" loading={pending}>Отправить</Button></div>
         {error && <p role="alert">{error}</p>}
       </form>}
       <details><summary>История статусов</summary>

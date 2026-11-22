@@ -46,7 +46,7 @@ export function RegisterPage() {
       >
         {registration.isError && <Alert variant="error">{getErrorMessage(registration.error)}</Alert>}
         <Field
-          label="Email"
+          label="Электронная почта"
           type="email"
           autoComplete="email"
           inputMode="email"

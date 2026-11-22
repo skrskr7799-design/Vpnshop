@@ -1,21 +1,31 @@
-import { SecurityPage } from "./features/auth/pages/SecurityPage";
+import { Suspense, lazy } from "react";
+import { Skeleton } from "@vpn/ui";
 import { Navigate, Route, Routes } from "react-router";
 import { AuthShell } from "./components/AuthShell/AuthShell";
 import { GuestOnly, RequireAuth } from "./features/auth/guards";
-import { ForgotPasswordPage } from "./features/auth/pages/ForgotPasswordPage";
 import { LoginPage } from "./features/auth/pages/LoginPage";
-import { RegisterPage } from "./features/auth/pages/RegisterPage";
-import { ResetPasswordPage } from "./features/auth/pages/ResetPasswordPage";
-import { VerifyEmailPage } from "./features/auth/pages/VerifyEmailPage";
 import { AccountShell } from "./features/account/account";
-import { DashboardPage, PlansPage, OrdersPage, OrderPage, SubscriptionPage } from "./features/account/CommercePages";
-import { ConnectionPage } from "./features/account/ConnectionPage";
-import { SupportPage, SupportThreadPage } from "./features/account/SupportPages";
 import { NotFoundPage } from "./pages/NotFoundPage";
+
+const ForgotPasswordPage = lazy(() => import("./features/auth/pages/ForgotPasswordPage").then(m => ({ default: m.ForgotPasswordPage })));
+const RegisterPage = lazy(() => import("./features/auth/pages/RegisterPage").then(m => ({ default: m.RegisterPage })));
+const ResetPasswordPage = lazy(() => import("./features/auth/pages/ResetPasswordPage").then(m => ({ default: m.ResetPasswordPage })));
+const VerifyEmailPage = lazy(() => import("./features/auth/pages/VerifyEmailPage").then(m => ({ default: m.VerifyEmailPage })));
+const SecurityPage = lazy(() => import("./features/auth/pages/SecurityPage").then(m => ({ default: m.SecurityPage })));
+const Commerce = () => import("./features/account/CommercePages");
+const DashboardPage = lazy(() => Commerce().then(m => ({ default: m.DashboardPage })));
+const PlansPage = lazy(() => Commerce().then(m => ({ default: m.PlansPage })));
+const OrdersPage = lazy(() => Commerce().then(m => ({ default: m.OrdersPage })));
+const OrderPage = lazy(() => Commerce().then(m => ({ default: m.OrderPage })));
+const SubscriptionPage = lazy(() => Commerce().then(m => ({ default: m.SubscriptionPage })));
+const ConnectionPage = lazy(() => import("./features/account/ConnectionPage").then(m => ({ default: m.ConnectionPage })));
+const Support = () => import("./features/account/SupportPages");
+const SupportPage = lazy(() => Support().then(m => ({ default: m.SupportPage })));
+const SupportThreadPage = lazy(() => Support().then(m => ({ default: m.SupportThreadPage })));
 
 export function App() {
   return (
-    <Routes>
+    <Suspense fallback={<Skeleton />}><Routes>
       <Route path="/" element={<Navigate to="/account" replace />} />
 
       <Route element={<AuthShell />}>
@@ -45,6 +55,6 @@ export function App() {
       </Route>
 
       <Route path="*" element={<NotFoundPage />} />
-    </Routes>
+    </Routes></Suspense>
   );
 }

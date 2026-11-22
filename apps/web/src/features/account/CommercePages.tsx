@@ -1,9 +1,11 @@
+import { Badge, Breadcrumbs, Button, Dialog, EmptyState, Icon, Labyrinth, PageHeader, Pagination, StatusIndicator,
+  Timeline, buttonClass } from "@vpn/ui";
 import type { Offer, OwnerOrderDetail, OwnerOrderSummary, OwnerPayment, OwnerPeriod, OwnerSubscription, Page, PaymentChannel } from "@vpn/shared";
 import { useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { request } from "../../api/client";
 import { ApiError } from "../../api/ApiError";
-import { amount, date, errorMessage, label, LoadState, useOwner } from "./account";
+import { amount, date, displayDelivery, errorMessage, label, LoadState, useOwner } from "./account";
 
 const useSubscription = () => useOwner<OwnerSubscription>("/me/subscription");
 const titleOf = (value: { name: string | null }) => value.name ?? "Подписка MZT";
@@ -11,23 +13,57 @@ function Panel({ children }: { children: ReactNode }) { return <section classNam
 
 export function DashboardPage() {
   const overview = useSubscription();
+  const orders = useOwner<Page<OwnerOrderSummary>>("/orders?limit=1");
   const sub = overview.data?.subscription;
   const period = sub?.currentPeriod;
+  const latest = orders.data?.items[0];
+  const pendingOrder = !sub && latest?.orderState === "OPEN" ? latest : null;
+  const delivery = sub ? displayDelivery(sub) : null;
+  const ready = !overview.isError && sub?.rightStatus === "ACTIVE" && delivery === "READY";
   const remaining = sub?.coverageEndsAt && overview.data
     ? Math.max(0, Math.ceil((Date.parse(sub.coverageEndsAt) - Date.parse(overview.data.serverTime)) / 86_400_000)) : null;
-  return <><h1>Обзор</h1><LoadState pending={overview.isPending} error={overview.error} retry={overview.refetch} />
-    {overview.data && <Panel>
-      <h2>{period?.snapshot ? titleOf(period.snapshot) : "Подписка"}</h2>
-      <p>{sub ? label(sub.rightStatus) : "Оплаченных периодов пока нет."}</p>
-      {sub && <dl className="mzt-detail">
-        <dt>Выдача</dt><dd>{label(sub.delivery.status)}</dd>
-        <dt>Доступ до</dt><dd>{date(sub.coverageEndsAt)}{remaining !== null && ` · до ${remaining} дн.`}</dd>
-        <dt>Лимит устройств</dt><dd>{period?.deviceLimit ?? "—"}</dd>
-      </dl>}
-      {sub?.delivery.status === "WAITING" && <p>Право учтено. Панель ещё не подтвердила профиль.</p>}
-      <div className="mzt-actions"><Link to="/account/plans">{sub ? "Продлить" : "Выбрать тариф"}</Link>
-        {sub?.delivery.status === "READY" && <Link to="/account/connect">Подключиться</Link>}</div>
-    </Panel>}
+  const headline = ready ? "Подключение готово" : sub?.rightStatus === "HELD" ? "Доступ приостановлен"
+    : sub?.rightStatus === "EXPIRED" ? "Подписка истекла" : sub?.rightStatus === "SCHEDULED" ? "Подписка запланирована"
+    : delivery === "REVIEW" ? "Подключение на проверке"
+    : sub?.rightStatus === "ACTIVE" ? "Готовим подключение"
+    : pendingOrder?.moneyStatus === "CAPTURE_RECORDED" ? "Оплата подтверждена"
+    : pendingOrder?.moneyStatus === "UNKNOWN" ? "Проверяем оплату"
+    : pendingOrder?.moneyStatus === "WAITING" ? "Заказ ожидает оплаты" : "Подключите MZT";
+  const detail = ready ? "Добавьте подписку в VPN-клиент, чтобы начать пользоваться доступом."
+    : sub?.rightStatus === "HELD" ? "Напишите в поддержку, чтобы узнать причину приостановки."
+    : sub?.rightStatus === "SCHEDULED" ? "Начало следующего периода указано в подписке."
+    : sub?.rightStatus === "EXPIRED" ? "Выберите новое предложение, чтобы продлить доступ."
+    : sub?.rightStatus === "ACTIVE" ? "Оплаченный период учтён. Доступ появится после подтверждения подключения."
+    : pendingOrder?.moneyStatus === "CAPTURE_RECORDED" ? "Поступление учтено. Проверьте состояние начисления в деталях заказа."
+    : pendingOrder?.moneyStatus === "UNKNOWN" ? "Дождитесь уточнения исхода в деталях заказа, прежде чем повторять оплату."
+    : pendingOrder?.moneyStatus === "WAITING" ? "Срок и доступные действия указаны в деталях заказа."
+    : "Выберите срок подписки и лимит устройств.";
+  return <><PageHeader title="Обзор" description="Подписка и состояние подключения." />
+    <LoadState pending={overview.isPending} error={overview.error} retry={overview.refetch} />
+    {overview.data && !overview.isError && <>
+      <section className="mzt-hero">
+        <div className="mzt-hero__content">
+          <StatusIndicator status={delivery ?? pendingOrder?.moneyStatus ?? "EMPTY"}>{delivery ? label(delivery) : pendingOrder ? label(pendingOrder.moneyStatus) : "Нет подписки"}</StatusIndicator>
+          <h2>{headline}</h2><p>{detail}</p>
+          <div className="mz-actions">
+            {ready && <Link className={buttonClass()} to="/account/connect"><Icon name="connect" size={18} />Подключиться</Link>}
+            <Link className={buttonClass(ready ? "secondary" : "primary")} to={sub?.rightStatus === "HELD" ? "/account/support" : pendingOrder ? "/account/orders/" + pendingOrder.id : "/account/plans"}>
+              {sub?.rightStatus === "HELD" ? "Написать в поддержку" : pendingOrder ? "Открыть заказ" : sub ? "Продлить" : "Выбрать тариф"}<Icon name="arrow" size={17} /></Link>
+          </div>
+        </div>
+        <div className="mzt-hero__art"><Labyrinth /></div>
+      </section>
+      <dl className="mzt-facts-bar">
+        <div><dt>Тариф</dt><dd>{period?.snapshot ? titleOf(period.snapshot) : "—"}</dd></div>
+        <div><dt>Право доступа</dt><dd>{sub ? label(sub.rightStatus) : "Периода нет"}</dd></div>
+        <div><dt>Доступ до</dt><dd>{date(sub?.coverageEndsAt)}{remaining !== null && <span className="mz-muted"> · {remaining} дн.</span>}</dd></div>
+        <div><dt>Лимит устройств</dt><dd>{period?.deviceLimit ?? "—"}</dd></div>
+      </dl>
+    </>}
+    {latest && !orders.isError && <Panel><div className="mzt-feature-row"><div><h2>Последний заказ</h2>
+      <p className="mz-muted">{titleOf(latest.snapshot)} · {date(latest.createdAt)}</p></div>
+      <Link className={buttonClass("secondary")} to={"/account/orders/" + latest.id}>Детали заказа<Icon name="arrow" size={16} /></Link></div>
+      <OrderFacts order={latest} /></Panel>}
   </>;
 }
 
@@ -35,6 +71,7 @@ export function PlansPage() {
   const catalog = useOwner<{ offers: Offer[] }>("/plans");
   const navigate = useNavigate();
   const [pending, setPending] = useState<string | null>(null);
+  const [choice, setChoice] = useState<Offer>();
   const [error, setError] = useState("");
   const keys = useRef(new Map<string, string>());
   const inFlight = useRef(false);
@@ -51,19 +88,33 @@ export function PlansPage() {
       navigate(`/account/orders/${order.orderId}`);
     } catch (err) {
       setError(errorMessage(err));
-      if (err instanceof ApiError && ["OFFER_CHANGED", "OFFER_UNAVAILABLE"].includes(err.code)) await catalog.refetch();
+      if (err instanceof ApiError && ["OFFER_CHANGED", "OFFER_UNAVAILABLE"].includes(err.code)) {
+        setChoice(undefined);
+        await catalog.refetch();
+      }
     } finally { inFlight.current = false; setPending(null); }
   }
-  return <><h1>Тарифы</h1>
-    <p>Заказ фиксирует условия на 30 минут. Оплата появится после подключения платёжного канала.</p>
+  return <><PageHeader title="Тарифы" description="Выберите срок подписки и количество устройств." />
+    <div className="mzt-notice"><Icon name="clock" /><p>Условия заказа фиксируются на 30 минут. Доступные способы оплаты проверяются при открытии заказа.</p></div>
     <LoadState pending={catalog.isPending} error={catalog.error} retry={catalog.refetch} />
-    {error && <p role="alert">{error}</p>}
-    {catalog.data?.offers.length === 0 && <p>Доступных предложений пока нет.</p>}
-    <div className="mzt-grid">{catalog.data?.offers.map(offer => <Panel key={offer.id}>
-      <h2>{offer.name}</h2><p className="mzt-price">{amount(offer.price.amountMinor, offer.price.currency)}</p>
-      <p>{offer.durationMonths} мес. · {offer.deviceLimit} устройств</p>
-      <button disabled={pending !== null} onClick={() => void buy(offer)}>{pending === offer.id ? "Создаём…" : "Создать заказ"}</button>
-    </Panel>)}</div>
+    {error && !choice && <p role="alert">{error}</p>}
+    {catalog.data?.offers.length === 0 && <EmptyState title="Доступных предложений пока нет" />}
+    <div className="mzt-grid">{catalog.data?.offers.map(offer => <section className="mzt-panel mzt-offer" key={offer.id}>
+      <header><Badge tone="accent">{offer.durationMonths} мес.</Badge><h2>{offer.name}</h2></header>
+      <p className="mzt-price">{amount(offer.price.amountMinor, offer.price.currency)}</p>
+      <dl className="mzt-detail"><dt>Устройства</dt><dd>До {offer.deviceLimit}</dd></dl>
+      <Button variant="secondary" block onClick={() => { setError(""); setChoice(offer); }}>Выбрать</Button>
+    </section>)}</div>
+    <Dialog open={!!choice} title="Проверьте условия" busy={pending !== null} onClose={() => setChoice(undefined)}>
+      {choice && <><h3>{choice.name}</h3><dl className="mzt-detail">
+        <dt>Сумма</dt><dd>{amount(choice.price.amountMinor, choice.price.currency)}</dd>
+        <dt>Срок</dt><dd>{choice.durationMonths} мес.</dd>
+        <dt>Устройства</dt><dd>До {choice.deviceLimit}</dd>
+      </dl><p className="mz-muted">После создания заказ появится в истории. Сейчас списания не будет.</p>
+        {error && <p role="alert">{error}</p>}
+        <div className="mz-actions"><Button variant="secondary" disabled={!!pending} onClick={() => setChoice(undefined)}>Отмена</Button>
+          <Button loading={!!pending} onClick={() => void buy(choice)}>Создать заказ</Button></div></>}
+    </Dialog>
   </>;
 }
 
@@ -75,35 +126,33 @@ export function PageList<T extends { id: string }>({ path, empty, render }: {
   const query = useOwner<Page<T>>(path + suffix);
   return <>
     <LoadState pending={query.isPending} error={query.error} retry={query.refetch} />
-    {query.data?.items.length === 0 && <p>{empty}</p>}
+    {query.data?.items.length === 0 && <EmptyState title={empty} />}
     <div className="mzt-stack">{query.data?.items.map(item => <Panel key={item.id}>{render(item)}</Panel>)}</div>
-    <div className="mzt-actions">
-      {cursor && <button onClick={() => setCursor(undefined)}>К началу</button>}
-      {query.data?.nextCursor && <button onClick={() => setCursor(query.data!.nextCursor!)}>Следующая страница</button>}
-    </div>
+    <Pagination onFirst={cursor ? () => setCursor(undefined) : undefined}
+      onNext={query.data?.nextCursor ? () => setCursor(query.data!.nextCursor!) : undefined} />
   </>;
 }
 
 function OrderFacts({ order }: { order: OwnerOrderSummary }) {
   return <dl className="mzt-detail">
-    <dt>Заказ</dt><dd>{label(order.orderState)}</dd>
-    <dt>Оплата</dt><dd>{label(order.moneyStatus)}</dd>
-    <dt>Выдача</dt><dd>{label(order.deliveryStatus)}</dd>
+    <dt>Заказ</dt><dd><StatusIndicator status={order.orderState}>{label(order.orderState)}</StatusIndicator></dd>
+    <dt>Оплата</dt><dd><StatusIndicator status={order.moneyStatus}>{label(order.moneyStatus)}</StatusIndicator></dd>
+    <dt>Выдача</dt><dd><StatusIndicator status={order.deliveryStatus}>{label(order.deliveryStatus)}</StatusIndicator></dd>
     <dt>Создан</dt><dd>{date(order.createdAt)}</dd>
     <dt>Окно оплаты</dt><dd>{date(order.expiresAt)}</dd>
   </dl>;
 }
 
 export function OrdersPage() {
-  return <><h1>Заказы</h1><PageList<OwnerOrderSummary> path="/orders" empty="Заказов пока нет." render={order => <>
-    <h2><Link to={`/account/orders/${order.id}`}>{titleOf(order.snapshot)}</Link></h2>
-    <p>{amount(order.snapshot.price.amountMinor, order.snapshot.price.currency)}</p><OrderFacts order={order} />
+  return <><PageHeader title="Заказы" description="История покупок, оплаты и выдачи доступа." /><PageList<OwnerOrderSummary> path="/orders" empty="Заказов пока нет." render={order => <>
+    <div className="mzt-feature-row"><h2><Link to={`/account/orders/${order.id}`}>{titleOf(order.snapshot)}</Link></h2>
+      <strong>{amount(order.snapshot.price.amountMinor, order.snapshot.price.currency)}</strong></div><OrderFacts order={order} />
   </>} /></>;
 }
 
 export function OrderPage() {
   const { id } = useParams();
-  const path = `/orders/${id}`;
+  const path = `/orders/${encodeURIComponent(id ?? "")}`;
   const query = useOwner<OwnerOrderDetail>(path);
   const order = query.data;
   const [error, setError] = useState("");
@@ -122,21 +171,23 @@ export function OrderPage() {
     } catch (err) { setError(errorMessage(err)); }
     finally { setPending(false); }
   }
-  return <><Link to="/account/orders">Все заказы</Link><h1>Заказ</h1>
+  return <><Breadcrumbs><Link to="/account/orders"><Icon name="back" size={16} />Все заказы</Link></Breadcrumbs>
+    <PageHeader title="Заказ" description="Условия предложения, оплата и состояние выдачи." />
     <LoadState pending={query.isPending} error={query.error} retry={query.refetch} />
     {order && <>
-      <Panel><h2>{titleOf(order.snapshot)}</h2><p>{amount(order.snapshot.price.amountMinor, order.snapshot.price.currency)} · {order.snapshot.durationMonths} мес.</p>
+      <Panel><div className="mzt-feature-row"><div><h2>{titleOf(order.snapshot)}</h2><p className="mz-muted">{order.snapshot.durationMonths} мес. · до {order.snapshot.deviceLimit} устройств</p></div>
+        <p className="mzt-price">{amount(order.snapshot.price.amountMinor, order.snapshot.price.currency)}</p></div>
         <OrderFacts order={order} />
         <Link to={`/account/support?orderId=${order.id}`}>Помощь с заказом</Link>
-        {order.allowedChannels.length === 0 && <p>Оплата сейчас недоступна.</p>}
+        {order.allowedChannels.length === 0 && <div className="mzt-notice"><Icon name="clock" size={18} /><p>Оплата сейчас недоступна.</p></div>}
         {order.canStartPayment && order.allowedChannels.map(channel =>
-          <button key={channel} disabled={pending} onClick={() => void startPayment(channel)}>{channel === "SBP" ? "СБП" : "Карта"}</button>)}
+          <Button key={channel} disabled={pending} onClick={() => void startPayment(channel)}>{channel === "SBP" ? "СБП" : "Карта"}</Button>)}
         {error && <p role="alert">{error}</p>}
         {order.refunds.map(refund => <p key={refund.id}>Возврат {amount(refund.amountMinor, refund.currency)} · {date(refund.confirmedAt)}</p>)}
       </Panel>
       <h2>Попытки оплаты</h2>
       <PageList<OwnerPayment> key={order.id} path={path + "/payments"} empty="Платёжных попыток пока нет." render={attempt => <>
-        <p>{label(attempt.status)} · {date(attempt.updatedAt)}</p>
+        <p><StatusIndicator status={attempt.status}>{label(attempt.status)}</StatusIndicator> · {date(attempt.updatedAt)}</p>
         {attempt.confirmedCaptures.map(fact => <p key={fact.id}>Поступление {amount(fact.amountMinor, fact.currency)} · {date(fact.confirmedAt)}</p>)}
       </>} />
     </>}
@@ -145,17 +196,25 @@ export function OrderPage() {
 
 export function SubscriptionPage() {
   const overview = useSubscription();
-  return <><h1>Подписка</h1>
+  const sub = overview.data?.subscription;
+  const delivery = sub ? displayDelivery(sub) : null;
+  return <><PageHeader title="Подписка" description="Текущее право, состояние подключения и история периодов." />
     <LoadState pending={overview.isPending} error={overview.error} retry={overview.refetch} />
-    {overview.data?.subscription && <Panel><p>{label(overview.data.subscription.rightStatus)}</p>
-      <p>Непрерывное право до {date(overview.data.subscription.coverageEndsAt)}</p>
-      <p>Следующая граница {date(overview.data.subscription.nextBoundaryAt)}</p></Panel>}
+    {sub && delivery && <Panel><div className="mzt-feature-row">
+      <h2>Состояние подписки</h2><Link className={buttonClass("secondary")} to="/account/plans">Продлить</Link></div>
+      <dl className="mzt-detail">
+        <dt>Оплаченное право</dt><dd><StatusIndicator status={sub.rightStatus}>{label(sub.rightStatus)}</StatusIndicator></dd>
+        <dt>Выдача</dt><dd><StatusIndicator status={delivery}>{label(delivery)}</StatusIndicator></dd>
+        <dt>Проверено панелью</dt><dd>{date(sub.delivery.observedAt)}</dd>
+        <dt>Доступ до</dt><dd>{date(sub.coverageEndsAt)}</dd>
+        <dt>Следующее изменение</dt><dd>{date(sub.nextBoundaryAt)}</dd>
+      </dl></Panel>}
     <h2>Периоды доступа</h2>
     <PageList<OwnerPeriod> path="/me/subscription/periods" empty="Оплаченных периодов пока нет." render={period => <>
-      <h3>{period.snapshot ? titleOf(period.snapshot) : "Компенсация"} · {period.deviceLimit} устройств</h3>
+      <Timeline><li><h3>{period.snapshot ? titleOf(period.snapshot) : "Компенсация"} · {period.deviceLimit} устройств</h3>
       <p>{date(period.startAt)} — {date(period.endAt)}</p>
       {period.adjustments.map(item => <p key={item.id}>Корректировка права с {date(item.effectiveAt)}</p>)}
-      {period.orderId && <Link to={`/account/orders/${period.orderId}`}>Заказ периода</Link>}
+      {period.orderId && <Link to={`/account/orders/${period.orderId}`}>Заказ периода</Link>}</li></Timeline>
     </>} />
   </>;
 }

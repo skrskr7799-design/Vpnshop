@@ -36,7 +36,7 @@ export function ForgotPasswordPage() {
       <form className="auth-form" noValidate onSubmit={handleSubmit((values) => forgot.mutate(values))}>
         {forgot.isError && <Alert variant="error">{getErrorMessage(forgot.error)}</Alert>}
         <Field
-          label="Email"
+          label="Электронная почта"
           type="email"
           autoComplete="email"
           inputMode="email"

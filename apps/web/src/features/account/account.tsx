@@ -1,5 +1,8 @@
+import type { OwnerSubscription } from "@vpn/shared";
 import { useQuery } from "@tanstack/react-query";
-import { Link, NavLink, Outlet } from "react-router";
+import { Button, Drawer, ErrorState, Icon, IconButton, Skeleton, type IconName } from "@vpn/ui";
+import { useEffect, useRef, useState } from "react";
+import { Link, NavLink, Outlet, useLocation } from "react-router";
 import { request } from "../../api/client";
 import { ApiError } from "../../api/ApiError";
 import { useLogout, useMe } from "../auth/queries";
@@ -52,27 +55,54 @@ export const labels: Record<string, string> = {
 };
 export const label = (state: string) => labels[state] ?? state;
 
+const navigation: { path: string; title: string; icon: IconName }[] = [
+  { path: "/account", title: "Обзор", icon: "grid" },
+  { path: "/account/plans", title: "Тарифы", icon: "layers" },
+  { path: "/account/subscription", title: "Подписка", icon: "pulse" },
+  { path: "/account/connect", title: "Подключение", icon: "connect" },
+  { path: "/account/orders", title: "Заказы", icon: "receipt" },
+  { path: "/account/support", title: "Поддержка", icon: "support" },
+  { path: "/account/security", title: "Безопасность", icon: "key" },
+];
+
+export function displayDelivery(subscription: NonNullable<OwnerSubscription["subscription"]>) {
+  return subscription.delivery.status === "READY" && !subscription.delivery.observationFresh ? "WAITING" : subscription.delivery.status;
+}
+
 export function AccountShell() {
   const logout = useLogout();
   const { data } = useMe();
-  const navigation = [
-    ["/account", "Обзор"], ["/account/plans", "Тарифы"], ["/account/subscription", "Подписка"],
-    ["/account/connect", "Подключение"], ["/account/orders", "Заказы"], ["/account/security", "Безопасность"],
-    ["/account/support", "Поддержка"],
-  ];
+  const { pathname } = useLocation();
+  const [menu, setMenu] = useState(false);
+  const main = useRef<HTMLElement>(null);
+  const active = navigation.find(item => item.path !== "/account" && pathname.startsWith(item.path)) ?? navigation[0]!;
+  useEffect(() => {
+    main.current?.focus({ preventScroll: true });
+    document.title = active.title + " — MZT";
+  }, [pathname, active.title]);
+  const links = (close?: () => void) => <nav className="mzt-nav" aria-label="Разделы кабинета">{navigation.map(({ path, title, icon }) =>
+    <NavLink end={path === "/account"} key={path} to={path} onClick={close}><Icon name={icon} size={18} />{title}</NavLink>)}</nav>;
   return <div className="mzt-account">
-    <header className="mzt-top">
-      <Link to="/account" className="mzt-wordmark">MZT</Link>
-      <button onClick={() => logout.mutate()}>Выйти</button>
-    </header>
-    <nav className="mzt-nav" aria-label="Разделы кабинета">{navigation.map(([path, title]) =>
-      <NavLink end={path === "/account"} key={path} to={path!}>{title}</NavLink>)}</nav>
-    <main className="mzt-content"><Outlet key={data?.sessionId} /></main>
+    <a className="mz-skip" href="#account-main">Перейти к содержимому</a>
+    <aside className="mzt-rail"><Link to="/account" className="mz-wordmark">MZT</Link>{links()}</aside>
+    <div className="mzt-workspace">
+      <header className="mzt-top">
+        <div className="mzt-top__mobile"><IconButton icon="menu" label="Открыть меню" aria-expanded={menu} onClick={() => setMenu(true)} />
+          <Link to="/account" className="mz-wordmark">MZT</Link></div>
+        <span className="mzt-top__context">Личный кабинет</span>
+        <Button variant="quiet" className="mzt-top__exit" onClick={() => logout.mutate()}><Icon name="out" size={17} />Выйти</Button>
+      </header>
+      <Drawer open={menu} title="Личный кабинет" onClose={() => setMenu(false)}>{links(() => {
+        setMenu(false);
+        requestAnimationFrame(() => main.current?.focus({ preventScroll: true }));
+      })}</Drawer>
+      <main id="account-main" className="mzt-content" ref={main} tabIndex={-1}><Outlet key={data?.sessionId} /></main>
+    </div>
   </div>;
 }
 
 export function LoadState({ pending, error, retry }: { pending: boolean; error: unknown; retry: () => unknown }) {
-  if (pending) return <p role="status">Загрузка…</p>;
-  if (error) return <div role="alert"><p>{errorMessage(error)}</p><button onClick={() => void retry()}>Обновить</button></div>;
+  if (pending) return <Skeleton />;
+  if (error) return <ErrorState message={errorMessage(error)} retry={retry} />;
   return null;
 }

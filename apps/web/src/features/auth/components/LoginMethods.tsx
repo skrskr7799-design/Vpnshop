@@ -1,3 +1,4 @@
+import { Button, Dialog, PasswordInput, Select } from "@vpn/ui";
 import { useQuery } from "@tanstack/react-query";
 import type { AuthProvider } from "@vpn/shared";
 import { useState, type FormEvent } from "react";
@@ -68,7 +69,7 @@ export function LoginMethods() {
   return <section aria-labelledby="methods-title">
     <h2 id="methods-title">Способы входа</h2>
     {linked && <p role="status">Способ входа подключён.</p>}
-    {(error || outcome) && <p role="alert">{error || "Подтверждение способа входа не завершилось."}</p>}
+    {(outcome || (error && !action)) && <p role="alert">{error || "Подтверждение способа входа не завершилось."}</p>}
     {methods.isPending && <p>Загружаем способы входа…</p>}
     {methods.isError && <p role="alert">Не удалось прочитать способы входа.</p>}
     <ul className="login-methods__list">
@@ -90,14 +91,16 @@ export function LoginMethods() {
         Подтвердить {proof.purpose === "LINK" ? "подключение" : "отключение"} {labels[proof.target]}
       </button>
     </p>)}
-    {action && <form onSubmit={submit}>
-      <p>{action.purpose === "LINK" ? "Подключение" : "Отключение"} {labels[action.target]}</p>
-      <label>Подтвердите вход <select value={method} onChange={event => setMethod(event.target.value as AuthProvider)}>
+    <Dialog open={action !== null} title={action ? (action.purpose === "LINK" ? "Подключение" : "Отключение") + " · " + labels[action.target] : ""}
+      busy={busy} onClose={() => setAction(null)}>
+    {action && <form className="mzt-form" onSubmit={submit}>
+      {error && <p role="alert">{error}</p>}
+      <label>Подтвердите вход <Select value={method} onChange={event => setMethod(event.target.value as AuthProvider)}>
         {reauthMethods.map(identity => <option key={identity.provider} value={identity.provider}>{labels[identity.provider]}</option>)}
-      </select></label>
-      {method === "EMAIL" && <label>Текущий пароль <input name="password" autoComplete="current-password" type="password" required /></label>}
-      <button type="submit" disabled={busy}>Продолжить</button>{" "}
-      <button type="button" onClick={() => setAction(null)}>Отмена</button>
+      </Select></label>
+      {method === "EMAIL" && <label>Текущий пароль <PasswordInput name="password" autoComplete="current-password" required /></label>}
+      <div className="mz-actions"><Button variant="secondary" disabled={busy} onClick={() => setAction(null)}>Отмена</Button><Button type="submit" loading={busy}>Продолжить</Button></div>
     </form>}
+    </Dialog>
   </section>;
 }

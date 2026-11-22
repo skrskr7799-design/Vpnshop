@@ -29,7 +29,7 @@ export function LoginPage() {
   } = useForm<LoginInput>({ resolver: zodResolver(loginSchema), defaultValues: { email: "", password: "" } });
 
   return (
-    <AuthPage title="Вход">
+    <AuthPage title="Вход" lead="Войдите, чтобы управлять подпиской и подключениями.">
       {logoutPending && <Alert variant="error">
         Данные скрыты. Серверный выход ещё не подтверждён.
         <button type="button" onClick={() => void authApi.logout().then(() => {
@@ -40,7 +40,7 @@ export function LoginPage() {
         {login.isError && <Alert variant="error">{getErrorMessage(login.error)}</Alert>}
         {!login.isError && oauthError && <Alert variant="error">{getMessageByCode(oauthError)}</Alert>}
         <Field
-          label="Email"
+          label="Электронная почта"
           type="email"
           autoComplete="username"
           inputMode="email"
