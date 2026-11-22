@@ -14,6 +14,10 @@ export function PlanActions({ plan, versions }: { plan: Row; versions: Row[] }) 
   const version = String(plan.revision);
   return <>
     {plan.isActive ? <Action title="Опубликовать предложение" operation="plan.publish" permission="plans:write" target={plan.id} version={version}
+      baseline={body => {
+        const offer = versions.find(row => !row.withdrawnAt && row.currency === body.currency && Number(row.durationMonths) === Number(body.durationMonths));
+        return offer && { name: offer.name, durationMonths: offer.durationMonths, amountMinor: offer.amount, currency: offer.currency, deviceLimit: offer.deviceLimit };
+      }}
       fields={[{ name: "name", label: "Название", value: String(plan.name) },
         { name: "durationMonths", label: "Месяцы", type: "number", value: 1 },
         { name: "currency", label: "Валюта", options: ["RUB", "USD", "XTR"] },
@@ -76,7 +80,7 @@ function Refunds({ row }: { row: Row }) {
 }
 export function Invite() {
   return <Action title="Пригласить сотрудника" operation="staff.invite" permission="staff:write" version={0}
-    target={body => String(body.email).toLowerCase()} fields={[{ name: "email", label: "Служебный email", type: "email" },
+    target={body => String(body.email).toLowerCase()} fields={[{ name: "email", label: "Служебная почта", type: "email" },
       { name: "role", label: "Роль", options: ["SUPPORT", "ADMIN"] }]} />;
 }
 export function StaffActions({ row }: { row: Row }) {

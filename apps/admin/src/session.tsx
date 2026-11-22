@@ -1,3 +1,4 @@
+import { Button, CodeDisplay, Labyrinth } from "@vpn/ui";
 import { createContext, useContext, useState, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router";
@@ -50,22 +51,25 @@ export function Login({ invitation = false }: { invitation?: boolean }) {
     } catch (error) { setIssue(errorText(error)); }
     finally { setPending(false); }
   }
-  return <main className="login"><section className="panel">
-    <p className="brand">MZT</p>
+  return <main className="login login--signature">
+    <div className="login__art"><Labyrinth /></div><section className="panel">
+    <p className="mz-wordmark">MZT</p>
     <h1>{invitation ? "Приглашение" : "Вход для сотрудников"}</h1>
+    {!stage && !recoveryCodes.length && <p className="login__context">{invitation ?
+      "Используйте код, полученный от администратора." : "Войдите с помощью служебной учётной записи и кода приложения."}</p>}
     {issue && <p role="alert">{issue}</p>}
     {recoveryCodes.length > 0 ? <><h2>Резервные коды</h2>
       <p>Сохраните коды отдельно от пароля. Они показаны один раз.</p>
-      <ul className="codes">{recoveryCodes.map(code => <li key={code}><code>{code}</code></li>)}</ul>
+      <ul className="codes">{recoveryCodes.map(code => <li key={code}><CodeDisplay>{code}</CodeDisplay></li>)}</ul>
       <button onClick={() => { setCodes([]); void entered(); }}>Коды сохранены</button>
     </> : <form onSubmit={event => void submit(event)} key={stage?.token ?? "login"}>
       {invitation ? <label>Код приглашения<input name="token" required autoComplete="off" /></label> : !stage &&
-        <label>Служебный email<input name="email" type="email" required autoComplete="username" /></label>}
+        <label>Служебная почта<input name="email" type="email" required autoComplete="username" /></label>}
       {!stage && <label>Пароль<input name="password" type="password" required autoComplete={invitation ? "new-password" : "current-password"} /></label>}
-      {stage?.secret && <p>Добавьте ключ в приложение-аутентификатор. <code>{stage.secret}</code></p>}
+      {stage?.secret && <p>Добавьте ключ в приложение-аутентификатор. <CodeDisplay>{stage.secret}</CodeDisplay></p>}
       {stage && <label>{recover ? "Резервный код" : "Код приложения"}<input name="code" required autoComplete="one-time-code"
         inputMode={recover ? "text" : "numeric"} pattern={recover ? undefined : "[0-9]{6}"} /></label>}
-      <button disabled={pending}>{pending ? "Проверяем…" : stage ? "Подтвердить" : invitation ? "Активировать" : "Продолжить"}</button>
+      <Button type="submit" loading={pending}>{stage ? "Подтвердить" : invitation ? "Активировать" : "Продолжить"}</Button>
       {stage && <div className="actions">
         {!stage.secret && <button type="button" onClick={() => setRecover(!recover)}>{recover ? "Код приложения" : "Использовать резервный код"}</button>}
         <button type="button" onClick={() => { setStage(undefined); setRecover(false); }}>Начать заново</button>

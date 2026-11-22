@@ -91,7 +91,9 @@ jobs:
           VPNSHOP_SERVICE_ID: ${{ job.services.postgres.id }}
         run: pnpm --filter @vpn/api test:integration
 
-      - name: Responsive browser smoke
+      - name: Responsive browser smoke and visual evidence
+        env:
+          MZT_VISUAL_DIR: ${{ runner.temp }}/mzt-visual
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
           CHROMIUM_BIN="$(command -v google-chrome || command -v chromium)"
@@ -110,3 +112,12 @@ jobs:
             fi
             cat "$output"
           done
+
+
+      - name: Upload screenshot and performance evidence
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mzt-visual-${{ github.sha }}
+          path: ${{ runner.temp }}/mzt-visual
+          if-no-files-found: warn
