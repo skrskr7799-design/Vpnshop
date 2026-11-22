@@ -43,3 +43,34 @@ BEGIN
 END $$;
 CREATE TRIGGER vpnshop_refund_intent_immutable BEFORE UPDATE OR DELETE ON "RefundIntent"
 FOR EACH ROW EXECUTE FUNCTION vpnshop_refund_intent_immutable();
+
+-- Keep the allocation check for purchases. A service credit has a different,
+-- explicit source and must reference an eligible purchase in the same subscription.
+CREATE OR REPLACE FUNCTION vpnshop_validate_period() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW."incidentId" IS NOT NULL THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM "PeriodGrant" basis
+      JOIN "Subscription" s ON s.id = basis."subscriptionId"
+      WHERE basis.id = NEW."basisGrantId" AND s.id = NEW."subscriptionId" AND NOT s."legacyUnverified"
+        AND basis."orderId" IS NOT NULL AND basis."allocationId" IS NOT NULL
+        AND basis."deviceLimit" = NEW."deviceLimit" AND NEW."startAt" >= basis."endAt"
+        AND NOT EXISTS (SELECT 1 FROM "Adjustment" a WHERE a."grantId" = basis.id)
+    ) THEN
+      RAISE EXCEPTION 'Compensation requires an eligible purchase in the same subscription';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM "OrderAllocation" a
+    JOIN "Order" o ON o.id = a."orderId"
+    JOIN "Subscription" s ON s.id = NEW."subscriptionId" AND s."userId" = o."userId"
+    WHERE a.id = NEW."allocationId" AND a."orderId" = NEW."orderId"
+      AND o."deviceLimit" = NEW."deviceLimit" AND NOT s."legacyUnverified"
+  ) THEN
+    RAISE EXCEPTION 'Period requires a matching allocation, subscription and snapshot';
+  END IF;
+  RETURN NEW;
+END;
+$$;

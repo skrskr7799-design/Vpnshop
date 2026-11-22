@@ -1,3 +1,4 @@
+import { stripVTControlCharacters } from "node:util";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -6,7 +7,10 @@ const files = readdirSync("src", { recursive: true }).filter(name => name.endsWi
 for (const result of report.testResults) {
   for (const test of result.assertionResults) {
     if (test.status === "failed" && process.env.GITHUB_ACTIONS) {
-      console.error(`::error file=${result.name}::Integration assertion failed: ${test.fullName}`);
+      const summary = stripVTControlCharacters((test.failureMessages ?? []).join(" "))
+        .replace(/postgres(?:ql)?:\/\/[^\s]+/g, "[database URL]")
+        .replace(/[%\r\n]+/g, " ").slice(0, 320);
+      console.error(`::error file=${result.name}::Integration assertion failed: ${test.fullName}. ${summary}`);
     }
   }
 }

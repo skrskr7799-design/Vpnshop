@@ -149,7 +149,7 @@ try {
   assert.ok(await evaluate(text("Движения по валюте")));
   assert.ok(await evaluate(text("Данные устарели")));
   assert.ok(await evaluate(text("Источник недоступен")));
-  await evaluate("document.body.focus()");
+  await evaluate("document.body.tabIndex = -1; document.body.focus()");
   await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 });
   await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 });
   await until("document.activeElement.className === 'skip'");

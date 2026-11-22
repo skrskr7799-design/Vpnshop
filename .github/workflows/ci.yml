@@ -104,7 +104,8 @@ jobs:
             output="$(mktemp)"
             if ! node "apps/$site/scripts/$script-browser-smoke.mjs" >"$output" 2>&1; then
               cat "$output"
-              sed -n "s/^Error: /::error::Chromium $site: /p" "$output"
+              detail="$(sed -n -E '/Error|Assertion|Expected|actual|expected|at until/p' "$output" | head -8 | tr '\n%' '  ' | cut -c1-550)"
+              printf '::error::Chromium %s: %s\n' "$site" "$detail"
               exit 1
             fi
             cat "$output"

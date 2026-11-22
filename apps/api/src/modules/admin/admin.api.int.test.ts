@@ -115,7 +115,7 @@ it("paginates 1001 users with timestamp ties, stable cursors and filter isolatio
 
 it("sums verified CAPTURE, refunds and chargebacks by currency and marks stale/unavailable sources", async () => {
   const buyer = await createUser();
-  const legacy = await createOrder(buyer.id, { status: "PAID" });
+  const legacy = await createOrder((await createUser()).id, { status: "PAID" });
   const { capture, order } = await paidOrder(buyer.id);
   await financeFact(capture.accountId, "REFUND", 500n, "RUB", capture.movementKey, capture.paymentId!);
   await financeFact(capture.accountId, "CHARGEBACK_DEBIT", 250n, "RUB", capture.movementKey, capture.paymentId!);
