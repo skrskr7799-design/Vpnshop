@@ -29,7 +29,13 @@ export async function resetDatabase(): Promise<void> {
     await tx.plan.deleteMany();
     await tx.webhookEvent.deleteMany();
     await tx.merchantAccount.deleteMany();
-    await tx.auditLog.deleteMany();
+    await tx.$executeRaw`TRUNCATE "AuditLog"`;
+    await tx.adminConfirmation.deleteMany();
+    await tx.adminCommand.deleteMany();
+    await tx.staffChallenge.deleteMany();
+    await tx.staffCredential.deleteMany();
+    await tx.staffReset.deleteMany();
+    await tx.staffInvite.deleteMany();
     await tx.pendingRegistration.deleteMany();
     await tx.oAuthFlow.deleteMany();
     await tx.authMailWindow.deleteMany();

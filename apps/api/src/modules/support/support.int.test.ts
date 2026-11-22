@@ -79,22 +79,24 @@ it("serializes duplicate messages, rejects oversize text and returns plain text 
 it("limits the staff contract, atomically audits actions and preserves status transitions", async () => {
   const member = await owner();
   const support = await createEnrolledAdmin("help@example.com", "SUPPORT");
+  const operator = await createEnrolledAdmin("case-admin@example.com");
   const created = await member.post(cases, { category: "DELIVERY", message: "Жду выдачи" });
   const { id, updatedAt } = created.json().case;
   const url = `${staffCases}/${id}`;
   expect((await web.inject({ url, cookies: { vpn_at: member.token } })).statusCode).toBe(404);
   expect((await admin.inject({ url, cookies: { vpn_at: member.token } })).statusCode).toBe(401);
   expect((await admin.inject({ url, cookies: { vpn_admin: support.sessionToken } })).json().case.userId).toBe(member.user.id);
-  const action = (status: string, expectedUpdatedAt: string, key: string, publicReply?: string) => admin.inject({
-    url: url + "/actions", method: "POST", cookies: { vpn_admin: support.sessionToken },
+  const action = (status: string, expectedUpdatedAt: string, key: string, publicReply?: string, token = operator.sessionToken) => admin.inject({
+    url: url + "/actions", method: "POST", cookies: { vpn_admin: token },
     headers: { origin: env.ADMIN_ORIGIN, "idempotency-key": key },
     payload: { status, reason: "Требуется уточнение", expectedUpdatedAt, publicReply },
   });
   const key = randomUUID();
+  expect((await action("WAITING_CUSTOMER", updatedAt, key, undefined, support.sessionToken)).statusCode).toBe(403);
   const wait = await action("WAITING_CUSTOMER", updatedAt, key, "Уточните время");
   expect(wait.statusCode).toBe(200);
   expect((await action("WAITING_CUSTOMER", updatedAt, key, "Уточните время")).json().commandId).toBe(wait.json().commandId);
-  expect(await prisma.auditLog.count({ where: { actorId: support.userId, action: "support.case.action" } })).toBe(1);
+  expect(await prisma.auditLog.count({ where: { actorId: operator.userId, action: "support.case.action" } })).toBe(1);
   expect((await action("RESOLVED", updatedAt, randomUUID())).statusCode).toBe(409);
   const publicUrl = `${cases}/${id}`;
   const msgKey = randomUUID();

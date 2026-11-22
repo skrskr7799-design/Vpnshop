@@ -40,12 +40,7 @@ const schema = z
     ADMIN_PORT: z.coerce.number().int().positive().default(3001),
     // Origin фронта админки (проверка Origin, CORS)
     ADMIN_ORIGIN: z.url().default("http://localhost:5174"),
-    // Верить ли X-Forwarded-For. По умолчанию нет: иначе IP-фильтр можно обойти подделкой заголовка.
-    // Включайте, только если админка стоит за собственным reverse proxy.
-    ADMIN_TRUST_PROXY: z
-      .enum(["true", "false"])
-      .default("false")
-      .transform((v) => v === "true"),
+    ADMIN_TRUSTED_PROXIES: z.string().default("").transform(value => value.split(",").map(part => part.trim()).filter(Boolean)),
     // Разрешённые адреса/сети (CIDR) через запятую. Пусто = без ограничения по IP
     ADMIN_ALLOWED_CIDRS: z
       .string()

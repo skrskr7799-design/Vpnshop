@@ -133,6 +133,9 @@ model User {
   totp          AdminTotp?
   recoveryCodes AdminRecoveryCode[]
   adminSessions AdminSession[]
+  staffCredential StaffCredential?
+  staffChallenges StaffChallenge[]
+  staffResets StaffReset[]
   tokens     VerificationToken[]
   orders     Order[]
   supportCases SupportCase[]
@@ -255,6 +258,8 @@ model AdminSession {
   revokedAt     DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  confirmations AdminConfirmation[]
 
   @@index([userId])
 }
@@ -512,6 +517,14 @@ model AuditLog {
   ip        String?
   createdAt DateTime @default(now())
 
+  role          String?
+  permission    String?
+  reason        String?
+  commandId     String?
+  correlationId String?
+  outcome       String?
+
+  @@index([createdAt, id])
   @@index([entity, entityId])
   @@index([actorId, createdAt])
 }
@@ -792,4 +805,73 @@ model SupportEvent {
 
   @@unique([caseId, requestKeyHash])
   @@index([caseId, createdAt, id])
+}
+
+model StaffCredential {
+  userId       String @id
+  passwordHash String
+  version      Int @default(1)
+  user         User @relation(fields: [userId], references: [id], onDelete: Restrict)
+}
+
+model StaffChallenge {
+  id           String @id
+  userId       String
+  version      Int
+  stage        String
+  expiresAt    DateTime
+  consumedAt   DateTime?
+  user         User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, expiresAt])
+}
+
+model StaffInvite {
+  id         String @id @default(uuid())
+  email      String
+  role       UserRole
+  tokenHash  String @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+
+  @@index([email, expiresAt])
+}
+
+model StaffReset {
+  id         String @id @default(uuid())
+  userId     String
+  actorId    String
+  version    Int
+  caseId     String
+  expiresAt  DateTime
+  approvedBy String?
+  user       User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, expiresAt])
+}
+
+model AdminConfirmation {
+  id          String @id @default(uuid())
+  sessionId   String
+  fingerprint String
+  version     Int
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  session     AdminSession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+
+  @@index([sessionId, expiresAt])
+}
+
+model AdminCommand {
+  id          String @id @default(uuid())
+  actorId     String
+  operation   String
+  permission  String
+  targetId    String
+  keyHash     String
+  fingerprint String
+  result      Json
+  createdAt   DateTime @default(now())
+
+  @@unique([actorId, operation, targetId, keyHash])
 }

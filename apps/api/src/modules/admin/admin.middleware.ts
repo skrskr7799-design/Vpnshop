@@ -23,7 +23,7 @@ export const clearAdminCookie = (reply: FastifyReply) => reply.clearCookie(ADMIN
 export function requireAdmin(permission?: Permission) {
   return async (req: FastifyRequest): Promise<void> => {
     const token = req.cookies[ADMIN_COOKIE];
-    const admin = token ? await resolveAdminSession(token) : null;
+    const admin = token ? await resolveAdminSession(token, new Date(), req.method !== "GET" && req.method !== "HEAD") : null;
     if (!admin) throw new AppError(401, "UNAUTHENTICATED");
     if (permission && !can(admin.role, permission)) throw new AppError(403, "FORBIDDEN");
     req.admin = admin;
