@@ -42,6 +42,10 @@ BEGIN
       RAISE;
     END IF;
   END;
+  IF EXISTS (SELECT 1 FROM "SessionFamily") OR EXISTS (SELECT 1 FROM "Session" WHERE "liveFamilyId" IS NOT NULL)
+    OR EXISTS (SELECT 1 FROM "OAuthFlow") OR EXISTS (SELECT 1 FROM "IdentityProof") THEN
+    RAISE EXCEPTION 'Legacy sessions must require controlled re-login';
+  END IF;
   IF (SELECT count(*) FROM "Subscription" WHERE "legacyUnverified" AND "userId" = 'u' AND revision = 0) <> 1
     OR (SELECT count(*) FROM "Subscription") <> 1
     OR EXISTS (SELECT 1 FROM "OrderAllocation") OR EXISTS (SELECT 1 FROM "PeriodGrant")

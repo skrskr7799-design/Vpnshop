@@ -114,6 +114,7 @@ model User {
   id              String     @id @default(uuid())
   email           String?    @unique // lowercase, только подтверждённый
   emailVerifiedAt DateTime?
+  emailLoginDisabled Boolean @default(false)
   role            UserRole   @default(USER)
   status          UserStatus @default(ACTIVE)
 
@@ -128,6 +129,7 @@ model User {
   subscription Subscription?
   identities    AuthIdentity[]
   sessions      Session[]
+  sessionFamilies SessionFamily[]
   totp          AdminTotp?
   recoveryCodes AdminRecoveryCode[]
   adminSessions AdminSession[]
@@ -159,6 +161,8 @@ model Session {
   id        String    @id @default(uuid())
   userId    String
   familyId  String
+  liveFamilyId String?
+  family SessionFamily? @relation(fields: [liveFamilyId], references: [id], onDelete: Cascade)
   tokenHash String    @unique
   userAgent String?
   ip        String?
@@ -657,4 +661,60 @@ model PanelObservation {
   assignment DesiredAssignment @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
 
   @@index([assignmentId, receivedAt])
+}
+
+model SessionFamily {
+  id         String @id
+  userId     String
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokens Session[]
+  flows OAuthFlow[]
+  proofs IdentityProof[]
+
+  @@index([userId, revokedAt, expiresAt])
+}
+
+model OAuthFlow {
+  state String @id
+  provider String
+  browserHash String
+  verifier String
+  nonce String?
+  returnTo String?
+  mode String
+  familyId String?
+  target AuthProvider?
+  purpose String?
+  requestKeyHash String?
+  fingerprint String?
+  proofId String?
+  expiresAt DateTime
+  consumedAt DateTime?
+  family SessionFamily? @relation(fields: [familyId], references: [id], onDelete: Cascade)
+
+  @@unique([familyId, provider, requestKeyHash])
+  @@index([expiresAt])
+}
+
+model IdentityProof {
+  id String @id @default(uuid())
+  familyId String
+  target AuthProvider
+  purpose String
+  expiresAt DateTime
+  usedAt DateTime?
+  family SessionFamily @relation(fields: [familyId], references: [id], onDelete: Cascade)
+
+  @@index([familyId, expiresAt])
+}
+
+model AuthMailWindow {
+  key String @id
+  startedAt DateTime
+  count Int
 }

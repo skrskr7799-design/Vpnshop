@@ -10,11 +10,14 @@ import { OAuthButtons } from "../../../components/OAuthButtons/OAuthButtons";
 import { useConsumedSearchParam } from "../../../hooks/useConsumedSearchParam";
 import { PasswordField } from "../../../components/Field/PasswordField";
 import { getErrorMessage, getMessageByCode } from "../errors";
+import { authApi, logoutHidden, setLogoutHidden } from "../api";
+import { useState } from "react";
 import { useLogin } from "../queries";
 import { getRedirectTarget } from "../redirect";
 
 export function LoginPage() {
   const login = useLogin();
+  const [logoutPending, setLogoutPending] = useState(logoutHidden);
   const location = useLocation();
   // Ошибка внешнего входа приходит в адресной строке: /login?error=OAUTH_DENIED
   const oauthError = useConsumedSearchParam("error");
@@ -27,6 +30,12 @@ export function LoginPage() {
 
   return (
     <AuthPage title="Вход">
+      {logoutPending && <Alert variant="error">
+        Данные скрыты. Серверный выход ещё не подтверждён.
+        <button type="button" onClick={() => void authApi.logout().then(() => {
+          setLogoutHidden(false); setLogoutPending(false);
+        }).catch(() => {})}>Повторить выход</button>
+      </Alert>}
       <form className="auth-form" noValidate onSubmit={handleSubmit((values) => login.mutate(values))}>
         {login.isError && <Alert variant="error">{getErrorMessage(login.error)}</Alert>}
         {!login.isError && oauthError && <Alert variant="error">{getMessageByCode(oauthError)}</Alert>}
@@ -50,7 +59,7 @@ export function LoginPage() {
           Войти
         </Button>
       </form>
-      <OAuthButtons returnTo={returnTo === "/account" ? undefined : returnTo} />
+      {!logoutPending && <OAuthButtons returnTo={returnTo === "/account" ? undefined : returnTo} />}
       <div className="auth-links">
         <Link to="/forgot-password">Забыли пароль?</Link>
         <Link to="/register">Создать аккаунт</Link>

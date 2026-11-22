@@ -6,6 +6,9 @@ import type { AddressInfo } from "node:net";
 import { exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppError } from "../../lib/errors";
+import { randomUUID } from "node:crypto";
+import { prisma } from "../../lib/prisma";
+import { resetDatabase } from "../../test/db";
 import { signAccessToken } from "../auth/jwt";
 import { flowCookieName } from "./flow-cookie";
 import { loginWithProfile, linkProfile } from "./oauth.service";
@@ -15,12 +18,14 @@ import { createTelegramProvider } from "./providers/telegram";
 import { createSession } from "../auth/session.service";
 
 // БД и сессии подменяем: проверяем именно протокол и обработку callback
-vi.mock("./oauth.service", () => ({
-  loginWithProfile: vi.fn(),
-  linkProfile: vi.fn(),
-  listLinkedProviders: vi.fn(),
-}));
-vi.mock("../auth/session.service", () => ({ createSession: vi.fn() }));
+vi.mock("./oauth.service", async importOriginal => {
+  const original = await importOriginal<typeof import("./oauth.service")>();
+  return { ...original, loginWithProfile: vi.fn(original.loginWithProfile), linkProfile: vi.fn(original.linkProfile) };
+});
+vi.mock("../auth/session.service", async importOriginal => {
+  const original = await importOriginal<typeof import("../auth/session.service")>();
+  return { ...original, createSession: vi.fn() };
+});
 
 // ───────── Фейковый провайдер: token endpoint + JWKS ─────────
 type TokenRequest = { authorization?: string; body: URLSearchParams };
@@ -112,10 +117,11 @@ beforeAll(async () => {
 });
 afterAll(() => tgApp.close());
 
-beforeEach(() => {
+beforeEach(async () => {
+  await resetDatabase();
   idp.tokenRequests = [];
-  vi.mocked(loginWithProfile).mockReset().mockResolvedValue({ id: "user-1", role: "USER" } as never);
-  vi.mocked(linkProfile).mockReset().mockResolvedValue(undefined);
+  vi.mocked(loginWithProfile).mockReset();
+  vi.mocked(linkProfile).mockReset();
   vi.mocked(createSession).mockReset().mockResolvedValue({ accessToken: "AT", refreshToken: "RT" });
 });
 
@@ -302,48 +308,42 @@ describe("Telegram: вход", () => {
   });
 });
 
-describe("привязка к вошедшему пользователю", () => {
-  it("без авторизации отправляет на вход", async () => {
-    const res = await app.inject({ method: "GET", url: "/api/auth/oauth/google/link" });
-    expect(location(res)).toBe("http://localhost:5173/login?error=UNAUTHENTICATED");
-  });
+async function prepareLink() {
+  const user = await prisma.user.create({ data: {} });
+  const sid = randomUUID();
+  await prisma.sessionFamily.create({ data: { id: sid, userId: user.id, expiresAt: new Date(Date.now() + 180000) } });
+  const proof = await prisma.identityProof.create({ data: { familyId: sid, target: "GOOGLE", purpose: "LINK",
+    expiresAt: new Date(Date.now() + 180000) } });
+  const access = await signAccessToken({ userId: user.id, role: "USER", sid });
+  const begin = await app.inject({ method: "POST", url: "/api/auth/oauth/google/link", cookies: { vpn_at: access },
+    headers: { "idempotency-key": randomUUID() }, payload: { confirmationId: proof.id } });
+  expect(begin.statusCode).toBe(200);
+  const url = new URL(begin.json().authorizeUrl);
+  idp.challenge = url.searchParams.get("code_challenge")!;
+  (idp as unknown as { nonce: string | null }).nonce = url.searchParams.get("nonce");
+  return {
+    sid, user, query: `code=abc&state=${url.searchParams.get("state")}`,
+    cookies: { vpn_at: access, ...Object.fromEntries(begin.cookies.map(c => [c.name, c.value])) },
+  };
+}
 
-  it("привязывает внешний аккаунт, не создавая новую сессию", async () => {
-    idp.idToken = googleToken();
-    const access = await signAccessToken({ userId: "user-42", role: "USER" });
-    const flow = await start(app, "google", { cookies: {} });
-    // старт в режиме link
-    const res0 = await app.inject({ method: "GET", url: "/api/auth/oauth/google/link", cookies: { vpn_at: access } });
-    expect(res0.statusCode).toBe(302);
-    const url = new URL(location(res0));
-    idp.challenge = url.searchParams.get("code_challenge")!;
-    (idp as unknown as { nonce: string | null }).nonce = url.searchParams.get("nonce");
-    const cookies = Object.fromEntries(res0.cookies.map((c) => [c.name, c.value]));
-    void flow;
+it("binds exactly once even if both callbacks carry the original browser cookie", async () => {
+  idp.idToken = googleToken();
+  const flow = await prepareLink();
+  const responses = await Promise.all([callback(app, "google", flow.query, flow.cookies), callback(app, "google", flow.query, flow.cookies)]);
+  expect(responses.map(location).sort()).toEqual([
+    "http://localhost:5173/account/security?linked=google", "http://localhost:5173/login?error=OAUTH_STATE",
+  ]);
+  expect(idp.tokenRequests).toHaveLength(1);
+  expect(await prisma.authIdentity.count({ where: { userId: flow.user.id } })).toBe(1);
+  expect(createSession).not.toHaveBeenCalled();
+});
 
-    const res = await callback(app, "google", `code=abc&state=${url.searchParams.get("state")}`, cookies);
-
-    expect(location(res)).toBe("http://localhost:5173/account?linked=google");
-    expect(linkProfile).toHaveBeenCalledWith("user-42", "GOOGLE", {
-      providerId: "g-sub",
-      email: "user@gmail.com",
-      emailVerified: true,
-    });
-    expect(createSession).not.toHaveBeenCalled();
-    expect(loginWithProfile).not.toHaveBeenCalled();
-  });
-
-  it("конфликт привязки возвращает на /account с кодом ошибки", async () => {
-    idp.idToken = googleToken();
-    vi.mocked(linkProfile).mockRejectedValue(new AppError(409, "IDENTITY_TAKEN"));
-    const access = await signAccessToken({ userId: "user-42", role: "USER" });
-    const res0 = await app.inject({ method: "GET", url: "/api/auth/oauth/google/link", cookies: { vpn_at: access } });
-    const url = new URL(location(res0));
-    idp.challenge = url.searchParams.get("code_challenge")!;
-    (idp as unknown as { nonce: string | null }).nonce = url.searchParams.get("nonce");
-    const cookies = Object.fromEntries(res0.cookies.map((c) => [c.name, c.value]));
-
-    const res = await callback(app, "google", `code=abc&state=${url.searchParams.get("state")}`, cookies);
-    expect(location(res)).toBe("http://localhost:5173/account?error=IDENTITY_TAKEN");
-  });
+it("refuses a stale callback after family revoke and rejects legacy GET link", async () => {
+  const flow = await prepareLink();
+  await prisma.sessionFamily.update({ where: { id: flow.sid }, data: { revokedAt: new Date() } });
+  const response = await callback(app, "google", flow.query, flow.cookies);
+  expect(location(response)).toBe("http://localhost:5173/account/security?error=UNAUTHENTICATED");
+  expect(idp.tokenRequests).toHaveLength(0);
+  expect((await app.inject({ url: "/api/auth/oauth/google/link" })).statusCode).toBe(404);
 });

@@ -10,12 +10,12 @@ const transport = env.SMTP_URL ? nodemailer.createTransport(env.SMTP_URL) : null
 // (иначе по времени ответа можно отличить существующий email от несуществующего).
 export async function sendMail(log: FastifyBaseLogger, mail: Mail): Promise<void> {
   if (!transport) {
-    log.info({ to: mail.to, subject: mail.subject, text: mail.text }, "mail (SMTP не настроен, только dev)");
+    log.info("Mail skipped because SMTP is not configured");
     return;
   }
   try {
     await transport.sendMail({ from: env.MAIL_FROM, ...mail });
-  } catch (err) {
-    log.error({ err, to: mail.to }, "не удалось отправить письмо");
+  } catch {
+    log.error("Mail delivery failed");
   }
 }

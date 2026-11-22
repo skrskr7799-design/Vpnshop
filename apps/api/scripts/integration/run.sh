@@ -70,9 +70,11 @@ snapshot() {
   # Project Order onto its legacy columns. The new nullable fields are checked separately.
   {
     docker exec "$container" pg_dump -U postgres -d vpnshop_legacy --data-only --schema=public \
-      --exclude-table=public._prisma_migrations --exclude-table='public."Subscription"' --exclude-table='public."FulfillmentJob"' --exclude-table='public."Order"' --exclude-table='public."Payment"' --exclude-table='public."WebhookEvent"' --inserts --no-owner --no-privileges |
+      --exclude-table=public._prisma_migrations --exclude-table='public."Subscription"' --exclude-table='public."FulfillmentJob"' --exclude-table='public."User"' --exclude-table='public."Session"' --exclude-table='public."Order"' --exclude-table='public."Payment"' --exclude-table='public."WebhookEvent"' --inserts --no-owner --no-privileges |
       sed -n '/^INSERT INTO /p'
     sql vpnshop_legacy <<'SQL'
+COPY (SELECT id, email, "emailVerifiedAt", role, status, "remnawaveUserId", "createdAt", "updatedAt" FROM "User") TO STDOUT;
+COPY (SELECT id, "userId", "familyId", "tokenHash", "userAgent", ip, "expiresAt", "revokedAt", "rotatedAt", "createdAt" FROM "Session") TO STDOUT;
 COPY (SELECT id, "userId", "planId", "durationMonths", "deviceLimit", currency, amount,
   status, "expiresAt", "paidAt", "fulfilledAt", "createdAt", "updatedAt" FROM "Order") TO STDOUT;
 COPY (SELECT id, "orderId", provider, "externalId", status, amount, currency, "providerData",
@@ -111,7 +113,7 @@ GRANT USAGE ON SCHEMA test_guard, public TO vpnshop_suite;
 GRANT SELECT ON test_guard.instance TO vpnshop_suite;
 GRANT SELECT, INSERT, UPDATE, DELETE ON "User","AuthIdentity","Session","PendingRegistration",
   "VerificationToken","AdminTotp","AdminRecoveryCode","AdminSession","Plan","PlanPrice","OfferVersion","Order",
-  "Payment","WebhookEvent","FulfillmentJob","FulfillmentLease","AuditLog","MerchantAccount","PaymentCase" TO vpnshop_suite;
+  "Payment","WebhookEvent","FulfillmentJob","FulfillmentLease","AuditLog","MerchantAccount","PaymentCase","SessionFamily","OAuthFlow","IdentityProof","AuthMailWindow" TO vpnshop_suite;
 -- TRUNCATE permits guarded suite reset without allowing ledger UPDATE/DELETE.
 GRANT SELECT, INSERT, TRUNCATE ON "PaymentTransaction", "OrderAllocation", "PeriodGrant",
   "Adjustment", "DesiredAssignment" TO vpnshop_suite;

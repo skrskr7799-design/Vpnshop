@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { authApi, fetchMe } from "./api";
+import { bindPrivateSession, resetPrivateRequests } from "../../api/client";
+import { authApi, fetchMe, setLogoutHidden } from "./api";
 
 export const meQueryKey = ["auth", "me"] as const;
 
 export function useMe() {
-  return useQuery({ queryKey: meQueryKey, queryFn: fetchMe, staleTime: 5 * 60 * 1000 });
+  return useQuery({ queryKey: meQueryKey, queryFn: ({ signal }) => fetchMe(signal), staleTime: 0, retry: false, refetchInterval: 30_000 });
 }
 
 export function useLogin() {
@@ -12,7 +13,13 @@ export function useLogin() {
   return useMutation({
     mutationFn: authApi.login,
     // Положили пользователя в кэш: GuestOnly сам перенаправит на нужную страницу
-    onSuccess: ({ user }) => queryClient.setQueryData(meQueryKey, user),
+    onSuccess: ({ user, sessionId }) => {
+      setLogoutHidden(false);
+      resetPrivateRequests();
+      queryClient.removeQueries({ predicate: query => query.queryKey[0] !== "auth" });
+      bindPrivateSession(sessionId);
+      queryClient.setQueryData(meQueryKey, { ...user, sessionId });
+    },
   });
 }
 
@@ -20,11 +27,14 @@ export function useLogout() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: authApi.logout,
-    // Даже если запрос не дошёл, локально выходим и чистим данные прошлого пользователя
-    onSettled: () => {
-      queryClient.clear();
+    onMutate: () => {
+      setLogoutHidden(true);
+      resetPrivateRequests();
+      void queryClient.cancelQueries();
+      queryClient.removeQueries({ predicate: q => q.queryKey[0] !== "auth" });
       queryClient.setQueryData(meQueryKey, null);
     },
+    onSuccess: () => { setLogoutHidden(false); },
   });
 }
 

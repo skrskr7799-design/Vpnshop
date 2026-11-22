@@ -21,7 +21,8 @@ export async function buildApp(options: { payments?: PaymentProviderAdapter; pan
   const payments = paymentFixture(options.payments);
   const app = Fastify({
     // за reverse proxy: корректный IP клиента для rate limit и аудита
-    trustProxy: true,
+    trustProxy: env.WEB_TRUSTED_PROXIES.length ? env.WEB_TRUSTED_PROXIES : false,
+    disableRequestLogging: true,
     logger: {
       level: isProd ? "info" : "debug",
       // секреты не должны попадать в логи

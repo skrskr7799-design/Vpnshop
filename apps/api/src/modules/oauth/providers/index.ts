@@ -9,7 +9,7 @@ export function loadProviders(): ProviderMap {
   if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {
     providers.set("google", createGoogleProvider({ clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET }));
   }
-  if (env.TELEGRAM_CLIENT_ID && env.TELEGRAM_CLIENT_SECRET) {
+  if (env.TELEGRAM_OIDC_VERIFIED === "true" && env.TELEGRAM_CLIENT_ID && env.TELEGRAM_CLIENT_SECRET) {
     providers.set(
       "telegram",
       createTelegramProvider({ clientId: env.TELEGRAM_CLIENT_ID, clientSecret: env.TELEGRAM_CLIENT_SECRET }),

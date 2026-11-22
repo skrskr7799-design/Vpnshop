@@ -28,6 +28,8 @@ export async function resetDatabase(): Promise<void> {
     await tx.merchantAccount.deleteMany();
     await tx.auditLog.deleteMany();
     await tx.pendingRegistration.deleteMany();
+    await tx.oAuthFlow.deleteMany();
+    await tx.authMailWindow.deleteMany();
     // AuthIdentity, Session, VerificationToken and staff credentials cascade from User.
     await tx.user.deleteMany();
   });

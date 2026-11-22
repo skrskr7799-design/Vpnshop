@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { Button } from "../components/Button/Button";
 import { APP_NAME } from "../config";
-import { LoginMethods } from "../features/auth/components/LoginMethods";
+import { Link } from "react-router";
 import { useLogout, useMe } from "../features/auth/queries";
 import "./AccountPage.css";
 
@@ -32,7 +32,7 @@ export function AccountPage() {
             <dd>{user.email}</dd>
           </dl>
         )}
-        <LoginMethods user={user} />
+        <Link to="/account/security">Устройства и способы входа</Link>
       </main>
     </div>
   );

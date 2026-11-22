@@ -1,3 +1,4 @@
+import { SecurityPage } from "./features/auth/pages/SecurityPage";
 import { Navigate, Route, Routes } from "react-router";
 import { AuthShell } from "./components/AuthShell/AuthShell";
 import { GuestOnly, RequireAuth } from "./features/auth/guards";
@@ -28,6 +29,7 @@ export function App() {
 
       <Route element={<RequireAuth />}>
         <Route path="/account" element={<AccountPage />} />
+        <Route path="/account/security" element={<SecurityPage />} />
       </Route>
 
       <Route path="*" element={<NotFoundPage />} />
