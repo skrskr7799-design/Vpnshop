@@ -35,6 +35,7 @@ export async function resetDatabase(): Promise<void> {
     await tx.staffChallenge.deleteMany();
     await tx.staffCredential.deleteMany();
     await tx.staffReset.deleteMany();
+    await tx.workerHeartbeat.deleteMany();
     await tx.staffInvite.deleteMany();
     await tx.pendingRegistration.deleteMany();
     await tx.oAuthFlow.deleteMany();

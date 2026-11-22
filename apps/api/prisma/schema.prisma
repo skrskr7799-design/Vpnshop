@@ -139,6 +139,7 @@ model User {
   tokens     VerificationToken[]
   orders     Order[]
   supportCases SupportCase[]
+  @@index([role, createdAt, id])
 }
 
 // Один способ входа = одна запись. Почта, Google и Telegram
@@ -276,8 +277,13 @@ model Plan {
   isActive    Boolean @default(true)
   sortOrder   Int     @default(0)
 
+  revision    Int @default(0)
+  createdAt   DateTime @default(now())
+
   prices PlanPrice[]
   orders Order[]
+
+  @@index([createdAt, id])
 }
 
 model PlanPrice {
@@ -353,6 +359,7 @@ model Order {
   @@index([offerVersionId])
   @@index([userId, createdAt])
   @@index([status, expiresAt])
+  @@index([createdAt, id])
 }
 
 model MerchantAccount {
@@ -453,6 +460,7 @@ model PaymentTransaction {
   @@index([accountId, externalPaymentId])
   @@index([accountId, merchantReference])
   @@index([paymentId])
+  @@index([providerTime])
 }
 
 model PaymentCase {
@@ -501,6 +509,7 @@ model FulfillmentJob {
   lease FulfillmentLease?
 
   @@index([status, nextAttemptAt])
+  @@index([createdAt, id])
 }
 
 // ─────────────────────────── Аудит ───────────────────────────
@@ -556,6 +565,7 @@ model Subscription {
   userId           String @unique
   legacyUnverified Boolean @default(false)
   revision         Int @default(0)
+  createdAt        DateTime @default(now())
   nextBoundaryAt   DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Restrict)
@@ -565,6 +575,7 @@ model Subscription {
   panelBinding PanelBinding?
 
   @@index([nextBoundaryAt])
+  @@index([createdAt, id])
 }
 
 model PeriodGrant {
@@ -874,4 +885,12 @@ model AdminCommand {
   createdAt   DateTime @default(now())
 
   @@unique([actorId, operation, targetId, keyHash])
+}
+
+model WorkerHeartbeat {
+  id         String @id
+  observedAt DateTime
+  ready      Boolean
+
+  @@index([observedAt])
 }

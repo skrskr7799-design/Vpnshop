@@ -1,33 +1,25 @@
-import { paginationSchema } from "@vpn/shared";
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
+import { keysetPage, keysetQuery, keysetWhere, newestFirst } from "../../../lib/keyset";
 import { prisma } from "../../../lib/prisma";
 import { requireAdmin } from "../admin.middleware";
 
-const listQuery = paginationSchema.extend({
-  action: z.string().max(100).optional(), // префикс: "plan." покажет все действия с тарифами
-  entity: z.string().max(50).optional(),
-  actorId: z.uuid().optional(),
+const listQuery = keysetQuery.extend({
+  action: z.string().max(100).optional(), entity: z.string().max(50).optional(),
+  actorId: z.uuid().optional(), entityId: z.string().max(200).optional(),
+  from: z.iso.datetime().optional(), to: z.iso.datetime().optional(),
 });
 
-export const adminAuditRoutes: FastifyPluginAsync = async (app) => {
-  app.get("/audit", { preHandler: requireAdmin("audit:read") }, async (req) => {
-    const { page, pageSize, action, entity, actorId } = listQuery.parse(req.query);
-    const where = {
-      ...(action && { action: { startsWith: action } }),
-      ...(entity && { entity }),
-      ...(actorId && { actorId }),
-    };
-    const [rows, total] = await Promise.all([
-      prisma.auditLog.findMany({ where, orderBy: { createdAt: "desc" }, skip: (page - 1) * pageSize, take: pageSize }),
-      prisma.auditLog.count({ where }),
-    ]);
-
-    // В журнале нет связи с пользователями (записи должны переживать их удаление): подставляем email отдельно
-    const actorIds = [...new Set(rows.map((r) => r.actorId).filter((id): id is string => Boolean(id)))];
-    const actors = await prisma.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, email: true } });
-    const emailById = new Map(actors.map((a) => [a.id, a.email]));
-    const items = rows.map((r) => ({ ...r, actorEmail: r.actorId ? (emailById.get(r.actorId) ?? null) : null }));
-    return { items, total, page, pageSize };
+export const adminAuditRoutes: FastifyPluginAsync = async app => {
+  app.get("/audit", { preHandler: requireAdmin("audit:read") }, async req => {
+    const { limit, cursor, action, from, to, ...filters } = listQuery.parse(req.query);
+    const scope = JSON.stringify(["audit", action, filters, from, to]);
+    const rows = await prisma.auditLog.findMany({
+      where: { ...filters, action: action && { startsWith: action }, AND: [{ createdAt: { gte: from, lt: to } }, keysetWhere(scope, cursor)] },
+      orderBy: newestFirst, take: limit + 1,
+      select: { id: true, actorId: true, role: true, permission: true, action: true, entity: true, entityId: true,
+        reason: true, commandId: true, correlationId: true, outcome: true, createdAt: true },
+    });
+    return keysetPage(scope, rows, limit, row => row);
   });
 };

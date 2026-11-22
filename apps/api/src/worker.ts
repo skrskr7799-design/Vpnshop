@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import { z } from "zod";
 import { stagingPanel } from "./config/staging-panel";
@@ -47,6 +48,20 @@ probes.get("/ready", async (_req, reply) => {
   return reply.code(state.ready ? 200 : 503).send(state);
 });
 
+const heartbeatId = randomUUID();
+async function reportHeartbeat(ready: boolean) {
+  try {
+    const [clock] = await prisma.$queryRaw<{ now: Date }[]>`SELECT clock_timestamp() AT TIME ZONE 'UTC' AS now`;
+    const observedAt = clock!.now;
+    await prisma.workerHeartbeat.upsert({
+      where: { id: heartbeatId }, create: { id: heartbeatId, observedAt, ready }, update: { observedAt, ready },
+    });
+    await prisma.workerHeartbeat.deleteMany({ where: { observedAt: { lt: new Date(+observedAt - 86_400_000) } } });
+  } catch { probes.log.warn("Worker heartbeat is unavailable"); }
+}
+const heartbeat = setInterval(() => { if (!draining) void reportHeartbeat(worker.status().ready); }, 15_000);
+heartbeat.unref();
+
 let draining = false;
 async function shutdown() {
   if (draining) return;
@@ -56,7 +71,9 @@ async function shutdown() {
     process.exit(1);
   }, config.WORKER_DRAIN_MS);
   try {
+    clearInterval(heartbeat);
     await worker.stop();
+    await reportHeartbeat(false);
     await probes.close();
     await prisma.$disconnect();
   } finally {

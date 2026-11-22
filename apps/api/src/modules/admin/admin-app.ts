@@ -14,6 +14,7 @@ import { createIpGuard } from "./admin.ip-guard";
 import { adminAuditRoutes } from "./routes/audit.routes";
 import { adminAuthRoutes } from "./routes/auth.routes";
 import { adminDashboardRoutes, type DashboardDeps } from "./routes/dashboard.routes";
+import { adminReadRoutes, adminJobsReadRoutes } from "./routes/read.routes";
 import { adminJobsRoutes } from "./routes/jobs.routes";
 import { adminPlansRoutes } from "./routes/plans.routes";
 
@@ -84,6 +85,8 @@ export async function buildAdminApp(options: AdminAppOptions) {
       await api.register(adminAuthRoutes);
       await api.register(adminDashboardRoutes, { panel: options.panel });
       await api.register(adminPlansRoutes);
+      await api.register(adminReadRoutes);
+      await api.register(adminJobsReadRoutes);
       await api.register(adminJobsRoutes);
       await api.register(adminAuditRoutes);
       await api.register(staffSupportRoutes);

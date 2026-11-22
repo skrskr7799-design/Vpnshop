@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
+phase=setup
+trap 'if [[ "${GITHUB_ACTIONS:-}" == true ]]; then echo "::error::Disposable PostgreSQL phase $phase failed at line $LINENO"; fi' ERR
 cd "$(dirname "$0")/../.."
 
 # Ignore ambient database URLs (including developers' local .env). Only the newly
@@ -43,10 +45,25 @@ GRANT CONNECT ON DATABASE vpnshop_suite TO vpnshop_suite;
 SQL
 base="postgresql://vpnshop_migrator:$password@127.0.0.1:$port"
 export DATABASE_URL="$base/vpnshop_suite"
+phase=clean-deploy
 pnpm exec prisma migrate deploy
 pnpm exec prisma migrate deploy
 pnpm exec prisma migrate status
-pnpm exec prisma migrate diff --from-schema-datasource prisma/schema.prisma --to-schema-datamodel prisma/schema.prisma --exit-code
+phase=clean-schema
+check_schema() {
+  local output
+  if ! output=$(pnpm exec prisma migrate diff --from-schema-datasource prisma/schema.prisma --to-schema-datamodel prisma/schema.prisma --exit-code 2>&1); then
+    printf '%s
+' "$output"
+    if [[ "${GITHUB_ACTIONS:-}" == true ]]; then
+      printf '%s
+' "$output" | sed -n '/\[~\]\|\[+\]\|\[-\]\|^  [+-]\|^Error:/s/^/::error::/p'
+    fi
+    return 1
+  fi
+}
+check_schema
+phase=legacy-baseline
 
 # Build the pre-migration catalog independently from the versioned baseline SQL.
 # This blob belongs to apps/api/prisma/schema.prisma at the accepted FND-01 commit.
@@ -70,9 +87,10 @@ snapshot() {
   # Project Order onto its legacy columns. The new nullable fields are checked separately.
   {
     docker exec "$container" pg_dump -U postgres -d vpnshop_legacy --data-only --schema=public \
-      --exclude-table=public._prisma_migrations --exclude-table='public."Subscription"' --exclude-table='public."FulfillmentJob"' --exclude-table='public."AuditLog"' --exclude-table='public."User"' --exclude-table='public."Session"' --exclude-table='public."Order"' --exclude-table='public."Payment"' --exclude-table='public."WebhookEvent"' --inserts --no-owner --no-privileges |
+      --exclude-table=public._prisma_migrations --exclude-table='public."Subscription"' --exclude-table='public."FulfillmentJob"' --exclude-table='public."Plan"' --exclude-table='public."AuditLog"' --exclude-table='public."User"' --exclude-table='public."Session"' --exclude-table='public."Order"' --exclude-table='public."Payment"' --exclude-table='public."WebhookEvent"' --inserts --no-owner --no-privileges |
       sed -n '/^INSERT INTO /p'
     sql vpnshop_legacy <<'SQL'
+COPY (SELECT id, code, name, "deviceLimit", "isActive", "sortOrder" FROM "Plan") TO STDOUT;
 COPY (SELECT id, "actorId", action, entity, "entityId", data, ip, "createdAt" FROM "AuditLog") TO STDOUT;
 COPY (SELECT id, email, "emailVerifiedAt", role, status, "remnawaveUserId", "createdAt", "updatedAt" FROM "User") TO STDOUT;
 COPY (SELECT id, "userId", "familyId", "tokenHash", "userAgent", ip, "expiresAt", "revokedAt", "rotatedAt", "createdAt" FROM "Session") TO STDOUT;
@@ -91,9 +109,12 @@ snapshot > "$tmp/before"
 [[ "$(wc -l < "$tmp/before")" -eq 15 ]]
 pnpm exec prisma migrate resolve --applied 20261121000000_baseline
 for pass in 1 2; do
+  phase=legacy-deploy-$pass
   pnpm exec prisma migrate deploy
   pnpm exec prisma migrate status
-  pnpm exec prisma migrate diff --from-schema-datasource prisma/schema.prisma --to-schema-datamodel prisma/schema.prisma --exit-code
+  phase=legacy-schema-$pass
+  check_schema
+  phase=legacy-invariants-$pass
   # Re-execute the exact idempotent DML from the migration.
   awk '/^-- BEGIN legacy subscription backfill$/{copy=1; next}
        /^-- END legacy subscription backfill$/{copy=0} copy'     prisma/migrations/20261121040000_subscription_allocation/migration.sql > "$tmp/subscription-backfill.sql"
@@ -104,6 +125,7 @@ for pass in 1 2; do
   cmp "$tmp/before" "$tmp/after"
   echo "Legacy pass $pass: 15 fixture rows preserved, sha256 $(sha256sum "$tmp/after" | cut -d' ' -f1)" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
 done
+phase=suite-grants
 # Only the runtime schema is writable, with DML privileges on application tables.
 sql vpnshop_suite <<SQL
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
@@ -115,6 +137,7 @@ GRANT SELECT ON test_guard.instance TO vpnshop_suite;
 GRANT SELECT, INSERT, UPDATE, DELETE ON "User","AuthIdentity","Session","PendingRegistration",
   "VerificationToken","AdminTotp","AdminRecoveryCode","AdminSession","Plan","PlanPrice","OfferVersion","Order",
   "Payment","WebhookEvent","FulfillmentJob","FulfillmentLease","MerchantAccount","PaymentCase","SessionFamily","OAuthFlow","IdentityProof","AuthMailWindow" TO vpnshop_suite;
+GRANT SELECT, INSERT, UPDATE, DELETE ON "WorkerHeartbeat" TO vpnshop_suite;
 GRANT SELECT, INSERT, TRUNCATE ON "AuditLog" TO vpnshop_suite;
 GRANT SELECT, INSERT, UPDATE, DELETE ON "StaffCredential","StaffChallenge","StaffInvite","StaffReset","AdminConfirmation","AdminCommand" TO vpnshop_suite;
 GRANT SELECT, INSERT, UPDATE, DELETE ON "SupportCase" TO vpnshop_suite;
@@ -129,6 +152,7 @@ GRANT SELECT, INSERT, TRUNCATE ON "PanelObservation" TO vpnshop_suite;
 SQL
 export TEST_DATABASE_URL="postgresql://vpnshop_suite:$VPNSHOP_TEST_MARKER@127.0.0.1:$port/vpnshop_suite"
 export DATABASE_URL="$TEST_DATABASE_URL"
+phase=suite-tests
 vitest_status=0
 pnpm exec vitest run --config vitest.integration.config.ts --reporter=default --reporter=json --outputFile.json="$tmp/tests.json" || vitest_status=$?
 node scripts/integration/check-results.mjs "$tmp/tests.json" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
