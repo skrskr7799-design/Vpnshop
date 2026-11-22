@@ -65,4 +65,32 @@ GRANT SELECT (status,"nextCheckAt","accountId") ON "Payment" TO mzt_billing;
 GRANT SELECT ("processedAt","nextCheckAt","accountId") ON "WebhookEvent" TO mzt_billing;
 GRANT SELECT,UPDATE,DELETE ON "NotificationOutbox" TO mzt_notifications;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO mzt_backup;
+
+-- This view is the monitor role's only business data surface. It exposes aggregates.
+CREATE OR REPLACE VIEW mzt_operational_metrics WITH (security_barrier=true) AS
+SELECT
+  (SELECT COUNT(*) FROM "FulfillmentJob" j JOIN "DesiredAssignment" d ON d.id=j."assignmentId"
+    JOIN "Subscription" s ON s.id=d."subscriptionId" AND s.revision=d.revision
+    WHERE j.status IN ('PENDING','RETRY_WAIT','VERIFY_PENDING','NEEDS_REVIEW'))::bigint AS queue_depth,
+  COALESCE((SELECT GREATEST(0,EXTRACT(EPOCH FROM (timezone('utc',clock_timestamp())-MIN(j."nextAttemptAt"))))
+    FROM "FulfillmentJob" j JOIN "DesiredAssignment" d ON d.id=j."assignmentId"
+    JOIN "Subscription" s ON s.id=d."subscriptionId" AND s.revision=d.revision
+    WHERE j.status IN ('PENDING','RETRY_WAIT','VERIFY_PENDING') AND j."nextAttemptAt" <= timezone('utc',clock_timestamp())),0)::double precision AS oldest_ready_seconds,
+  (SELECT COUNT(*) FROM "FulfillmentLease" WHERE "jobId" IS NOT NULL AND "expiresAt" <= clock_timestamp())::bigint AS expired_leases,
+  COALESCE((SELECT GREATEST(0,EXTRACT(EPOCH FROM (timezone('utc',clock_timestamp())-MAX("observedAt"))))
+    FROM "WorkerHeartbeat" WHERE ready),-1)::double precision AS worker_heartbeat_age_seconds,
+  (SELECT COUNT(*) FROM "Payment" WHERE "accountId" IS NOT NULL AND (status='UNKNOWN' OR
+     "nextCheckAt" < timezone('utc',clock_timestamp())))::bigint AS payment_backlog,
+  (SELECT COUNT(*) FROM "PaymentTransaction" t LEFT JOIN "OrderAllocation" a ON a."captureId"=t.id
+     WHERE t.kind='CAPTURE' AND a.id IS NULL)::bigint AS unallocated_captures,
+  (SELECT COUNT(*) FROM "PanelBinding" WHERE "blockedReason" IS NOT NULL)::bigint AS panel_drift,
+  COALESCE((SELECT GREATEST(0,EXTRACT(EPOCH FROM (timezone('utc',clock_timestamp())-MAX("observedAt"))))
+    FROM "PanelObservation"),-1)::double precision AS panel_observation_age_seconds,
+  (SELECT numbackends FROM pg_stat_database WHERE datname=current_database())::bigint AS postgres_connections,
+  current_setting('max_connections')::bigint AS postgres_max_connections,
+  COALESCE((SELECT GREATEST(0,EXTRACT(EPOCH FROM (clock_timestamp()-last_archived_time))) FROM pg_stat_archiver),-1)::double precision
+    AS wal_archive_age_seconds,
+  (SELECT failed_count FROM pg_stat_archiver)::bigint AS wal_archive_failures;
+GRANT SELECT ON mzt_operational_metrics TO mzt_monitor;
+
 COMMIT;

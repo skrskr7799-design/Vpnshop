@@ -25,3 +25,5 @@ jobs:
         run: ops/scripts/build.sh
       - name: Isolated Compose, TLS and privileges
         run: ops/scripts/smoke.sh
+      - name: Encrypted PITR and financial recovery proof
+        run: ops/scripts/pitr.sh

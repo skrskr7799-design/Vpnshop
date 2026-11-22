@@ -40,3 +40,5 @@
 **/*.sqlite*
 **/*.dump
 **/*credential*
+!ops/backup/
+!ops/backup/logical.sh

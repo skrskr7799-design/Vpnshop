@@ -26,7 +26,7 @@ export function createFulfillmentWorker(options: WorkerOptions) {
     healthy = true;
   }
 
-  async function execute(jobId: string, heartbeat: () => Promise<void>, process: (renew: () => Promise<void>) => Promise<void>) {
+  async function execute(heartbeat: () => Promise<void>, process: (renew: () => Promise<void>) => Promise<void>) {
     let lost = false;
     async function renew() {
       if (lost) throw new LeaseLost();
@@ -36,10 +36,10 @@ export function createFulfillmentWorker(options: WorkerOptions) {
     let inFlight: Promise<void> | undefined;
     const timer = setInterval(() => {
       if (inFlight) return;
-      inFlight = renew().catch(err => {
+      inFlight = renew().catch(() => {
         lost = true;
         healthy = false;
-        options.log.warn({ err, jobId }, "fulfillment heartbeat failed");
+        options.log.warn({ reasonCode: "LEASE_RENEWAL_FAILED" }, "fulfillment heartbeat failed");
       }).finally(() => { inFlight = undefined; });
     }, heartbeatMs);
     try {
@@ -65,7 +65,7 @@ export function createFulfillmentWorker(options: WorkerOptions) {
         alive();
         if (!job) break;
         if (stopping) break; // Lease expires and verify-first resumes in the next process.
-        await execute(job.id, () => renewOwnedLease(job, leaseMs), () => processRevision(job, panel));
+        await execute(() => renewOwnedLease(job, leaseMs), () => processRevision(job, panel));
         processed++;
       }
       return processed;
@@ -81,7 +81,7 @@ export function createFulfillmentWorker(options: WorkerOptions) {
         await rescheduleJob(job, new Date(), "worker draining before dispatch");
         break;
       }
-      await execute(job.id, () => renewLease(job, leaseMs), async renew => {
+      await execute(() => renewLease(job, leaseMs), async renew => {
         await processJob(job, { ...options, api, beforePanelCall: renew });
       });
       processed++;
@@ -93,9 +93,9 @@ export function createFulfillmentWorker(options: WorkerOptions) {
     while (!stopping) {
       try {
         await tick();
-      } catch (err) {
+      } catch {
         healthy = false;
-        options.log.error({ err }, "fulfillment polling failed");
+        options.log.error({ reasonCode: "FULFILLMENT_POLL_FAILED" }, "fulfillment polling failed");
       }
       if (!stopping) await new Promise<void>(resolve => {
         const timer = setTimeout(resolve, pollMs);

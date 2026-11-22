@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
+trap 'if [[ "${GITHUB_ACTIONS:-}" == true ]]; then echo "::error::Compose smoke failed at line $LINENO"; fi' ERR
 cd "$(dirname "$0")/../.."
 revision=$(git rev-parse HEAD)
 prefix=${MZT_TEST_IMAGE_PREFIX:-mzt-ci}
 tmp=$(mktemp -d)
 export COMPOSE_PROJECT_NAME="mzt-ops-${RANDOM}-${RANDOM}"
-dc() { docker compose --env-file "$tmp/settings" --profile migration -f ops/compose.yml "$@"; }
+dc() { docker compose --env-file "$tmp/settings" --profile migration --profile monitoring -f ops/compose.yml "$@"; }
 cleanup() {
   if [[ -e "$tmp/settings" ]]; then dc down -v --remove-orphans >/dev/null 2>&1 || true; fi
   rm -rf "$tmp"
@@ -70,7 +71,7 @@ wait_readiness public-api 3000 /api/health 200
 wait_readiness public-api 3000 /api/ready 503
 dc run --rm --no-deps migrator
 dc run --rm --no-deps migrator
-dc up -d --wait --wait-timeout 100 public-api admin-api web admin public-edge admin-edge worker billing notifications
+dc up -d --wait --wait-timeout 100 public-api admin-api web admin public-edge admin-edge worker billing notifications exporter prometheus alertmanager alert-sink
 request() {
   local zone=$1 port=$2
   shift 2
@@ -100,13 +101,33 @@ AND NOT has_table_privilege('"'"'mzt_admin'"'"','"'"'"AuditLog"'"'"','"'"'UPDATE
 AND NOT has_table_privilege('"'"'mzt_worker'"'"','"'"'"User"'"'"','"'"'UPDATE'"'"')
 AND NOT has_table_privilege('"'"'mzt_billing'"'"','"'"'"PaymentTransaction"'"'"','"'"'INSERT'"'"')
 ' | grep -qx t
-for service in db public-api admin-api worker billing notifications web admin public-edge admin-edge; do
+for service in db public-api admin-api worker billing notifications web admin public-edge admin-edge exporter prometheus alertmanager alert-sink; do
   [[ "$(dc exec -T "$service" id -u)" != 0 ]]
   if [[ "$service" != *-edge ]]; then [[ -z "$(docker port "$(dc ps -q "$service")")" ]]; fi
 done
 dc exec -T public-api test ! -e /run/secrets/admin_key
 dc exec -T admin-api test ! -e /run/secrets/web_jwt
 dc exec -T worker test ! -e /run/secrets/smtp_url
+
+# Exporter isolation, rule syntax, alert delivery and secret-free log records.
+dc exec -T prometheus promtool check config /etc/prometheus/prometheus.yml
+dc exec -T alertmanager amtool check-config /etc/alertmanager/alertmanager.yml
+dc exec -T exporter node -e 'fetch("http://172.30.75.12:9100/metrics").then(async r=>process.exit((await r.text()).includes("mzt_postgres_up 1")?0:1)).catch(()=>process.exit(1))'
+dc exec -T alert-sink node -e '
+  fetch("http://alertmanager:9093/api/v2/alerts",{method:"POST",headers:{"content-type":"application/json"},
+    body:JSON.stringify([{labels:{alertname:"SyntheticSmoke",severity:"critical",group:"smoke"}}])})
+    .then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))'
+for i in {1..20}; do
+  if dc exec -T alert-sink node -e 'fetch("http://127.0.0.1:9180/health").then(r=>r.json()).then(x=>process.exit(x.sent>0?0:1)).catch(()=>process.exit(1))'; then break; fi
+  if [[ "$i" == 20 ]]; then echo 'No isolated Alertmanager delivery'; exit 1; fi
+  sleep 1
+done
+marker=MZT-ISO-SYNTHETIC-SECRET
+request public 18443 -sS -o /dev/null -H "Authorization: Bearer $marker" -H "Cookie: test=$marker" \
+  "https://public.mzt.test:18443/api/auth/oauth/google/callback?code=$marker"
+if dc logs --no-color public-api admin-api public-edge admin-edge | grep -F "$marker"; then
+  echo 'Sensitive synthetic marker in logs' >&2; exit 1
+fi
 
 # Schema failure is exercised only on this disposable database. Restore the exact fixture afterward.
 dc exec -T db psql -U postgres -d vpnshop -v ON_ERROR_STOP=1 -c   "INSERT INTO \"_prisma_migrations\" (id,checksum,migration_name) VALUES ('ops-smoke-failed','fixture','ops_smoke_failed')" >/dev/null

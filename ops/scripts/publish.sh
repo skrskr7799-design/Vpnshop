@@ -11,7 +11,7 @@ trap 'rm -rf "$root"' EXIT
 printf '%s' "${GHCR_TOKEN:?}" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin >/dev/null
 unset GHCR_TOKEN
 images='{}'
-for target in application migrator web admin edge db; do
+for target in application migrator web admin edge db backup; do
   localImage="mzt-ci-$target:$revision"
   ref="$registry/$target:$revision"
   [[ "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$localImage")" == "$revision" ]]

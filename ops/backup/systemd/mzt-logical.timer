@@ -1,0 +1,10 @@
+[Unit]
+Description=MZT logical backup schedule
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 UTC
+Persistent=true
+Unit=mzt-logical.service
+
+[Install]
+WantedBy=timers.target

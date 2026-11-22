@@ -66,6 +66,7 @@ services:
     <<: *node
     depends_on: {db: {condition: service_healthy}}
     environment:
+      METRICS_HOST: 172.30.75.10
       MZT_PROCESS: public
       WEB_ORIGIN: ${PUBLIC_ORIGIN:?Set public HTTPS origin}
       WEB_TRUSTED_PROXIES: 172.30.72.2
@@ -75,7 +76,10 @@ services:
       MAIL_QUEUE_KEY_FILE: /run/secrets/mail_key
       RELEASE_ID: ${APPLICATION_IMAGE}
     secrets: [public_url, web_jwt, web_cookie, mail_key]
-    networks: [public-api-edge, public-db]
+    networks:
+      public-api-edge:
+      public-db:
+      monitoring: {ipv4_address: 172.30.75.10}
     healthcheck:
       test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 5s
@@ -86,6 +90,7 @@ services:
     command: [node, dist/admin.js]
     depends_on: {db: {condition: service_healthy}}
     environment:
+      METRICS_HOST: 172.30.75.11
       MZT_PROCESS: admin
       WEB_ORIGIN: ${PUBLIC_ORIGIN}
       ADMIN_ENABLED: "true"
@@ -97,7 +102,10 @@ services:
       ADMIN_ENCRYPTION_KEY_FILE: /run/secrets/admin_key
       RELEASE_ID: ${APPLICATION_IMAGE}
     secrets: [admin_url, admin_key]
-    networks: [admin-api-edge, admin-db]
+    networks:
+      admin-api-edge:
+      admin-db:
+      monitoring: {ipv4_address: 172.30.75.11}
     healthcheck:
       test: [CMD, node, -e, "fetch('http://127.0.0.1:3001/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 5s
@@ -173,6 +181,51 @@ services:
       admin-api-edge: {ipv4_address: 172.30.73.2}
     mem_limit: 128m
 
+  exporter:
+    <<: *node
+    profiles: [monitoring]
+    command: [node, dist/exporter.js]
+    environment:
+      MZT_PROCESS: exporter
+      METRICS_HOST: 172.30.75.12
+      DATABASE_URL_FILE: /run/secrets/monitor_url
+      BACKUP_MONITOR: ${BACKUP_MONITOR:-false}
+      PANEL_MONITOR: ${PANEL_MONITOR:-false}
+    secrets: [monitor_url]
+    volumes: [proofs:/state/proofs:ro]
+    networks:
+      monitoring-db:
+      monitoring: {ipv4_address: 172.30.75.12}
+  prometheus:
+    <<: *hardened
+    profiles: [monitoring]
+    image: prom/prometheus:v3.5.1@sha256:38c3b05c3bc744ff1b0b7b4eb82196026442845e62a1e2073795565da506d7a2
+    user: "65534:65534"
+    mem_limit: 512m
+    command: ["--config.file=/etc/prometheus/prometheus.yml","--storage.tsdb.path=/prometheus","--storage.tsdb.retention.time=7d","--storage.tsdb.retention.size=1GB"]
+    volumes:
+      - prometheus:/prometheus
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+    networks: [monitoring]
+  alertmanager:
+    <<: *hardened
+    profiles: [monitoring]
+    image: prom/alertmanager:v0.28.1@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba
+    user: "65534:65534"
+    mem_limit: 128m
+    command: ["--config.file=/etc/alertmanager/alertmanager.yml","--storage.path=/alertmanager","--cluster.listen-address="]
+    volumes:
+      - alertmanager:/alertmanager
+      - ${ALERTMANAGER_CONFIG:-./monitoring/alertmanager.yml}:/etc/alertmanager/alertmanager.yml:ro
+    networks: [monitoring, alerting]
+  alert-sink:
+    <<: *node
+    profiles: [monitoring]
+    command: [node, /opt/mzt/sink.mjs]
+    volumes: [./monitoring/sink.mjs:/opt/mzt/sink.mjs:ro]
+    networks: [alerting]
+
 networks:
   public-ingress:
   admin-ingress:
@@ -191,11 +244,18 @@ networks:
   finance-db: {internal: true}
   notifications-db: {internal: true}
   monitoring-db: {internal: true}
+  monitoring:
+    internal: true
+    ipam: {config: [{subnet: 172.30.75.0/27}]}
+  alerting: {internal: true}
   backup-db: {internal: true}
   migration-db: {internal: true}
 
 volumes:
   pgdata:
+  proofs:
+  prometheus:
+  alertmanager:
 
 secrets:
   db_superuser: {file: "${SECRETS_DIR:?Set secrets directory}/db_superuser"}
@@ -222,3 +282,4 @@ secrets:
   public_key: {file: "${SECRETS_DIR}/public_key"}
   admin_cert: {file: "${SECRETS_DIR}/admin_cert"}
   admin_tls_key: {file: "${SECRETS_DIR}/admin_tls_key"}
+  monitor_url: {file: "${SECRETS_DIR}/monitor_url"}

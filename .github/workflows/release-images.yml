@@ -30,6 +30,7 @@ jobs:
         run: |
           ops/scripts/build.sh
           ops/scripts/smoke.sh
+          ops/scripts/pitr.sh
       - name: Publish tested images and emit digest-only manifest
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}

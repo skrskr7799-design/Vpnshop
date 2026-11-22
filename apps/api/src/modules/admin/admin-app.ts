@@ -1,3 +1,4 @@
+import { addHttpTelemetry, serviceLogger, telemetryRequestId, startMetrics } from "../../lib/telemetry";
 import { healthRoutes, setDrain } from "../health/health.routes";
 import { staffSupportRoutes } from "../support/support.routes";
 import cookie from "@fastify/cookie";
@@ -48,15 +49,11 @@ export async function buildAdminApp(options: AdminAppOptions) {
     disableRequestLogging: true,
     // Не доверяем X-Forwarded-For по умолчанию: иначе IP-фильтр обходится подделкой заголовка
     trustProxy: env.ADMIN_TRUSTED_PROXIES.length ? env.ADMIN_TRUSTED_PROXIES : false,
-    logger:
-      options.logger === false
-        ? false
-        : {
-            level: isProd ? "info" : "debug",
-            redact: ["req.headers.authorization", "req.headers.cookie", "res.headers['set-cookie']"],
-            transport: isProd ? undefined : { target: "pino-pretty" },
-          },
+    logger: options.logger === false ? false : serviceLogger("admin-api"),
+    genReqId: telemetryRequestId,
   });
+  const metrics = addHttpTelemetry(app);
+  app.addHook("onListen", async () => startMetrics(metrics));
   registerErrorHandler(app);
   setDrain(app);
 

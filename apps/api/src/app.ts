@@ -1,10 +1,11 @@
+import { addHttpTelemetry, serviceLogger, telemetryRequestId, startMetrics } from "./lib/telemetry";
 import { ownerSupportRoutes } from "./modules/support/support.routes";
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
-import { env, isProd } from "./config/env";
+import { env } from "./config/env";
 import { AppError } from "./lib/errors";
 import { registerErrorHandler } from "./lib/error-handler";
 import { authRoutes } from "./modules/auth/auth.routes";
@@ -24,14 +25,12 @@ export async function buildApp(options: { payments?: PaymentProviderAdapter; pan
     // за reverse proxy: корректный IP клиента для rate limit и аудита
     trustProxy: env.WEB_TRUSTED_PROXIES.length ? env.WEB_TRUSTED_PROXIES : false,
     disableRequestLogging: true,
-    logger: {
-      level: isProd ? "info" : "debug",
-      // секреты не должны попадать в логи
-      redact: ["req.headers.authorization", "req.headers.cookie", "req.headers['x-fixture-secret']", "res.headers['set-cookie']"],
-      transport: isProd ? undefined : { target: "pino-pretty" },
-    },
+    logger: serviceLogger("public-api"),
+    genReqId: telemetryRequestId,
   });
 
+  const metrics = addHttpTelemetry(app);
+  app.addHook("onListen", async () => startMetrics(metrics));
   setDrain(app);
   await app.register(helmet);
   await app.register(cors, { origin: env.WEB_ORIGIN, credentials: true });

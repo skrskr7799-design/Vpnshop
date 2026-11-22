@@ -1,9 +1,10 @@
+import { serviceLogger } from "./telemetry";
 import Fastify from "fastify";
 import { databaseReady } from "../modules/health/health.routes";
 import { prisma } from "./prisma";
 
 export async function runPeriodic(service: string, port: number, tick: () => Promise<unknown>) {
-  const app = Fastify({ logger: { base: { service } }, disableRequestLogging: true });
+  const app = Fastify({ logger: serviceLogger(service), disableRequestLogging: true });
   let stopping = false;
   let lastRun = 0;
   let work: Promise<void> | undefined;

@@ -1,3 +1,4 @@
+import { serviceLogger } from "./lib/telemetry";
 import { databaseReady } from "./modules/health/health.routes";
 import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
@@ -21,7 +22,7 @@ const settings = z.object({
 if (!settings.success) throw new Error("Invalid worker configuration: " +
   settings.error.issues.map(i => i.path.join(".") || i.message).join(", "));
 const config = settings.data;
-const probes = Fastify({ logger: true, disableRequestLogging: true });
+const probes = Fastify({ logger: serviceLogger("worker"), disableRequestLogging: true });
 const staging = stagingPanel(config.WORKER_HTTP_TIMEOUT_MS);
 if (staging) {
   const metadata = await staging.client.getMetadata().catch(() => { throw new Error("Staging metadata unavailable"); });

@@ -26,7 +26,7 @@ if [[ "$action" == rollback ]]; then
   [[ "sha256:$(sha256sum "$candidate" | cut -d' ' -f1)" == "$(jq -r .previousManifest "$previous")" ]]
 fi
 grep -Ev '^[[:upper:]_]+_IMAGE=' "$MZT_DEPLOY_DIR/settings" > "$tmp/settings"
-for pair in 'APPLICATION application' 'MIGRATOR migrator' 'DATABASE db' 'WEB web' 'ADMIN admin' 'EDGE edge' 'MONITOR monitor' 'ALERT alert' 'UTILITY utility'; do
+for pair in 'APPLICATION application' 'MIGRATOR migrator' 'DATABASE db' 'WEB web' 'ADMIN admin' 'EDGE edge' 'MONITOR monitor' 'ALERT alert' 'UTILITY utility' 'BACKUP backup'; do
   read -r key image <<<"$pair"
   ref=$(jq -er ".images.$image // empty" "$candidate") || continue
   printf '%s_IMAGE=%s\n' "$key" "$ref" >> "$tmp/settings"
@@ -34,7 +34,9 @@ for pair in 'APPLICATION application' 'MIGRATOR migrator' 'DATABASE db' 'WEB web
   label=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$ref")
   [[ "$label" == "$(jq -r .gitSha "$candidate")" ]]
 done
-dc() { docker compose --env-file "$tmp/settings" --profile migration -f ops/compose.yml "$@"; }
+stack=(-f ops/compose.yml)
+if [[ "${MZT_ENABLE_OFFSITE:-0}" == 1 ]]; then stack+=(-f ops/compose.backup.yml); fi
+dc() { docker compose --env-file "$tmp/settings" --profile migration --profile monitoring "${stack[@]}" "$@"; }
 dc config --format json | python3 ops/scripts/preflight.py
 dc up -d --wait db
 dc stop -t 60 worker billing notifications public-api admin-api
@@ -45,5 +47,7 @@ for zone in public admin; do
   curl --max-time 8 -fsS "$url/api/ready" >/dev/null
 done
 # Task activation is a separate operator action after readiness and compatibility evidence.
+dc up -d exporter prometheus alertmanager alert-sink
+cp "$tmp/settings" "$MZT_DEPLOY_DIR/active.settings"
 cp "$candidate" "$MZT_DEPLOY_DIR/live-manifest.json"
 printf '%s\n' "Both TLS origins are ready. Workers remain stopped until operator activation."
