@@ -70,9 +70,9 @@ it("blocks staff reset even for an existing valid token and guards the last logi
   const cookies = { vpn_at: (await createSession(user, {})).accessToken };
   const proof = await app.inject({ method: "POST", url: "/api/auth/oauth/reauth", headers, cookies,
     payload: { target: "EMAIL", purpose: "UNLINK", method: "EMAIL", password: "Existing-password-123" } });
-  expect(proof.statusCode).toBe(200);
+  expect(proof.statusCode).toBe(403);
   expect((await app.inject({ method: "DELETE", url: "/api/auth/oauth/identities/EMAIL", headers, cookies,
-    payload: { confirmationId: proof.json().confirmationId } })).json().error.code).toBe("LAST_LOGIN_METHOD");
+    payload: { confirmationId: randomUUID() } })).json().error.code).toBe("LAST_LOGIN_METHOD");
   expect((await app.inject({ method: "POST", url: "/api/auth/sessions/revoke-others", cookies, headers: { origin: "https://other.invalid" } })))
     .toMatchObject({ statusCode: 403 });
 });

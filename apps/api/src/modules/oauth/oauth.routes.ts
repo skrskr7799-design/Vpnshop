@@ -7,6 +7,8 @@ import { generateToken, sha256 } from "../../lib/crypto";
 import { AppError } from "../../lib/errors";
 import { prisma } from "../../lib/prisma";
 import { authenticate } from "../auth/authenticate";
+import { ACCESS_COOKIE, REFRESH_COOKIE } from "../auth/auth.constants";
+import { verifyAccessToken } from "../auth/jwt";
 import { setAuthCookies } from "../auth/cookies";
 import { verifyAgainstDummy, verifyPassword } from "../auth/password";
 import { createSession, lockIdentityOwner, requireLiveFamily, revokeOtherDevices } from "../auth/session.service";
@@ -34,6 +36,24 @@ const toWeb = (reply: FastifyReply, path: string, query: Record<string, string> 
   return reply.redirect(url.toString());
 };
 const newBrowser = (req: FastifyRequest, provider: OAuthProvider) => readFlowCookie(req, provider.id) ?? generateToken();
+// A login redirect may create a new identity only in a browser without a live session.
+async function requireGuest(req: FastifyRequest) {
+  const access = req.cookies[ACCESS_COOKIE];
+  const claims = access ? await verifyAccessToken(access) : null;
+  const refresh = req.cookies[REFRESH_COOKIE];
+  const now = new Date();
+  const current = await prisma.sessionFamily.findFirst({
+    where: {
+      revokedAt: null, expiresAt: { gt: now }, user: { status: "ACTIVE", role: "USER" },
+      OR: [
+        ...(claims ? [{ id: claims.sid, userId: claims.userId }] : []),
+        ...(refresh ? [{ refreshTokens: { some: { tokenHash: sha256(refresh), revokedAt: null, expiresAt: { gt: now } } } }] : []),
+      ],
+    },
+    select: { id: true },
+  });
+  if (current) throw new AppError(409, "ALREADY_SIGNED_IN");
+}
 const proofExpiry = () => new Date(Date.now() + 5 * 60_000);
 
 function begin(db: Prisma.TransactionClient, provider: OAuthProvider, browser: string,
@@ -83,6 +103,7 @@ export const oauthRoutes: FastifyPluginAsync<{ providers: ProviderMap }> = async
 
   app.get("/:provider/start", limit(30, "1 minute"), async (req, reply) => {
     const provider = resolveProvider(providerParam(req));
+    await requireGuest(req);
     const browser = newBrowser(req, provider);
     const flow = await begin(prisma, provider, browser, {
       mode: "login", returnTo: sanitizeReturnTo((req.query as { returnTo?: unknown }).returnTo),
@@ -100,6 +121,7 @@ export const oauthRoutes: FastifyPluginAsync<{ providers: ProviderMap }> = async
 
   app.post("/reauth", { ...limit(8, "1 minute"), preHandler: authenticate }, async (req, reply) => {
     const input = reauthCommand.parse(req.body);
+    if (input.purpose === "UNLINK" && input.target === input.method) throw new AppError(403, "REAUTH_REQUIRED");
     const claims = req.auth!;
     const before = await prisma.authIdentity.findUnique({
       where: { userId_provider: { userId: claims.userId, provider: input.method } },
@@ -203,6 +225,7 @@ export const oauthRoutes: FastifyPluginAsync<{ providers: ProviderMap }> = async
         await authenticate(req);
         if (req.auth!.sid !== flow.familyId) throw new AppError(403, "OAUTH_STATE");
       }
+      if (flow.mode === "login") await requireGuest(req);
       if (error || !code) throw new AppError(400, "OAUTH_DENIED");
       const idToken = await exchangeCode(provider, { redirectUri: redirectUriFor(provider), code, codeVerifier: flow.verifier });
       const claims = await verifyIdToken(provider, idToken, { nonce: flow.nonce ?? undefined });

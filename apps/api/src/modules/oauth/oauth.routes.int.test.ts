@@ -9,6 +9,7 @@ import { AppError } from "../../lib/errors";
 import { randomUUID } from "node:crypto";
 import { prisma } from "../../lib/prisma";
 import { resetDatabase } from "../../test/db";
+import { createUser } from "../../test/factories";
 import { signAccessToken } from "../auth/jwt";
 import { flowCookieName } from "./flow-cookie";
 import { loginWithProfile, linkProfile } from "./oauth.service";
@@ -221,6 +222,20 @@ describe("Google: вход", () => {
     const evil = await start(app, "google", { query: "?returnTo=//evil.example" });
     const res = await callback(app, "google", `code=abc&state=${evil.state}`, evil.cookies);
     expect(location(res)).toBe("http://localhost:5173/account");
+  });
+
+  it("does not replace a live account when a guest callback arrives after another login", async () => {
+    idp.idToken = googleToken();
+    const flow = await start(app, "google");
+    const user = await createUser();
+    const claims = { userId: user.id, role: "USER" as const, sid: randomUUID() };
+    await prisma.sessionFamily.create({ data: {
+      id: claims.sid, userId: user.id, expiresAt: new Date(Date.now() + 60_000),
+    } });
+    const token = await signAccessToken(claims);
+    const reply = await callback(app, "google", `code=abc&state=${flow.state}`, { ...flow.cookies, vpn_at: token });
+    expect(location(reply)).toBe("http://localhost:5173/login?error=ALREADY_SIGNED_IN");
+    expect(idp.tokenRequests).toHaveLength(0);
   });
 
   it("неверный state: отказ без обращения к провайдеру", async () => {

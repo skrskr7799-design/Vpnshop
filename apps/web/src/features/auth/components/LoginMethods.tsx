@@ -28,6 +28,8 @@ export function LoginMethods() {
   const linked = useConsumedSearchParam("linked");
   const usable = methods.data?.identities.filter(identity => identity.usable) ?? [];
 
+  const reauthMethods = action?.purpose === "UNLINK" ? usable.filter(entry => entry.provider !== action.target) : usable;
+
   async function apply(proof: Proof) {
     if (proof.purpose === "LINK") {
       const result = await request<{ authorizeUrl: string }>(`/auth/oauth/${proof.target.toLowerCase()}/link`, {
@@ -73,7 +75,7 @@ export function LoginMethods() {
       {methods.data?.identities.map(identity => <li className="login-methods__row" key={identity.provider}>
         <span>{labels[identity.provider]} · {identity.usable ? "доступен" : "ожидает проверки"}</span>
         {identity.canUnlink && <button type="button" onClick={() => {
-          setAction({ target: identity.provider, purpose: "UNLINK" }); setMethod(usable[0]?.provider ?? "EMAIL");
+          setAction({ target: identity.provider, purpose: "UNLINK" }); setMethod(usable.find(entry => entry.provider !== identity.provider)?.provider ?? "EMAIL");
         }}>Отключить</button>}
       </li>)}
     </ul>
@@ -91,7 +93,7 @@ export function LoginMethods() {
     {action && <form onSubmit={submit}>
       <p>{action.purpose === "LINK" ? "Подключение" : "Отключение"} {labels[action.target]}</p>
       <label>Подтвердите вход <select value={method} onChange={event => setMethod(event.target.value as AuthProvider)}>
-        {usable.map(identity => <option key={identity.provider} value={identity.provider}>{labels[identity.provider]}</option>)}
+        {reauthMethods.map(identity => <option key={identity.provider} value={identity.provider}>{labels[identity.provider]}</option>)}
       </select></label>
       {method === "EMAIL" && <label>Текущий пароль <input name="password" autoComplete="current-password" type="password" required /></label>}
       <button type="submit" disabled={busy}>Продолжить</button>{" "}

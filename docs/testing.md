@@ -110,3 +110,9 @@ PostgreSQL suite проверяет повтор и конкуренцию за�
 ## Регрессия COM-04
 
 Публичный CI использует pinned TypeScript-контракт, loopback HTTP-сервер и disposable PostgreSQL. Проверяются разные соединения и владение lease, неоднозначный create, восстановление после внешней записи, устаревший HTTP после подтверждённого запрета, планирование повторной сверки, drift при CONFIRMED, конфликт имени/ID, ручной DISABLED, C4 после commit удержания, смена лимита и будущая граница после разрыва. Реальная сеть панели не участвует. [Интеграционные проверки](../apps/api/src/modules/fulfillment/revision.int.test.ts) · [HTTP contract](../apps/api/src/modules/remnawave/remnawave.http.contract.test.ts)
+
+## Проверки кабинета ACC-01–03
+
+- PostgreSQL в существующем Toolchain CI покрывает ротацию и гонку refresh, два устройства, revoke, reset и попытку reset staff, callback replay, явную OIDC-привязку, C1–C7 ownership, статусы позднего платежа и сверки, C4 при hold и отзыве во время чтения панели, C8–C11 ownership, конкурентную дедупликацию, ограничения сообщения и A13. Репетиции clean/legacy включают повторный deploy и сравнение 15 исходных записей. [Интеграционный runner](../apps/api/scripts/integration/run.sh)
+- Для браузерного smoke собрать `pnpm --filter @vpn/web build`, затем выполнить `node apps/web/scripts/account-browser-smoke.mjs` с Chromium в PATH или указать `CHROMIUM_BIN`. Скрипт запускает изолированный профиль и loopback HTTP с синтетическими DTO. Проверяются 360 px, checkout с потерянным ответом и тем же ключом, помощь по заказу, безопасное отображение HTML как текста, локальный QR и закрытие приватного UI при неподтверждённом logout.
+- Браузерный smoke и PostgreSQL проверяют разные границы. Реальная доставка почты, OAuth Google/Telegram, Platega и Remnawave остаются отдельными стендовыми проверками. Успешный synthetic run не подтверждает доступность провайдера.

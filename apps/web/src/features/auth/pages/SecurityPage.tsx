@@ -26,6 +26,7 @@ export function SecurityPage() {
   return <>
     <Link to="/account">Кабинет</Link>
     <h1>Безопасность</h1>
+    {user?.email && <p>Почта аккаунта: {user.email}</p>}
     <LoginMethods />
     <section aria-labelledby="sessions-title">
       <h2 id="sessions-title">Активные устройства</h2>
