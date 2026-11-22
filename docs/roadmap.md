@@ -65,6 +65,7 @@
 ### COM-04 — статус реализации
 
 - **IMPLEMENTED** Адаптер 3.4.17 с revision-aware lease, PanelBinding, PanelObservation, verify-first, C4, сверкой и поздним read-back. [Матрица](remnawave-integration.md#com-04--матрица-реализации)
+- **VERIFIED на mock и contract tests** SHA `6b3282e871f02e3f3b4e06fc0108abb3091bd696`. 11 PostgreSQL-сценариев ревизий, 7 contract tests с loopback HTTP, регрессии FND-03 и COM-01–03, clean/legacy migrate и сохранение 15 контрольных записей. R05 покрывает поздний эффект после подтверждения запрета и повторный read-back при потере сигнала. [GitHub Actions](https://github.com/skrskr7799-design/Vpnshop/actions/runs/44997552826)
 - **BLOCKED / PENDING STAGING** Реальная панель согласована как отдельный этап. Коммерческий запуск также ждёт Platega и релизные проверки. [Регламент](deployment.md#com-04--изолированная-панель)
 
 [Контракты денег](payments.md) · [Периоды](subscriptions.md) · [Матрица панели](remnawave-integration.md)
