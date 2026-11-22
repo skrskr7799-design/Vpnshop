@@ -17,7 +17,7 @@ FROM postgres-base AS database
 ARG REVISION=unknown
 LABEL org.opencontainers.image.revision=${REVISION}
 RUN apt-get update && apt-get install -y --no-install-recommends libxml2 liblz4-1 libzstd1 libbz2-1.0 libyaml-0-2 liblzma5 && \
-    rm -rf /var/lib/apt/lists/* && \
+    rm -rf /var/lib/apt/lists/* && rm -f /usr/local/bin/gosu && \
     install -d -o 999 -g 999 /state/db /state/repo /state/proofs && \
     touch /state/db/.keep /state/repo/.keep /state/proofs/.keep && chown 999:999 /state/db/.keep /state/repo/.keep /state/proofs/.keep
 COPY --from=backrest-build /source/build/src/pgbackrest /usr/local/bin/pgbackrest
