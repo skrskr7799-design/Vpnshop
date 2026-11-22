@@ -87,9 +87,10 @@ snapshot() {
   # Project Order onto its legacy columns. The new nullable fields are checked separately.
   {
     docker exec "$container" pg_dump -U postgres -d vpnshop_legacy --data-only --schema=public \
-      --exclude-table=public._prisma_migrations --exclude-table='public."Subscription"' --exclude-table='public."FulfillmentJob"' --exclude-table='public."Plan"' --exclude-table='public."AuditLog"' --exclude-table='public."User"' --exclude-table='public."Session"' --exclude-table='public."Order"' --exclude-table='public."Payment"' --exclude-table='public."WebhookEvent"' --inserts --no-owner --no-privileges |
+      --exclude-table=public._prisma_migrations --exclude-table='public."Subscription"' --exclude-table='public."FulfillmentJob"' --exclude-table='public."AdminSession"' --exclude-table='public."Plan"' --exclude-table='public."AuditLog"' --exclude-table='public."User"' --exclude-table='public."Session"' --exclude-table='public."Order"' --exclude-table='public."Payment"' --exclude-table='public."WebhookEvent"' --inserts --no-owner --no-privileges |
       sed -n '/^INSERT INTO /p'
     sql vpnshop_legacy <<'SQL'
+COPY (SELECT id, "userId", "tokenHash", ip, "userAgent", "createdAt", "lastSeenAt", "idleExpiresAt", "expiresAt" FROM "AdminSession") TO STDOUT;
 COPY (SELECT id, code, name, "deviceLimit", "isActive", "sortOrder" FROM "Plan") TO STDOUT;
 COPY (SELECT id, "actorId", action, entity, "entityId", data, ip, "createdAt" FROM "AuditLog") TO STDOUT;
 COPY (SELECT id, email, "emailVerifiedAt", role, status, "remnawaveUserId", "createdAt", "updatedAt" FROM "User") TO STDOUT;
@@ -131,13 +132,22 @@ sql vpnshop_suite <<SQL
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 CREATE SCHEMA test_guard;
 CREATE TABLE test_guard.instance (marker text PRIMARY KEY);
+CREATE FUNCTION test_guard.fail_audit_fixture() RETURNS trigger LANGUAGE plpgsql AS \$\$
+BEGIN
+  IF NEW.reason = 'fixture audit insert failure' THEN RAISE EXCEPTION 'test audit failure'; END IF;
+  RETURN NEW;
+END \$\$;
+CREATE TRIGGER fixture_audit_failure BEFORE INSERT ON "AuditLog"
+FOR EACH ROW EXECUTE FUNCTION test_guard.fail_audit_fixture();
+
 INSERT INTO test_guard.instance VALUES ('$VPNSHOP_TEST_MARKER');
 GRANT USAGE ON SCHEMA test_guard, public TO vpnshop_suite;
 GRANT SELECT ON test_guard.instance TO vpnshop_suite;
 GRANT SELECT, INSERT, UPDATE, DELETE ON "User","AuthIdentity","Session","PendingRegistration",
   "VerificationToken","AdminTotp","AdminRecoveryCode","AdminSession","Plan","PlanPrice","OfferVersion","Order",
   "Payment","WebhookEvent","FulfillmentJob","FulfillmentLease","MerchantAccount","PaymentCase","SessionFamily","OAuthFlow","IdentityProof","AuthMailWindow" TO vpnshop_suite;
-GRANT SELECT, INSERT, UPDATE, DELETE ON "WorkerHeartbeat" TO vpnshop_suite;
+GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON "RefundIntent" TO vpnshop_suite;
+GRANT SELECT, INSERT, UPDATE, DELETE ON "AdminOperationalSettings", "WorkerHeartbeat" TO vpnshop_suite;
 GRANT SELECT, INSERT, TRUNCATE ON "AuditLog" TO vpnshop_suite;
 GRANT SELECT, INSERT, UPDATE, DELETE ON "StaffCredential","StaffChallenge","StaffInvite","StaffReset","AdminConfirmation","AdminCommand" TO vpnshop_suite;
 GRANT SELECT, INSERT, UPDATE, DELETE ON "SupportCase" TO vpnshop_suite;

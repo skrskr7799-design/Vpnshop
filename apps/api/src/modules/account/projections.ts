@@ -12,8 +12,8 @@ const periodInclude = { adjustment: true, order: { include: { offerVersion: true
 type PeriodRow = Prisma.PeriodGrantGetPayload<{ include: typeof periodInclude }>;
 const boundary = (grant: Pick<PeriodRow, "endAt" | "adjustment">) => grant.adjustment?.effectiveAt ?? grant.endAt;
 const periodDto = (grant: PeriodRow): OwnerPeriod => ({
-  id: grant.id, orderId: grant.orderId, serial: grant.serial, startAt: grant.startAt.toISOString(), endAt: grant.endAt.toISOString(),
-  effectiveEndAt: boundary(grant).toISOString(), snapshot: snapshot(grant.order),
+  id: grant.id, orderId: grant.orderId, kind: grant.order ? "PURCHASE" : "COMPENSATION", deviceLimit: grant.deviceLimit, serial: grant.serial, startAt: grant.startAt.toISOString(), endAt: grant.endAt.toISOString(),
+  effectiveEndAt: boundary(grant).toISOString(), snapshot: grant.order && snapshot(grant.order),
   adjustments: grant.adjustment ? [{ id: grant.adjustment.id, effectiveAt: grant.adjustment.effectiveAt.toISOString(), kind: grant.adjustment.reason }] : [],
 });
 
@@ -36,7 +36,7 @@ export async function subscriptionOverview(userId: string, panel?: AssignmentPan
       end = boundary(grant);
     }
     const tail = await db.periodGrant.findFirst({ where: { subscriptionId: sub.id }, orderBy: { serial: "desc" } });
-    const last = remaining.at(-1);
+    const last = remaining.findLast(grant => grant.orderId !== null);
     const assignment = await db.desiredAssignment.findUnique({ where: { subscriptionId_revision: {
       subscriptionId: sub.id, revision: sub.revision,
     } }, include: { job: true } });

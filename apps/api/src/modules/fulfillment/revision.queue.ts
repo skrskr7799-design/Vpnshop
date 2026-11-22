@@ -1,3 +1,4 @@
+import { AppError } from "../../lib/errors";
 import type { DesiredAssignment, JobStatus, PanelBinding, Prisma } from "@prisma/client";
 import { dbNow } from "../commerce/offers";
 import type { PanelUser } from "../remnawave/remnawave.assignment";
@@ -154,3 +155,26 @@ export async function requestRevisionCheck(job: RevisionJob) {
 export const bindingIdentityMatches = (binding: PanelBinding, user: PanelUser) =>
   Number.isSafeInteger(user.id) && user.id > 0 && user.username === binding.username && user.marker === binding.marker &&
   (binding.remoteUserId === null || BigInt(user.id) === binding.remoteUserId);
+
+
+// Intent only. The worker retains the lease protocol and rereads before a panel write.
+export async function scheduleRevisionVerification(db: Db, userId: string, expectedRevision: number) {
+  const subscription = await lockSubscription(db, userId);
+  if (!subscription) throw new AppError(404, "SUBSCRIPTION_NOT_FOUND");
+  if (subscription.revision !== expectedRevision) throw new AppError(409, "STALE_REVISION");
+  const binding = await db.panelBinding.findUnique({ where: { subscriptionId: subscription.id } });
+  if (binding?.blockedReason) throw new AppError(409, "BINDING_UNVERIFIED");
+  const target = await db.desiredAssignment.findUnique({ where: { subscriptionId_revision: {
+    subscriptionId: subscription.id, revision: subscription.revision,
+  } }, include: { job: true } });
+  if (!target?.job) throw new AppError(404, "NOT_FOUND");
+  const now = await dbNow(db);
+  const [lease] = await db.$queryRaw<{ expiresAt: Date | null }[]>`
+    SELECT "expiresAt" FROM "FulfillmentLease" WHERE "userId" = ${userId} FOR UPDATE`;
+  if (lease?.expiresAt && lease.expiresAt > now) throw new AppError(409, "LEASED");
+  await markRevisionWriter(db);
+  await db.fulfillmentJob.update({ where: { id: target.job.id }, data: {
+    status: "VERIFY_PENDING", verificationEpoch: { increment: 1 }, nextAttemptAt: now, lastError: "OPERATOR_VERIFY",
+  } });
+  return { id: target.job.id, revision: subscription.revision, status: "VERIFY_PENDING" };
+}

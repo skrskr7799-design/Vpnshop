@@ -17,12 +17,12 @@ export function DashboardPage() {
     ? Math.max(0, Math.ceil((Date.parse(sub.coverageEndsAt) - Date.parse(overview.data.serverTime)) / 86_400_000)) : null;
   return <><h1>Обзор</h1><LoadState pending={overview.isPending} error={overview.error} retry={overview.refetch} />
     {overview.data && <Panel>
-      <h2>{period ? titleOf(period.snapshot) : "Подписка"}</h2>
+      <h2>{period?.snapshot ? titleOf(period.snapshot) : "Подписка"}</h2>
       <p>{sub ? label(sub.rightStatus) : "Оплаченных периодов пока нет."}</p>
       {sub && <dl className="mzt-detail">
         <dt>Выдача</dt><dd>{label(sub.delivery.status)}</dd>
         <dt>Доступ до</dt><dd>{date(sub.coverageEndsAt)}{remaining !== null && ` · до ${remaining} дн.`}</dd>
-        <dt>Лимит устройств</dt><dd>{period?.snapshot.deviceLimit ?? "—"}</dd>
+        <dt>Лимит устройств</dt><dd>{period?.deviceLimit ?? "—"}</dd>
       </dl>}
       {sub?.delivery.status === "WAITING" && <p>Право учтено. Панель ещё не подтвердила профиль.</p>}
       <div className="mzt-actions"><Link to="/account/plans">{sub ? "Продлить" : "Выбрать тариф"}</Link>
@@ -150,12 +150,12 @@ export function SubscriptionPage() {
     {overview.data?.subscription && <Panel><p>{label(overview.data.subscription.rightStatus)}</p>
       <p>Непрерывное право до {date(overview.data.subscription.coverageEndsAt)}</p>
       <p>Следующая граница {date(overview.data.subscription.nextBoundaryAt)}</p></Panel>}
-    <h2>Оплаченные периоды</h2>
+    <h2>Периоды доступа</h2>
     <PageList<OwnerPeriod> path="/me/subscription/periods" empty="Оплаченных периодов пока нет." render={period => <>
-      <h3>{titleOf(period.snapshot)} · {period.snapshot.deviceLimit} устройств</h3>
+      <h3>{period.snapshot ? titleOf(period.snapshot) : "Компенсация"} · {period.deviceLimit} устройств</h3>
       <p>{date(period.startAt)} — {date(period.endAt)}</p>
       {period.adjustments.map(item => <p key={item.id}>Корректировка права с {date(item.effectiveAt)}</p>)}
-      <Link to={`/account/orders/${period.orderId}`}>Заказ периода</Link>
+      {period.orderId && <Link to={`/account/orders/${period.orderId}`}>Заказ периода</Link>}
     </>} />
   </>;
 }

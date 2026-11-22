@@ -1,16 +1,15 @@
 import type { Prisma, SupportCase, SupportMessage } from "@prisma/client";
-import type { CaseSummary, staffSupportAction, supportCreate } from "@vpn/shared";
-import type { z } from "zod";
+import { supportStatus, supportText, type CaseSummary, type supportCreate } from "@vpn/shared";
+import { z } from "zod";
 import { sha256 } from "../../lib/crypto";
 import { AppError } from "../../lib/errors";
 import { keysetPage, keysetWhere, newestFirst } from "../../lib/keyset";
 import { prisma } from "../../lib/prisma";
-import { writeAudit } from "../admin/admin.audit";
+import { command, expectVersion } from "../admin/commands";
 import { dbNow } from "../commerce/offers";
 
 type PageInput = { limit: number; cursor?: string };
 type Create = z.infer<typeof supportCreate>;
-type StaffAction = z.infer<typeof staffSupportAction>;
 
 export function summary(row: SupportCase): CaseSummary {
   return {
@@ -115,31 +114,22 @@ export async function replyToCase(userId: string, id: string, key: string, text:
   });
 }
 
-export async function actOnCase(actorId: string, ip: string, id: string, key: string, input: StaffAction) {
-  const requestKeyHash = sha256(JSON.stringify(["staff", actorId, key]));
-  const fingerprint = sha256(JSON.stringify([input.status, input.publicReply, input.expectedUpdatedAt, input.reason]));
-  return prisma.$transaction(async db => {
-    const row = await lockCase(db, id);
-    const previous = await db.supportEvent.findUnique({ where: { caseId_requestKeyHash: { caseId: id, requestKeyHash } } });
-    if (previous) {
-      if (previous.fingerprint !== fingerprint) throw new AppError(409, "IDEMPOTENCY_CONFLICT");
-      return { case: summary(row), commandId: previous.id };
-    }
-    if (row.updatedAt.toISOString() !== input.expectedUpdatedAt) throw new AppError(409, "CASE_CHANGED");
+export const supportCommands = {
+  "support.action": command("support:write", z.strictObject({
+    status: supportStatus.optional(), publicReply: supportText.optional(),
+  }).refine(input => Boolean(input.status || input.publicReply)), async (ctx, input) => {
+    const id = z.uuid().parse(ctx.targetId);
+    const row = await lockCase(ctx.db, id);
+    expectVersion(ctx.expectedVersion, row.updatedAt);
     const status = input.status ?? row.status;
-    const now = new Date(Math.max(+await dbNow(db), +row.updatedAt + 1));
-    if (input.publicReply) {
-      await db.supportMessage.create({ data: { caseId: id, author: "STAFF", text: input.publicReply, createdAt: now } });
-    }
-    const event = await db.supportEvent.create({
-      data: { caseId: id, author: "STAFF", fromStatus: row.status, toStatus: status, requestKeyHash, fingerprint, reason: input.reason, createdAt: now },
-    });
-    const updated = await db.supportCase.update({
-      where: { id }, data: { status, updatedAt: now },
-    });
-    // Keep free-form customer/staff text out of general-purpose audit exports.
-    await writeAudit(db, { actorId, action: "support.case.action", entity: "SupportCase", entityId: id, ip,
-      data: { commandId: event.id, fromStatus: row.status, toStatus: status, replied: !!input.publicReply } });
-    return { case: summary(updated), commandId: event.id };
-  });
-}
+    const now = new Date(Math.max(+await dbNow(ctx.db), +row.updatedAt + 1));
+    if (input.publicReply) await ctx.db.supportMessage.create({ data: {
+      caseId: id, author: "STAFF", text: input.publicReply, createdAt: now,
+    } });
+    await ctx.db.supportEvent.create({ data: {
+      caseId: id, author: "STAFF", fromStatus: row.status, toStatus: status, reason: ctx.reason, createdAt: now,
+    } });
+    const updated = await ctx.db.supportCase.update({ where: { id }, data: { status, updatedAt: now } });
+    return { case: summary(updated), before: row.status, after: status, replied: !!input.publicReply };
+  }),
+};

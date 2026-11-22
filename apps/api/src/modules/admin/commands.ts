@@ -46,7 +46,7 @@ function canonical(value: unknown): unknown {
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => [k, canonical(v)]));
 }
-const fingerprint = (operation: string, permission: Permission, target: string, input: {
+export const commandFingerprint = (operation: string, permission: Permission, target: string, input: {
   expectedVersion: string; reason: string; command: unknown;
 }) => createHmac("sha256", stageTokenKey()).update(JSON.stringify(canonical(
   [operation, permission, target, input.expectedVersion, input.reason, input.command],
@@ -82,7 +82,7 @@ export function registerCommandProtocol(app: FastifyInstance, commands: Commands
     const actor = adminOf(req);
     if (input.permission !== entry.permission || !can(actor.role, entry.permission)) throw new AppError(403, "FORBIDDEN");
     const command = entry.parse(input.command);
-    const hash = fingerprint(input.operation, entry.permission, input.targetId, { ...input, command });
+    const hash = commandFingerprint(input.operation, entry.permission, input.targetId, { ...input, command });
     const known = await prisma.staffCredential.findUnique({ where: { userId: actor.userId } });
     if (!known || !await verifyPassword(known.passwordHash, input.password)) {
       await writeAudit(prisma, { actorId: actor.userId, action: "admin.step_up.denied", permission: entry.permission,
@@ -108,7 +108,7 @@ export function registerCommandProtocol(app: FastifyInstance, commands: Commands
     if (!can(actor.role, entry.permission)) throw new AppError(403, "FORBIDDEN");
     const input = executeInput.parse(req.body);
     const command = entry.parse(input.command);
-    const fingerprintValue = fingerprint(operation, entry.permission, targetId, { ...input, command });
+    const fingerprintValue = commandFingerprint(operation, entry.permission, targetId, { ...input, command });
     const keyHash = sha256(checkoutKeySchema.parse(req.headers["idempotency-key"]));
     const transient: CommandContext["transient"] = {};
     const result = await prisma.$transaction(async db => {

@@ -27,22 +27,25 @@ beforeEach(async () => {
   [app, adminApp] = await Promise.all([buildApp(), buildTestAdminApp()]);
   const staff = await createEnrolledAdmin("admin@example.com", "ADMIN");
   admin = as(adminApp, staff.sessionToken);
-  const plan = await admin.post("/api/plans", { code: "pro", name: "Pro", deviceLimit: 5 });
-  expect(plan.statusCode).toBe(201);
-  planId = plan.json().plan.id;
+  const plan = await admin.command("plan.create", "pro", 0, { code: "pro", name: "Pro", deviceLimit: 5 });
+  expect(plan.statusCode).toBe(200);
+  planId = plan.json().result.id;
   buyer = await customer();
 });
 afterEach(async () => { await Promise.all([app?.close(), adminApp?.close()]); });
 
-const price = (amount = 19000, options: Record<string, unknown> = {}) =>
-  admin.put(`/api/plans/${planId}/prices`, { amount, currency: "RUB", durationMonths: 1, ...options });
+const planRevision = async () => (await prisma.plan.findUniqueOrThrow({ where: { id: planId } })).revision;
+const price = async (amountMinor = 19000, options: Record<string, unknown> = {}) =>
+  admin.command("plan.publish", planId, await planRevision(), { name: "Pro", deviceLimit: 5,
+    amountMinor, currency: "RUB", durationMonths: 1, ...options });
 async function publish(amount?: number, options?: Record<string, unknown>) {
   const res = await price(amount, options);
   expect(res.statusCode).toBe(200);
-  const published = res.json().price as { id: string; offerVersionId: string };
-  expect(published.offerVersionId).toBeTruthy();
-  return published;
+  const published = res.json().result as { id: string; priceId: string };
+  expect(published.id).toBeTruthy();
+  return { id: published.priceId, offerVersionId: published.id };
 }
+const retire = async (offerId: string) => admin.command("plan.retire_offer", planId, await planRevision(), { offerId });
 const buy = (offerVersionId: string, key = randomUUID() as string, customer = buyer, extra = {}) =>
   app.inject({ method: "POST", url: "/api/orders", cookies: customer.cookies,
     headers: { origin: env.WEB_ORIGIN, "Idempotency-Key": key }, payload: { offerVersionId, ...extra } });
@@ -54,8 +57,6 @@ async function catalog(query = "") {
 }
 
 it("publishes, versions edits and exposes only current offers in a deterministic order", async () => {
-  expect(await catalog()).toEqual([]);
-  expect((await price(19000, { isActive: false })).json().price.offerVersionId).toBeNull();
   expect(await catalog()).toEqual([]);
   const first = await publish();
   const repeat = await publish();
@@ -73,12 +74,12 @@ it("publishes, versions edits and exposes only current offers in a deterministic
   expect(await catalog("?currency=USD")).toMatchObject([{ id: usd.offerVersionId, price: { amountMinor: 250, currency: "USD" } }]);
   expect((await app.inject({ url: "/api/plans?currency=EUR" })).statusCode).toBe(400);
   expect((await buy(first.offerVersionId)).json()).toMatchObject({ error: { code: "OFFER_CHANGED" } });
-  const history = (await admin.get("/api/plans")).json().plans[0].prices[0].versions;
+  const history = (await admin.get(`/api/plans/${planId}/versions`)).json().items.filter((row: { planPriceId: string }) => row.planPriceId === first.id);
   expect(history).toMatchObject([
     { version: 2, amount: 21000, withdrawnAt: null },
     { version: 1, amount: 19000, withdrawnAt: expect.any(String) },
   ]);
-  expect(await prisma.auditLog.count({ where: { action: "plan.price.upsert" } })).toBe(7);
+  expect(await prisma.auditLog.count({ where: { action: "plan.publish" } })).toBe(6);
 });
 
 it("preserves snapshot and checkout key across price, name, limit and withdrawal", async () => {
@@ -90,11 +91,11 @@ it("preserves snapshot and checkout key across price, name, limit and withdrawal
   expect(res.headers["cache-control"]).toBe("private, no-store");
   const elapsed = Date.parse(purchased.expiresAt) - Date.parse(purchased.snapshot.snapshottedAt);
   expect(elapsed).toBe(env.CHECKOUT_TTL_MINUTES * 60_000);
-  await admin.patch(`/api/plans/${planId}`, { name: "Pro Plus", deviceLimit: 9 });
+  await publish(19000, { name: "Pro Plus", deviceLimit: 9 });
   const [changed] = await catalog();
   expect(changed).toMatchObject({ version: 2, name: "Pro Plus", deviceLimit: 9 });
   const second = await publish(28000);
-  expect((await admin.delete(`/api/plans/${planId}/prices/${second.id}`)).statusCode).toBe(204);
+  expect((await retire(second.offerVersionId)).statusCode).toBe(200);
   expect(await catalog()).toEqual([]);
   expect((await buy(second.offerVersionId)).json().error.code).toBe("OFFER_UNAVAILABLE");
 
@@ -159,9 +160,9 @@ it.each(["publish", "withdraw"] as const)("linearizes %s and checkout around one
   const key = randomUUID();
   const [order, mutation] = await Promise.all([
     buy(first.offerVersionId, key),
-    action === "publish" ? price(24000) : admin.delete(`/api/plans/${planId}/prices/${first.id}`),
+    action === "publish" ? price(24000) : retire(first.offerVersionId),
   ]);
-  expect(mutation.statusCode).toBe(action === "publish" ? 200 : 204);
+  expect(mutation.statusCode).toBe(200);
   if (order.statusCode === 201) {
     expect(checkoutResponseSchema.parse(order.json()).snapshot.price.amountMinor).toBe(19000);
     expect((await buy(first.offerVersionId, key)).json()).toEqual(order.json());
@@ -169,7 +170,7 @@ it.each(["publish", "withdraw"] as const)("linearizes %s and checkout around one
     expect(order.statusCode).toBe(409);
     expect(await prisma.order.count()).toBe(0);
     if (action === "publish") {
-      const changed = mutation.json().price.offerVersionId;
+      const changed = mutation.json().result.id;
       const retried = await buy(changed, key);
       expect(retried.statusCode).toBe(201);
       expect(retried.json().snapshot.price.amountMinor).toBe(24000);
@@ -183,15 +184,18 @@ it("disables the whole plan, keeps published history and preserves SUPPORT read-
   const staff = await createEnrolledAdmin("support@example.com", "SUPPORT");
   const support = as(adminApp, staff.sessionToken);
   expect((await support.get("/api/plans")).statusCode).toBe(200);
-  expect((await support.put(`/api/plans/${planId}/prices`, { durationMonths: 1, currency: "RUB", amount: 1 })).statusCode).toBe(403);
-  expect((await support.delete(`/api/plans/${planId}/prices/${published.id}`)).statusCode).toBe(403);
-  expect((await admin.delete(`/api/plans/${planId}`)).json().error.code).toBe("PLAN_HAS_OFFER_HISTORY");
-  expect((await admin.patch(`/api/plans/${planId}`, { isActive: false })).statusCode).toBe(200);
+  expect((await support.command("plan.publish", planId, await planRevision(), {
+    name: "Changed", deviceLimit: 3, durationMonths: 1, currency: "RUB", amountMinor: 200,
+  })).statusCode).toBe(403);
+  expect((await support.command("plan.retire_offer", planId, await planRevision(), { offerId: published.offerVersionId })).statusCode).toBe(403);
+  expect((await admin.delete(`/api/plans/${planId}`)).statusCode).toBe(404);
+  expect((await admin.command("plan.retire", planId, await planRevision(), {})).statusCode).toBe(200);
   expect(await catalog()).toEqual([]);
   expect((await buy(published.offerVersionId)).json().error.code).toBe("OFFER_UNAVAILABLE");
   expect(await prisma.offerVersion.count()).toBe(1);
-  await admin.patch(`/api/plans/${planId}`, { isActive: true });
-  expect((await catalog())[0]?.id).toBe(published.offerVersionId);
+  await admin.command("plan.update", planId, await planRevision(), { isActive: true });
+  expect(await catalog()).toEqual([]);
+  expect((await publish()).offerVersionId).not.toBe(published.offerVersionId);
 });
 
 it("rejects a blocked account holding a still-valid access token", async () => {

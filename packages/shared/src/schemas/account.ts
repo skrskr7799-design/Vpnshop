@@ -17,8 +17,8 @@ export const ownerOrderDetailSchema = ownerOrderSummarySchema.extend({
 });
 
 export const periodSchema = z.object({
-  id: z.string(), orderId: z.string(), serial: z.number(), startAt: z.iso.datetime(), endAt: z.iso.datetime(),
-  effectiveEndAt: z.iso.datetime(), snapshot: orderSnapshotSchema,
+  id: z.string(), orderId: z.string().nullable(), kind: z.enum(["PURCHASE", "COMPENSATION"]), deviceLimit: z.number(), serial: z.number(), startAt: z.iso.datetime(), endAt: z.iso.datetime(),
+  effectiveEndAt: z.iso.datetime(), snapshot: orderSnapshotSchema.nullable(),
   adjustments: z.array(z.object({ id: z.string(), effectiveAt: z.iso.datetime(), kind: z.string() })),
 });
 

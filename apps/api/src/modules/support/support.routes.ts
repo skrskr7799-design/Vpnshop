@@ -1,10 +1,10 @@
-import { checkoutKeySchema, staffSupportAction, supportCategory, supportCreate, supportReply, supportStatus } from "@vpn/shared";
+import { checkoutKeySchema, supportCategory, supportCreate, supportReply, supportStatus } from "@vpn/shared";
 import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { keysetQuery } from "../../lib/keyset";
-import { adminOf, requireAdmin } from "../admin/admin.middleware";
+import { requireAdmin } from "../admin/admin.middleware";
 import { authenticate } from "../auth/authenticate";
-import { actOnCase, listCases, openCase, readCase, replyToCase } from "./support.service";
+import { listCases, openCase, readCase, replyToCase } from "./support.service";
 
 const params = z.strictObject({ id: z.uuid() });
 const ownerQuery = keysetQuery.extend({ status: supportStatus.optional() });
@@ -30,6 +30,4 @@ export const staffSupportRoutes: FastifyPluginAsync = async app => {
     listCases(undefined, staffQuery.parse(req.query)));
   app.get("/support/cases/:id", { preHandler: requireAdmin("support:read") }, req =>
     readCase(params.parse(req.params).id, undefined, detailQuery.parse(req.query)));
-  app.post("/support/cases/:id/actions", { ...boundedPost, preHandler: requireAdmin("support:write") }, req =>
-    actOnCase(adminOf(req).userId, req.ip, params.parse(req.params).id, key(req), staffSupportAction.parse(req.body)));
 };

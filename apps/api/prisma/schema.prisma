@@ -451,6 +451,7 @@ model PaymentTransaction {
   payment Payment? @relation(fields: [paymentId], references: [id], onDelete: Restrict)
 
   allocation OrderAllocation?
+  refundIntents RefundIntent[]
   adjustment Adjustment?
   hold ServiceHold? @relation("HoldMovement")
   holdRelease ServiceHold? @relation("HoldReleaseMovement")
@@ -581,8 +582,8 @@ model Subscription {
 model PeriodGrant {
   id              String @id @default(uuid())
   subscriptionId  String
-  orderId         String @unique
-  allocationId    String @unique
+  orderId         String? @unique
+  allocationId    String? @unique
   serial          Int
   startAt         DateTime
   endAt           DateTime
@@ -591,11 +592,18 @@ model PeriodGrant {
   deviceLimit     Int
 
   subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
-  order Order @relation(fields: [orderId], references: [id], onDelete: Restrict)
-  allocation OrderAllocation @relation(fields: [allocationId], references: [id], onDelete: Restrict)
+  order Order? @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  allocation OrderAllocation? @relation(fields: [allocationId], references: [id], onDelete: Restrict)
   adjustment Adjustment?
   assignments DesiredAssignment[]
 
+  incidentId String?
+  basisGrantId String?
+  compensationReason String?
+  basis PeriodGrant? @relation("ServiceCompensation", fields: [basisGrantId], references: [id], onDelete: Restrict)
+  compensations PeriodGrant[] @relation("ServiceCompensation")
+
+  @@unique([subscriptionId, incidentId])
   @@unique([subscriptionId, serial])
 }
 
@@ -893,4 +901,29 @@ model WorkerHeartbeat {
   ready      Boolean
 
   @@index([observedAt])
+}
+
+model RefundIntent {
+  id          String @id @default(uuid())
+  captureId   String
+  commandId   String @unique
+  initiatorId String
+  approvedBy  String?
+  approvedAt  DateTime?
+  amountMinor BigInt
+  currency    String
+  reason      String
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  capture     PaymentTransaction @relation(fields: [captureId], references: [id], onDelete: Restrict)
+
+  @@index([captureId, expiresAt])
+  @@index([createdAt, id])
+}
+
+model AdminOperationalSettings {
+  id                       String @id
+  version                  Int @default(0)
+  fulfillmentLagWarnSeconds Int @default(900)
+  paymentLagWarnSeconds     Int @default(900)
 }

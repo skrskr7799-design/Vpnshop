@@ -15,7 +15,9 @@ import { adminAuditRoutes } from "./routes/audit.routes";
 import { adminAuthRoutes } from "./routes/auth.routes";
 import { adminDashboardRoutes, type DashboardDeps } from "./routes/dashboard.routes";
 import { adminReadRoutes, adminJobsReadRoutes } from "./routes/read.routes";
-import { adminJobsRoutes } from "./routes/jobs.routes";
+import { registerStoreRoutes } from "./routes/store.routes";
+import { storeCommands } from "./store-commands";
+import { supportCommands } from "../support/support.service";
 import { adminPlansRoutes } from "./routes/plans.routes";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
@@ -80,14 +82,14 @@ export async function buildAdminApp(options: AdminAppOptions) {
 
   await app.register(
     async (api) => {
-      registerCommandProtocol(api, staffCommands);
+      const execute = registerCommandProtocol(api, { ...staffCommands, ...storeCommands, ...supportCommands });
+      registerStoreRoutes(api, execute);
       await api.register(staffRoutes);
       await api.register(adminAuthRoutes);
       await api.register(adminDashboardRoutes, { panel: options.panel });
       await api.register(adminPlansRoutes);
       await api.register(adminReadRoutes);
       await api.register(adminJobsReadRoutes);
-      await api.register(adminJobsRoutes);
       await api.register(adminAuditRoutes);
       await api.register(staffSupportRoutes);
     },

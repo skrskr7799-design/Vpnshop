@@ -42,6 +42,9 @@ BEGIN
       RAISE;
     END IF;
   END;
+  IF EXISTS (SELECT 1 FROM "AdminSession" WHERE "revokedAt" IS NULL) OR EXISTS (SELECT 1 FROM "StaffCredential") THEN
+    RAISE EXCEPTION 'Legacy session or customer staff privilege was preserved incorrectly';
+  END IF;
   IF EXISTS (SELECT 1 FROM "SessionFamily") OR EXISTS (SELECT 1 FROM "Session" WHERE "liveFamilyId" IS NOT NULL)
     OR EXISTS (SELECT 1 FROM "OAuthFlow") OR EXISTS (SELECT 1 FROM "IdentityProof") THEN
     RAISE EXCEPTION 'Legacy sessions must require controlled re-login';

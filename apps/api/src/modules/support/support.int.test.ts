@@ -6,7 +6,7 @@ import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { resetDatabase } from "../../test/db";
 import { createOrder, createUser } from "../../test/factories";
-import { buildTestAdminApp, createEnrolledAdmin } from "../admin/admin.test-helpers";
+import { buildTestAdminApp, createEnrolledAdmin, as } from "../admin/admin.test-helpers";
 import { createSession } from "../auth/session.service";
 
 let web: FastifyInstance;
@@ -86,17 +86,14 @@ it("limits the staff contract, atomically audits actions and preserves status tr
   expect((await web.inject({ url, cookies: { vpn_at: member.token } })).statusCode).toBe(404);
   expect((await admin.inject({ url, cookies: { vpn_at: member.token } })).statusCode).toBe(401);
   expect((await admin.inject({ url, cookies: { vpn_admin: support.sessionToken } })).json().case.userId).toBe(member.user.id);
-  const action = (status: string, expectedUpdatedAt: string, key: string, publicReply?: string, token = operator.sessionToken) => admin.inject({
-    url: url + "/actions", method: "POST", cookies: { vpn_admin: token },
-    headers: { origin: env.ADMIN_ORIGIN, "idempotency-key": key },
-    payload: { status, reason: "Требуется уточнение", expectedUpdatedAt, publicReply },
-  });
+  const action = (status: string, expectedUpdatedAt: string, key: string, publicReply?: string, token = operator.sessionToken) =>
+    as(admin, token).command("support.action", id, expectedUpdatedAt, { status, publicReply }, { key, reason: "Требуется уточнение" });
   const key = randomUUID();
   expect((await action("WAITING_CUSTOMER", updatedAt, key, undefined, support.sessionToken)).statusCode).toBe(403);
   const wait = await action("WAITING_CUSTOMER", updatedAt, key, "Уточните время");
   expect(wait.statusCode).toBe(200);
   expect((await action("WAITING_CUSTOMER", updatedAt, key, "Уточните время")).json().commandId).toBe(wait.json().commandId);
-  expect(await prisma.auditLog.count({ where: { actorId: operator.userId, action: "support.case.action" } })).toBe(1);
+  expect(await prisma.auditLog.count({ where: { actorId: operator.userId, action: "support.action" } })).toBe(1);
   expect((await action("RESOLVED", updatedAt, randomUUID())).statusCode).toBe(409);
   const publicUrl = `${cases}/${id}`;
   const msgKey = randomUUID();
