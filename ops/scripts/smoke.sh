@@ -163,7 +163,7 @@ done
 marker=MZT-ISO-SYNTHETIC-SECRET
 request public 18443 -sS -o /dev/null -H "Authorization: Bearer $marker" -H "Cookie: test=$marker" \
   "https://public.mzt.test:18443/api/auth/oauth/google/callback?code=$marker"
-if dc logs --no-color public-api admin-api public-edge admin-edge | grep -F "$marker"; then
+if dc logs --no-color public-api admin-api public-edge admin-edge | grep -F "$marker" >/dev/null; then
   echo 'Sensitive synthetic marker in logs' >&2; exit 1
 fi
 
@@ -177,4 +177,89 @@ dc stop -t 25 worker public-api
 for service in worker public-api; do
   [[ "$(docker inspect --format '{{.State.ExitCode}}' "$(dc ps -aq "$service")")" == 0 ]]
 done
+if [[ "${MZT_RELEASE_FAILURES:-0}" == 1 ]]; then
+  dc up -d --wait --no-deps public-api worker
+  # Retrieve the test email from its durable encrypted outbox without echoing plaintext.
+  dc exec -T db psql -U postgres -d vpnshop -Atc 'SELECT payload FROM "NotificationOutbox" LIMIT 1' |
+    dc exec -T notifications node -e '
+      const { createDecipheriv, hkdfSync } = require("node:crypto");
+      const { readFileSync } = require("node:fs");
+      const master = Buffer.from(readFileSync("/run/secrets/mail_key", "utf8").trim(), "base64");
+      const key = Buffer.from(hkdfSync("sha256", master, Buffer.alloc(0), "vpn-shop:notification-outbox-v1", 32));
+      const raw = Buffer.from(readFileSync(0, "utf8").trim(), "base64url");
+      const decipher = createDecipheriv("aes-256-gcm", key, raw.subarray(0,12));
+      decipher.setAuthTag(raw.subarray(12,28));
+      const mail = JSON.parse(Buffer.concat([decipher.update(raw.subarray(28)), decipher.final()]).toString("utf8"));
+      const token = new URLSearchParams(new URL(mail.text.match(/https?:\/\/\S+/)[0]).hash.slice(1)).get("token");
+      if (!token || mail.to !== "synthetic@example.invalid") process.exit(1);
+      process.stdout.write(JSON.stringify({token}));' > "$tmp/verify.json"
+  origin='https://public.mzt.test:18443'
+  [[ "$(request public 18443 -sS -w '%{http_code}' -o /dev/null -H "Origin: $origin" -H 'Content-Type: application/json' \
+    --data-binary @"$tmp/verify.json" "$origin/api/auth/verify-email")" == 204 ]]
+  [[ "$(request public 18443 -sS -w '%{http_code}' -o /dev/null -H "Origin: $origin" -H 'Content-Type: application/json' \
+    --data-binary @"$tmp/verify.json" "$origin/api/auth/verify-email")" == 400 ]]
+  request public 18443 -fsS -c "$tmp/customer.cookies" -D "$tmp/login.headers" -o /dev/null -H "Origin: $origin" -H 'Content-Type: application/json' \
+    --data '{"email":"synthetic@example.invalid","password":"synthetic-test-strong-12"}' "$origin/api/auth/login"
+  tr -d '\r' < "$tmp/login.headers" | grep -Eqi '^set-cookie: vpn_at=.*; Secure;.*HttpOnly;.*SameSite=Lax|^set-cookie: vpn_at=.*; HttpOnly;.*Secure;.*SameSite=Lax'
+  grep -Eqi '^cache-control: private, no-store' "$tmp/login.headers"
+  dc exec -T db psql -U postgres -d vpnshop -q -v ON_ERROR_STOP=1 <<'SQL'
+INSERT INTO "Plan"(id,code,name,"deviceLimit") VALUES ('rel-plan','synthetic-release','Synthetic release',5);
+INSERT INTO "PlanPrice"(id,"planId","durationMonths",currency,amount) VALUES ('rel-price','rel-plan',1,'RUB',15000);
+INSERT INTO "OfferVersion"(id,"planPriceId",version,name,"durationMonths","deviceLimit",currency,amount,"publishedAt")
+VALUES ('a9641a70-6f9b-48fa-9e8a-8bd4c4422f37','rel-price',1,'Synthetic release',1,5,'RUB',15000,now());
+SQL
+  offer=$(request public 18443 -fsS "$origin/api/plans" | jq -er '.offers[0].id')
+  key=$(cat /proc/sys/kernel/random/uuid)
+  order_request=$(jq -nc --arg offer "$offer" '{offerVersionId:$offer}')
+  checkout_order() {
+    request public 18443 -fsS -b "$tmp/customer.cookies" -H "Origin: $origin" -H 'Content-Type: application/json' \
+      -H "Idempotency-Key: $key" --data-binary "$order_request" "$origin/api/orders" | jq -er '.orderId'
+  }
+  order=$(checkout_order)
+  [[ "$(checkout_order)" == "$order" ]]
+  [[ "$(request public 18443 -sS -w '%{http_code}' -o /dev/null -b "$tmp/customer.cookies" -H "Origin: $origin" \
+    -H 'Content-Type: application/json' -H "Idempotency-Key: $key" --data '{"channel":"SBP"}' "$origin/api/orders/$order/payments")" == 503 ]]
+  dc exec -T db psql -U postgres -d vpnshop -Atc 'SELECT count(*)=1 AND NOT EXISTS (SELECT 1 FROM "Payment") FROM "Order"' | grep -qx t
+  request public 18443 -fsS -b "$tmp/customer.cookies" -H "Origin: $origin" -X POST "$origin/api/auth/logout" >/dev/null
+  [[ "$(request public 18443 -sS -w '%{http_code}' -o /dev/null -b "$tmp/customer.cookies" "$origin/api/orders/$order")" == 401 ]]
+  token=$(jq -er .token "$tmp/verify.json")
+  if dc logs --no-color public-api admin-api public-edge admin-edge notifications | grep -F "$token" >/dev/null; then
+    echo "Synthetic verification token appeared in logs"; exit 1
+  fi
+  rm -f "$tmp/verify.json" "$tmp/customer.cookies" "$tmp/login.headers"
+  dc stop -t 20 db
+  wait_readiness public-api 3000 /api/health 200
+  wait_readiness public-api 3000 /api/ready 503
+  dc up -d --wait db
+  wait_readiness public-api 3000 /api/ready 200
+  dc kill --signal SIGKILL worker
+  dc up -d --wait --no-deps worker
+  wait_readiness worker 3002 /ready 200
+  for attempt in {1..25}; do
+    if dc exec -T db psql -U postgres -d vpnshop -Atc 'SELECT count(*)=1 FROM "NotificationOutbox" WHERE attempts>=1 AND "leaseId" IS NULL' | grep -qx t; then break; fi
+    if [[ "$attempt" == 25 ]]; then echo "Unavailable SMTP did not leave a retryable outbox record"; exit 1; fi
+    sleep 1
+  done
+  if [[ -n "${MZT_PRIOR_APPLICATION_IMAGE:-}" ]]; then
+    before=$(dc exec -T db psql -U postgres -d vpnshop -At < ops/backup/control-totals.sql | sha256sum)
+    dc stop -t 60 worker billing notifications public-api admin-api
+    APPLICATION_IMAGE="$MZT_PRIOR_APPLICATION_IMAGE" dc up -d --wait --no-deps public-api admin-api
+    old=$(docker image inspect --format '{{.Id}}' "$MZT_PRIOR_APPLICATION_IMAGE")
+    for process in public-api admin-api; do
+      [[ "$(docker inspect --format '{{.Image}}' "$(dc ps -q "$process")")" == "$old" ]]
+    done
+    for pair in 'public 18443' 'admin 18444'; do
+      read -r zone port <<<"$pair"
+      for attempt in {1..15}; do
+        if request "$zone" "$port" -fsS -o /dev/null "https://$zone.mzt.test:$port/api/ready"; then break; fi
+        if [[ "$attempt" == 15 ]]; then echo "Prior runtime TLS readiness failed"; exit 1; fi
+        sleep 1
+      done
+    done
+    [[ "$(dc exec -T db psql -U postgres -d vpnshop -At < ops/backup/control-totals.sql | sha256sum)" == "$before" ]]
+    dc up -d --wait --no-deps public-api admin-api
+    [[ "$(docker inspect --format '{{.Image}}' "$(dc ps -q public-api)")" != "$old" ]]
+    printf 'Prior runtime compatibility (config digest %s); database controls unchanged: %s\n' "$old" "$before"
+  fi
+fi
 echo "Compose, TLS, origins, schema failure, Prisma/Argon2, DB grants, secret scopes and SIGTERM verified"

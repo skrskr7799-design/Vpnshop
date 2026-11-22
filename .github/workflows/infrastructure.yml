@@ -4,7 +4,7 @@ on:
   pull_request:
     paths: ['Dockerfile', '.dockerignore', 'ops/**', 'apps/**', 'packages/**', 'pnpm*.yaml', '.github/workflows/infrastructure.yml']
   push:
-    branches: ['main', 'work/ops-*', 'work/ux-*']
+    branches: ['main', 'work/ops-*', 'work/ux-*', 'work/rel-*']
   workflow_dispatch:
 
 permissions:
@@ -16,14 +16,65 @@ concurrency:
 jobs:
   isolated:
     runs-on: ubuntu-24.04
-    timeout-minutes: 28
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
+          fetch-depth: 0
       - name: Build pinned immutable candidates
         run: ops/scripts/build.sh
       - name: Isolated Compose, TLS and privileges
+        if: ${{ !startsWith(github.ref, 'refs/heads/work/rel-') }}
         run: ops/scripts/smoke.sh
+      - name: Release failure injection and previous runtime compatibility
+        id: rollback
+        if: ${{ startsWith(github.ref, 'refs/heads/work/rel-') }}
+        env:
+          PRIOR_SHA: 59453e528f8c1185674082bc08f4607a60a6f44d
+        run: |
+          baseline=$(mktemp -d)
+          trap 'rm -rf "$baseline"' EXIT
+          git archive "$PRIOR_SHA" | tar -x -C "$baseline"
+          docker build --target application --build-arg "REVISION=$PRIOR_SHA" -t "mzt-rel-prior:$PRIOR_SHA" "$baseline"
+          MZT_RELEASE_FAILURES=1 MZT_PRIOR_APPLICATION_IMAGE="mzt-rel-prior:$PRIOR_SHA" ops/scripts/smoke.sh
+          printf 'previous=%s\n' "$(docker image inspect --format '{{.Id}}' "mzt-rel-prior:$PRIOR_SHA")" >> "$GITHUB_OUTPUT"
       - name: Encrypted PITR and financial recovery proof
+        env:
+          MZT_RELEASE_FAILURES: ${{ startsWith(github.ref, 'refs/heads/work/rel-') && '1' || '0' }}
         run: MZT_DRILL_REPO=s3 ops/scripts/pitr.sh
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        if: ${{ startsWith(github.ref, 'refs/heads/work/rel-') }}
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320
+        if: ${{ startsWith(github.ref, 'refs/heads/work/rel-') }}
+      - name: Pack the isolated OCI candidate
+        id: pack
+        if: ${{ startsWith(github.ref, 'refs/heads/work/rel-') }}
+        env:
+          PREVIOUS: ${{ steps.rollback.outputs.previous }}
+        run: |
+          ops/scripts/pack-candidate.sh "$RUNNER_TEMP/mzt-release-candidate" "$PREVIOUS"
+          mkdir -p "$RUNNER_TEMP/mzt-release-scans"
+          cp "$RUNNER_TEMP/mzt-release-candidate/candidate.json" "$RUNNER_TEMP/mzt-release-scans/"
+      - name: Scan sources and images and create SPDX SBOMs
+        id: scans
+        if: ${{ startsWith(github.ref, 'refs/heads/work/rel-') }}
+        run: ops/scripts/scan-release.sh "$RUNNER_TEMP/mzt-release-scans"
+      - name: Upload immutable candidate and checksums
+        if: ${{ !cancelled() && steps.pack.outcome == 'success' && steps.scans.outputs.artifact_safe == 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: mzt-release-candidate-${{ github.sha }}
+          path: ${{ runner.temp }}/mzt-release-candidate
+          compression-level: 0
+          if-no-files-found: error
+      - name: Upload redacted scan evidence
+        if: ${{ !cancelled() && startsWith(github.ref, 'refs/heads/work/rel-') }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: mzt-release-scans-${{ github.sha }}
+          path: ${{ runner.temp }}/mzt-release-scans
+          if-no-files-found: warn

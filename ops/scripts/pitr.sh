@@ -92,7 +92,7 @@ NGINX
   docker run -d --name "$tls_proxy" --network "$network" --network-alias pitr-s3 --read-only --user 101:101 \
     --cap-drop ALL --security-opt no-new-privileges --tmpfs /tmp:mode=1777 \
     -v "$tmp/s3.key:/test/tls.key:ro" -v "$tmp/s3.crt:/test/tls.crt:ro" -v "$tmp/s3.conf:/test/nginx.conf:ro" \
-    --entrypoint nginx 'nginx:1.28-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236' \
+    --entrypoint nginx 'nginx:1.30-alpine@sha256:caf4e1e032a20f9c3c5e28fc7f25ffd768ad8677b4975c54193075997b3a97e3' \
     -c /test/nginx.conf -g 'daemon off;' >/dev/null
   sed -i 's@repo1-path=/state/repo@repo1-path=/drill@' "$tmp/pgbackrest_conf"
   cat >> "$tmp/pgbackrest_conf" <<'S3'
@@ -167,6 +167,10 @@ fi
 br stanza-create
 br check
 br --type=full backup
+if [[ "${MZT_RELEASE_FAILURES:-0}" == 1 ]]; then
+  br --type=diff backup
+  br --output=json info | jq -e '.[0].backup | map(.type) | (index("full") != null and index("diff") != null)' >/dev/null
+fi
 br verify
 # Transaction strictly between the base backup and the chosen target.
 sql "$pg" -c "INSERT INTO \"AuditLog\"(id,action,entity) VALUES ('pitr-before-target','drill.target','drill')"
