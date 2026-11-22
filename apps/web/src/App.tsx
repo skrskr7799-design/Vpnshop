@@ -7,7 +7,9 @@ import { LoginPage } from "./features/auth/pages/LoginPage";
 import { RegisterPage } from "./features/auth/pages/RegisterPage";
 import { ResetPasswordPage } from "./features/auth/pages/ResetPasswordPage";
 import { VerifyEmailPage } from "./features/auth/pages/VerifyEmailPage";
-import { AccountPage } from "./pages/AccountPage";
+import { AccountShell } from "./features/account/account";
+import { DashboardPage, PlansPage, OrdersPage, OrderPage, SubscriptionPage } from "./features/account/CommercePages";
+import { ConnectionPage } from "./features/account/ConnectionPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 
 export function App() {
@@ -28,8 +30,15 @@ export function App() {
       </Route>
 
       <Route element={<RequireAuth />}>
-        <Route path="/account" element={<AccountPage />} />
-        <Route path="/account/security" element={<SecurityPage />} />
+        <Route path="/account" element={<AccountShell />}>
+          <Route index element={<DashboardPage />} />
+          <Route path="plans" element={<PlansPage />} />
+          <Route path="orders" element={<OrdersPage />} />
+          <Route path="orders/:id" element={<OrderPage />} />
+          <Route path="subscription" element={<SubscriptionPage />} />
+          <Route path="connect" element={<ConnectionPage />} />
+          <Route path="security" element={<SecurityPage />} />
+        </Route>
       </Route>
 
       <Route path="*" element={<NotFoundPage />} />

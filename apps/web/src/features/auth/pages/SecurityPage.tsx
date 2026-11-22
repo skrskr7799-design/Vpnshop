@@ -23,7 +23,7 @@ export function SecurityPage() {
       await devices.refetch();
     } catch { setError("Сервер не подтвердил отзыв. Обновите список и повторите действие."); }
   }
-  return <main className="account__main">
+  return <>
     <Link to="/account">Кабинет</Link>
     <h1>Безопасность</h1>
     <LoginMethods />
@@ -40,5 +40,5 @@ export function SecurityPage() {
       </li>)}</ul>
       {(devices.data?.sessions.length ?? 0) > 1 && <button onClick={() => void revoke()}>Отозвать остальные</button>}
     </section>
-  </main>;
+  </>;
 }

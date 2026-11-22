@@ -36,7 +36,7 @@ export const checkoutResponseSchema = z.strictObject({
   orderId: uuid, snapshot: orderSnapshotSchema, expiresAt: timestamp,
 });
 export const paymentChannelSchema = z.enum(["CARD", "SBP"]);
-export const orderDetailSchema = z.strictObject({
+export const orderDetailSchema = z.object({
   id: uuid, createdAt: timestamp, expiresAt: timestamp, snapshot: orderSnapshotSchema,
   orderStatus: z.enum(["PENDING", "PAID", "FULFILLED", "EXPIRED", "CANCELED", "REFUNDED"]),
   allowedChannels: z.array(paymentChannelSchema),

@@ -1,0 +1,48 @@
+.mzt-account {
+  min-height: 100dvh;
+  background: #101014;
+  color: #f1eff5;
+  --mzt-surface: #1a1a20;
+  --mzt-border: #34323d;
+  --mzt-accent: #b49af3;
+}
+.mzt-top, .mzt-nav, .mzt-content {
+  width: min(100% - 2rem, 72rem);
+  margin-inline: auto;
+}
+.mzt-top, .mzt-nav, .mzt-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .75rem;
+}
+.mzt-top { min-height: 4.75rem; justify-content: space-between; }
+.mzt-wordmark { font-weight: 800; letter-spacing: .14em; text-decoration: none; }
+.mzt-nav { border-block: 1px solid var(--mzt-border); padding-block: .5rem; }
+.mzt-nav a { padding: .7rem .9rem; text-decoration: none; border-radius: .5rem; }
+.mzt-nav a[aria-current] { background: #292239; color: #e0d3ff; }
+.mzt-content { padding-block: clamp(1.25rem, 4vw, 3rem) 4rem; }
+.mzt-content > * + * { margin-block-start: 1rem; }
+.mzt-content h1 { font-size: clamp(1.75rem, 1rem + 2vw, 3rem); }
+.mzt-panel, .mzt-content .login-methods__list {
+  background: var(--mzt-surface);
+  border: 1px solid var(--mzt-border);
+  border-radius: .9rem;
+  padding: clamp(.9rem, 2vw, 1.5rem);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.mzt-panel > * + * { margin-block-start: .7rem; }
+.mzt-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); gap: 1rem; }
+.mzt-stack { display: grid; gap: .75rem; }
+.mzt-price { color: var(--mzt-accent); font-size: 1.6rem; }
+.mzt-detail { display: grid; grid-template-columns: minmax(6.5rem, 1fr) minmax(0, 2fr); gap: .35rem .8rem; }
+.mzt-detail dt { color: #c1bdca; }
+.mzt-detail dd { margin: 0; overflow-wrap: anywhere; }
+.mzt-account button { min-height: 44px; border: 1px solid var(--mzt-border); border-radius: .55rem; padding-inline: .8rem; background: #2b2339; color: #f6efff; }
+.mzt-account button:disabled { opacity: .55; }
+.mzt-account :is(a, button, input, select, textarea):focus-visible { outline: 2px solid var(--mzt-accent); outline-offset: 3px; }
+.mzt-account :is(input, select, textarea) { max-width: 100%; min-height: 44px; border: 1px solid var(--mzt-border); border-radius: .4rem; padding: .45rem; color: inherit; background: #131318; }
+.mzt-account label { display: grid; gap: .35rem; }
+.mzt-account form { display: grid; gap: .75rem; }
+.mzt-qr { display: block; width: min(100%, 14rem); height: auto; }

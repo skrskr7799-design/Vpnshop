@@ -1,6 +1,9 @@
 import { catalogQuerySchema, checkoutBodySchema, checkoutKeySchema, orderParamsSchema } from "@vpn/shared";
 import type { FastifyPluginAsync } from "fastify";
 import { AppError } from "../../lib/errors";
+import { keysetQuery } from "../../lib/keyset";
+import { listOrders, listPayments, listPeriods, orderProjection, subscriptionOverview } from "../account/projections";
+import { requireLiveFamily } from "../auth/session.service";
 import { prisma } from "../../lib/prisma";
 import { authenticate } from "../auth/authenticate";
 import { paymentOwnerRoutes } from "../payments/payments.routes";
@@ -28,7 +31,7 @@ export const commerceRoutes: FastifyPluginAsync<{ payments?: PaymentProviderAdap
   });
 
   app.register(async orders => {
-    orders.addHook("onRequest", async (_req, reply) => { reply.header("Cache-Control", "private, no-store"); });
+    orders.addHook("onRequest", async (_req, reply) => { reply.header("Cache-Control", "private, no-store").header("Referrer-Policy", "no-referrer"); });
     orders.addHook("preHandler", async req => {
       await authenticate(req);
       await getCurrentUser(req.auth!.userId);
@@ -42,7 +45,9 @@ export const commerceRoutes: FastifyPluginAsync<{ payments?: PaymentProviderAdap
       if (req.body !== undefined && (typeof req.body !== "object" || req.body === null ||
           Array.isArray(req.body) || Object.keys(req.body).length)) throw new AppError(400, "VALIDATION_ERROR");
       reply.header("Referrer-Policy", "no-referrer");
-      return subscriptionLink(req.auth!.userId, panel);
+      const link = await subscriptionLink(req.auth!.userId, panel);
+      await requireLiveFamily(req.auth!);
+      return link;
     });
 
     orders.post("/orders", async (req, reply) => {
@@ -50,6 +55,21 @@ export const commerceRoutes: FastifyPluginAsync<{ payments?: PaymentProviderAdap
       const key = checkoutKeySchema.parse(req.headers["idempotency-key"]);
       const order = await checkout(req.auth!.userId, key, offerVersionId);
       return reply.code(201).send({ orderId: order.id, snapshot: snapshot(order), expiresAt: order.expiresAt.toISOString() });
+    });
+
+    orders.get("/me/subscription", req => subscriptionOverview(req.auth!.userId));
+    orders.get("/me/subscription/periods", req => {
+      const { limit, cursor } = keysetQuery.parse(req.query);
+      return listPeriods(req.auth!.userId, limit, cursor);
+    });
+    orders.get("/orders", req => {
+      const { limit, cursor } = keysetQuery.parse(req.query);
+      return listOrders(req.auth!.userId, limit, cursor);
+    });
+    orders.get("/orders/:id/payments", req => {
+      const { id } = orderParamsSchema.parse(req.params);
+      const { limit, cursor } = keysetQuery.parse(req.query);
+      return listPayments(req.auth!.userId, id, limit, cursor);
     });
 
     orders.get("/orders/:id", async req => {
@@ -65,8 +85,7 @@ export const commerceRoutes: FastifyPluginAsync<{ payments?: PaymentProviderAdap
         ] }, select: { id: true },
       });
       return {
-        id: order.id, createdAt: order.createdAt.toISOString(), expiresAt: order.expiresAt.toISOString(),
-        snapshot: snapshot(order), orderStatus: order.status, allowedChannels: open ? payments.channels : [], canStartPayment: open && !activeAttempt,
+        ...await orderProjection(req.auth!.userId, id, now), allowedChannels: open ? payments.channels : [], canStartPayment: open && !activeAttempt,
       };
     });
   });
