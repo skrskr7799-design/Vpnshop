@@ -1,4 +1,4 @@
-import { Badge, Button, Drawer, Icon, IconButton, PageHeader, Timeline, type IconName } from "@vpn/ui";
+import { Badge, Button, Drawer, EmptyState, Icon, IconButton, PageHeader, StatusIndicator, Timeline, type IconName } from "@vpn/ui";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from "react-router";
@@ -7,7 +7,7 @@ import { AccessActions, Invite, OrderActions, PlanActions, PlanCreate, Settings,
 import { api, ApiError, errorText } from "./api";
 import { Session, useCan, useSession, type Principal } from "./session";
 import { Dashboard, Detail, Facts, jobColumns, jobFilters, List, orderColumns, orderFilters, PlanDetail,
-  RequestState, SupportDetail, ticketColumns, ticketFilters, useAdmin, type Row } from "./views";
+  RequestState, SupportDetail, ticketColumns, ticketFilters, states, useAdmin, valueText, type Row } from "./views";
 
 const groups: { title: string; links: [path: string, title: string, permission: string, icon: IconName][] }[] = [
   { title: "Рабочая область", links: [["/", "Обзор", "dashboard:read", "grid"], ["/users", "Пользователи", "users:read", "users"],
@@ -134,9 +134,31 @@ function OwnSessions() {
       <button key={row.id} onClick={() => void revoke(row)}>{row.current ? "Завершить текущую сессию" : "Отозвать " + row.id.slice(0, 8)}</button>)}</div>
       {issue && <p role="alert">{issue}</p>}</>} />;
 }
+type ServiceStatus = {
+  key: string; state: "FRESH" | "STALE" | "UNAVAILABLE"; observedAt: string | null; reasonCode: string | null;
+  data: Record<string, unknown> | null;
+};
+const serviceTitle: Record<string, string> = { panel: "Remnawave", worker: "Воркер выдачи" };
+const serviceReason: Record<string, string> = {
+  PANEL_PROBE_FAILED: "Панель не ответила на последнюю проверку.", PANEL_UNAVAILABLE: "Наблюдений панели пока нет.",
+  NO_HEARTBEAT: "Сигнал воркера ещё не получен.", WORKER_STALE: "Сигнал воркера устарел.", WORKER_NOT_READY: "Воркер не готов к обработке.",
+};
+
 function Operations() {
-  const service = useAdmin<Record<string, unknown>>("/operations/status", 30_000);
-  return <><PageHeader title="Сервисы" description="Состояние фоновых процессов и внешних зависимостей." /><RequestState state={service} />{service.data && <section className="panel"><Facts data={service.data} /></section>}<Settings /></>;
+  const service = useAdmin<{ asOf: string; services: ServiceStatus[] }>("/operations/status", 30_000);
+  return <><PageHeader title="Сервисы" description="Состояние фоновых процессов и внешних зависимостей." />
+    <RequestState state={service} />
+    {service.data && <><p className="admin-meta">Снимок {valueText(service.data.asOf)}</p>
+      {!service.data.services.length && <EmptyState title="Наблюдений пока нет" />}
+      <div className="grid">{service.data.services.map(source => <section className="panel" key={source.key}>
+        <div className="dashboard-source-heading"><h2>{serviceTitle[source.key] ?? source.key}</h2>
+          <StatusIndicator status={source.state}>{states[source.state]}</StatusIndicator></div>
+        {source.observedAt && <p className="admin-meta">Проверено {valueText(source.observedAt)}</p>}
+        {source.reasonCode && <p>{serviceReason[source.reasonCode] ?? source.reasonCode}</p>}
+        {source.data && <Facts data={source.data} />}
+      </section>)}</div></>}
+    <Settings />
+  </>;
 }
 
 export default function AdminWorkspace() {

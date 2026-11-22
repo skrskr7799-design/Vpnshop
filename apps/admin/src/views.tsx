@@ -19,6 +19,7 @@ export function RequestState({ state }: { state: { isPending: boolean; error: un
   return state.error ? <ErrorState message={errorText(state.error)} retry={state.refetch} /> : null;
 }
 const labels: Record<string, string> = {
+  state: "Свежесть", isActive: "В продаже", subscription: "Подписка", ready: "Готов к обработке", author: "Автор",
   id: "ID", status: "Статус", email: "Контакт", userId: "Пользователь", orderId: "Заказ", amountMinor: "Сумма (мин. ед.)",
   amount: "Сумма (мин. ед.)", currency: "Валюта", captured: "Поступления", allocated: "Зачтено",
   unallocated: "Не распределено", refunded: "Возвраты", chargebackDebits: "Списания по спорам",
@@ -40,6 +41,7 @@ const labels: Record<string, string> = {
 export const states: Record<string, string> = {
   FRESH: "Актуально", STALE: "Данные устарели", UNAVAILABLE: "Источник недоступен", CONFIRMED: "Подтверждено",
   VERIFY_PENDING: "Требуется сверка", NEEDS_REVIEW: "Требует решения", SUPERSEDED: "Заменено ревизией",
+  SUCCEEDED: "Платёж подтверждён", CREATED: "Создана", SUBMITTING: "Запрос отправляется", REVIEW: "Требуется проверка",
   PENDING: "Ожидает", ACTIVE: "Действует", BLOCKED: "Заблокирован", PAID: "Оплата подтверждена",
   FULFILLED: "Выдан", EXPIRED: "Срок истёк", CANCELED: "Отменён", REFUNDED: "Возвращён", RUNNING: "Выполняется",
   RETRY_WAIT: "Ожидает повтора", FAILED: "Ошибка", UNKNOWN: "Исход уточняется", WAITING: "Ожидает",

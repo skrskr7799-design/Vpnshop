@@ -83,7 +83,10 @@ const server = createServer(async (req, res) => {
   if (path === "/api/jobs") return json(pages([job]));
   if (path === "/api/jobs/job-pending") return json(job);
   if (path === "/api/staff") return json(pages([staff]));
-  if (path === "/api/operations/status") return json({ worker: { state: "FRESH", observedAt: now }, panel: { state: "UNAVAILABLE" } });
+  if (path === "/api/operations/status") return json({ asOf: now, services: [
+    { key: "worker", state: "FRESH", observedAt: now, data: { ready: true }, reasonCode: null },
+    { key: "panel", state: "UNAVAILABLE", observedAt: null, data: null, reasonCode: "PANEL_UNAVAILABLE" },
+  ], alerts: [{ id: "panel", kind: "panel", reasonCode: "PANEL_UNAVAILABLE" }] });
   if (path === "/api/users/id-customer") return json({ ...customer, right: "ACTIVE", subscription: null, version: now });
   if (path === "/api/plans") return json(pages([plan]));
   if (path === "/api/plans/fixture-plan/versions") return json({ plan, ...pages(process.env.MZT_VISUAL_DIR ? [
