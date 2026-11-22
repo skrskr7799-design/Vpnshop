@@ -14,12 +14,13 @@ tls_proxy="$scope-tls"
 restored="$scope-restored"
 network="$scope-closed"
 repo="$scope-repo"
+proofs="$scope-proofs"
 state="$scope-primary-data"
 recovered="$scope-restored-data"
 cleanup() {
   docker rm -f "$pg" "$restored" "$object_store" "$tls_proxy" >/dev/null 2>&1 || true
   docker network rm "$network" >/dev/null 2>&1 || true
-  docker volume rm "$repo" "$state" "$recovered" >/dev/null 2>&1 || true
+  docker volume rm "$repo" "$state" "$recovered" "$proofs" >/dev/null 2>&1 || true
   rm -rf "$tmp"
 }
 trap cleanup EXIT
@@ -46,6 +47,7 @@ docker network create --internal "$network" >/dev/null
 mount_repo=(-v "$repo:/state/repo")
 restore_repo=(-v "$repo:/state/repo:ro")
 restore_network=none
+backup_image=${MZT_DRILL_BACKUP_IMAGE:-mzt-ci-backup:$revision}
 ca_mount=()
 if [[ "$storage" == s3 ]]; then
   docker run -d --name "$object_store" --network "$network" --network-alias fixture-store \
@@ -137,6 +139,29 @@ else
   sql "$pg" -c 'SELECT migration_name||'"'"':'"'"'||checksum FROM "_prisma_migrations" ORDER BY migration_name' > "$tmp/history.before"
 fi
 sql "$pg" < ops/backup/drill-fixture.sql >/dev/null
+if [[ "$storage" == s3 && "${MZT_DRILL_LOGICAL:-1}" == 1 ]]; then
+  docker volume create "$proofs" >/dev/null
+  openssl rand -hex 24 > "$tmp/backup_password"
+  printf 'postgresql://drill_backup:%s@pitr-db:5432/postgres\n' "$(cat "$tmp/backup_password")" > "$tmp/backup_url"
+  openssl rand -hex 32 > "$tmp/logical_key"
+  printf '[default]\naws_access_key_id=test\naws_secret_access_key=test\n' > "$tmp/logical_credentials"
+  chmod a+r "$tmp/backup_url" "$tmp/logical_key" "$tmp/logical_credentials"
+  docker exec -i -e DRILL_BACKUP_PASSWORD="$(cat "$tmp/backup_password")" "$pg" \
+    psql -X -qAt -v ON_ERROR_STOP=1 -U postgres -d postgres <<'SQL'
+\getenv password DRILL_BACKUP_PASSWORD
+SELECT format('CREATE ROLE drill_backup LOGIN PASSWORD %L', :'password') \gexec
+GRANT USAGE ON SCHEMA public TO drill_backup;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO drill_backup;
+SQL
+  docker run --rm --network "$network" --read-only --tmpfs /tmp:mode=1777 --cap-drop ALL --security-opt no-new-privileges \
+    --user 999:999 -e AWS_CA_BUNDLE=/run/secrets/s3_ca -e NO_PROXY=pitr-s3 \
+    -e S3_ENDPOINT=https://pitr-s3:9443 -e S3_BUCKET=replay-fixture -e KEY_VERSION=drill-v1 -e AWS_DEFAULT_REGION=us-east-1 \
+    -v "$tmp/s3.crt:/run/secrets/s3_ca:ro" -v "$tmp/backup_url:/run/secrets/backup_url:ro" \
+    -v "$tmp/logical_key:/run/secrets/logical_key:ro" -v "$tmp/logical_credentials:/run/secrets/logical_s3_credentials:ro" \
+    -v "$proofs:/state/proofs" "$backup_image"
+  docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges --user 999:999 \
+    -v "$proofs:/state/proofs:ro" --entrypoint test "$backup_image" -s /state/proofs/logical_epoch
+fi
 br stanza-create
 br check
 br --type=full backup

@@ -26,4 +26,4 @@ jobs:
       - name: Isolated Compose, TLS and privileges
         run: ops/scripts/smoke.sh
       - name: Encrypted PITR and financial recovery proof
-        run: ops/scripts/pitr.sh
+        run: MZT_DRILL_REPO=s3 ops/scripts/pitr.sh

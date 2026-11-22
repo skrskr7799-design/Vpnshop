@@ -54,6 +54,7 @@ for pair in 'APPLICATION application' 'MIGRATOR migrator' 'DATABASE db' 'WEB web
 done
 stack=(-f ops/compose.yml)
 if [[ "${MZT_ENABLE_OFFSITE:-0}" == 1 ]]; then stack+=(-f ops/compose.backup.yml); fi
+if [[ "${MZT_ENABLE_SMTP_EGRESS:-0}" == 1 ]]; then stack+=(-f ops/compose.mail.yml); fi
 dc() { docker compose --env-file "$tmp/settings" --profile migration --profile monitoring "${stack[@]}" "$@"; }
 dc config --format json | python3 ops/scripts/preflight.py
 if [[ -e "$MZT_DEPLOY_DIR/active.settings" ]]; then

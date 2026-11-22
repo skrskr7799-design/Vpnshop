@@ -82,7 +82,7 @@ wait_readiness() {
   logs=$(dc logs --tail 15 --no-color "$service" 2>&1)
   printf '%s\n' "$logs"
   if [[ "${GITHUB_ACTIONS:-}" == true ]]; then
-    detail=$(printf '%s\n' "$logs" | grep -E 'Error|reasonCode|Invalid|Configuration|Module' | tail -6 | tr '\n%' '  ' | cut -c1-550)
+    detail=$(printf '%s\n' "$logs" | grep -E 'Error|reasonCode|Invalid|Configuration|Module' | tail -6 | tr '\n%' '  ' | cut -c1-550 || true)
     printf '::error::%s failed readiness %s %s: %s\n' "$service" "$route" "$status" "$detail"
   fi
   return 1
@@ -107,6 +107,13 @@ request admin 18444 -fsS https://admin.mzt.test:18444/users | grep -q '<div id="
 if request admin 18443 -fsS https://admin.mzt.test:18443/api/ready >/dev/null 2>&1; then
   echo "Admin SNI accepted on public edge" >&2; exit 1
 fi
+docker run --rm --network "${COMPOSE_PROJECT_NAME}_admin-ingress" --read-only --cap-drop ALL --security-opt no-new-privileges \
+  -v "$tmp/ca.crt:/test/ca.crt:ro" -e NODE_EXTRA_CA_CERTS=/test/ca.crt \
+  --entrypoint node "$prefix-application:$revision" -e '
+    const https = require("node:https");
+    https.get({ hostname: "admin-edge", servername: "admin.mzt.test", port: 8443, path: "/api/me",
+      headers: { Host: "admin.mzt.test", "X-Forwarded-For": "127.0.0.1" } },
+      r => { r.resume(); process.exit(r.statusCode === 403 ? 0 : 1); }).on("error", () => process.exit(1));'
 request public 18443 -fsS -X POST -H 'Origin: https://public.mzt.test:18443' -H 'Content-Type: application/json' \
   --data '{"email":"synthetic@example.invalid","password":"synthetic-test-strong-12"}' https://public.mzt.test:18443/api/auth/register | jq -e '.ok'
 request public 18443 -fsS https://public.mzt.test:18443/api/plans | jq -e '.offers | length == 0'
