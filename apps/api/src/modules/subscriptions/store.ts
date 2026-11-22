@@ -1,4 +1,5 @@
 import type { Prisma, Subscription } from "@prisma/client";
+import { stagingPanelSettings } from "../../config/staging-panel";
 import { prisma } from "../../lib/prisma";
 import { dbNow } from "../commerce/offers";
 import { writeAudit } from "../admin/admin.audit";
@@ -61,6 +62,7 @@ export async function projectAssignment(db: Db, subscription: Subscription, now:
   });
   const projected = active && !held ? active : null;
   const data = {
+    internalSquads: projected ? stagingPanelSettings()?.REMNAWAVE_STAGING_SQUADS ?? [] : [],
     subscriptionId: subscription.id, enabled: projected !== null,
     grantId: projected?.grant.id ?? null, deviceLimit: projected?.grant.deviceLimit ?? null,
     expiresAt: projected?.end ?? null, nextBoundaryAt,
@@ -70,7 +72,8 @@ export async function projectAssignment(db: Db, subscription: Subscription, now:
       where: { subscriptionId_revision: { subscriptionId: subscription.id, revision: subscription.revision } },
     });
     if (previous.grantId === data.grantId && previous.enabled === data.enabled &&
-        previous.deviceLimit === data.deviceLimit && instantEquals(previous.expiresAt, data.expiresAt) &&
+        previous.deviceLimit === data.deviceLimit && previous.internalSquads.join(",") === data.internalSquads.join(",") &&
+        instantEquals(previous.expiresAt, data.expiresAt) &&
         instantEquals(previous.nextBoundaryAt, nextBoundaryAt)) return previous;
   }
   const assignment = await db.desiredAssignment.create({

@@ -12,11 +12,12 @@ import { healthRoutes } from "./modules/health/health.routes";
 import { oauthRoutes } from "./modules/oauth/oauth.routes";
 import { loadProviders } from "./modules/oauth/providers";
 import { paymentFixture, paymentWebhookRoutes } from "./modules/payments/payments.routes";
+import type { AssignmentPanel } from "./modules/remnawave/remnawave.assignment";
 import type { PaymentProviderAdapter } from "./modules/payments/provider";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
-export async function buildApp(options: { payments?: PaymentProviderAdapter } = {}) {
+export async function buildApp(options: { payments?: PaymentProviderAdapter; panel?: AssignmentPanel } = {}) {
   const payments = paymentFixture(options.payments);
   const app = Fastify({
     // за reverse proxy: корректный IP клиента для rate limit и аудита
@@ -50,7 +51,7 @@ export async function buildApp(options: { payments?: PaymentProviderAdapter } = 
       });
 
       await api.register(healthRoutes);
-      await api.register(commerceRoutes, { payments });
+      await api.register(commerceRoutes, { payments, panel: options.panel });
       await api.register(authRoutes, { prefix: "/auth" });
       await api.register(oauthRoutes, { prefix: "/auth/oauth", providers: loadProviders() });
     },

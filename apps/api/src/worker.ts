@@ -1,5 +1,6 @@
 import Fastify from "fastify";
 import { z } from "zod";
+import { stagingPanel } from "./config/staging-panel";
 import { panelSettings } from "./config/panel-env";
 import { prisma } from "./lib/prisma";
 import { DEFAULT_LEASE_MS } from "./modules/fulfillment/fulfillment.constants";
@@ -19,9 +20,19 @@ if (!settings.success) throw new Error("Invalid worker configuration: " +
   settings.error.issues.map(i => i.path.join(".") || i.message).join(", "));
 const config = settings.data;
 const probes = Fastify({ logger: true, disableRequestLogging: true });
+const staging = stagingPanel(config.WORKER_HTTP_TIMEOUT_MS);
+if (staging) {
+  const metadata = await staging.client.getMetadata().catch(() => { throw new Error("Staging metadata unavailable"); });
+  if (metadata.version !== "3.4.9") throw new Error("Staging panel version differs from the pinned contract");
+  const known = await staging.client.listInternalSquads().catch(() => { throw new Error("Staging squads unavailable"); });
+  if (staging.squads.some(id => !known.some(squad => squad.uuid.toLowerCase() === id))) {
+    throw new Error("Unknown staging internal squad");
+  }
+}
 const worker = createFulfillmentWorker({
-  // COM-03 processes only local period boundaries in runtime. FND-03 HTTP regression uses fixtures.
-  maintenance: process.env.NODE_ENV === "test" ? undefined : refreshDueAssignments,
+  // Staging is explicit. Default runtime processes local period boundaries only.
+  panel: staging?.panel,
+  maintenance: process.env.NODE_ENV === "test" && !staging ? undefined : refreshDueAssignments,
   api: new RemnawaveClient({
     baseUrl: config.REMNAWAVE_URL, token: config.REMNAWAVE_TOKEN, apiKey: config.REMNAWAVE_API_KEY,
     trustedProxyHeaders: config.REMNAWAVE_TRUSTED_PROXY_HEADERS, timeoutMs: config.WORKER_HTTP_TIMEOUT_MS,

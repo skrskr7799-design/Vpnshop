@@ -14,6 +14,7 @@
     "db:migrate": "prisma migrate dev",
     "test": "vitest run",
     "test:contract": "vitest run .contract.test.ts",
+    "remnawave:staging-smoke": "tsx scripts/remnawave-staging-smoke.ts",
     "remnawave:check": "tsx --env-file=../../.env scripts/remnawave-check.ts",
     "test:integration": "bash scripts/integration/run.sh",
     "db:deploy": "prisma migrate deploy",

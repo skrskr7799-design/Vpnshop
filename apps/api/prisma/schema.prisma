@@ -100,7 +100,12 @@ enum JobStatus {
   PENDING
   RUNNING
   DONE
-  FAILED // ретраи исчерпаны, нужно вмешательство админа
+  FAILED // legacy test failure
+  CONFIRMED
+  RETRY_WAIT
+  VERIFY_PENDING
+  NEEDS_REVIEW
+  SUPERSEDED
 }
 
 // ─────────────────────── Пользователи и вход ───────────────────────
@@ -463,6 +468,8 @@ model FulfillmentJob {
   id            String    @id @default(uuid())
   orderId       String?   @unique
   assignmentId  String?   @unique
+  verificationEpoch Int @default(0)
+  writes        Int @default(0)
   status        JobStatus @default(PENDING)
   attempts      Int       @default(0)
   nextAttemptAt DateTime  @default(now())
@@ -534,6 +541,7 @@ model Subscription {
   periods PeriodGrant[]
   holds ServiceHold[]
   assignments DesiredAssignment[]
+  panelBinding PanelBinding?
 
   @@index([nextBoundaryAt])
 }
@@ -600,12 +608,53 @@ model DesiredAssignment {
   deviceLimit    Int?
   expiresAt      DateTime?
   nextBoundaryAt DateTime?
+  internalSquads String[] @default([])
   reason         String
   createdAt      DateTime
 
   subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
   grant PeriodGrant? @relation(fields: [grantId], references: [id], onDelete: Restrict)
   job FulfillmentJob?
+  observations PanelObservation[]
 
   @@unique([subscriptionId, revision])
+}
+
+model PanelBinding {
+  subscriptionId String @id
+  panelInstance String
+  origin String
+  username String
+  marker String
+  remoteUserId BigInt?
+  createDispatched Boolean @default(false)
+  disabledByShop Boolean @default(false)
+  blockedReason String?
+  confirmedRevision Int?
+  confirmedAt DateTime?
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+
+  @@unique([panelInstance, username])
+  @@unique([panelInstance, remoteUserId])
+}
+
+model PanelObservation {
+  id String @id @default(uuid())
+  assignmentId String
+  panelInstance String
+  revision Int
+  remoteUserId BigInt?
+  status String?
+  expiresAt DateTime?
+  deviceLimit Int?
+  squads String[] @default([])
+  observedAt DateTime
+  receivedAt DateTime @default(now())
+  owner String
+  generation BigInt
+  comparison String
+
+  assignment DesiredAssignment @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+
+  @@index([assignmentId, receivedAt])
 }

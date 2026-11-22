@@ -1,9 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { DEFAULT_LEASE_MS, MAX_HEARTBEAT_INTERVAL_MS, MAX_JOBS_PER_TICK, POLL_INTERVAL_MS } from "./fulfillment.constants";
 import { processJob, type ProcessorDeps } from "./fulfillment.processor";
-import { claimNextJob, LeaseLost, renewLease, rescheduleJob, type ClaimedJob } from "./fulfillment.queue";
+import { claimNextJob, LeaseLost, renewLease, renewOwnedLease, rescheduleJob } from "./fulfillment.queue";
 
-export type WorkerOptions = ProcessorDeps & { pollIntervalMs?: number; leaseMs?: number; maintenance?: () => Promise<number> };
+import type { AssignmentPanel } from "../remnawave/remnawave.assignment";
+import { processRevision } from "./revision.processor";
+import { claimRevision } from "./revision.queue";
+
+export type WorkerOptions = ProcessorDeps & { pollIntervalMs?: number; leaseMs?: number; maintenance?: () => Promise<number>; panel?: AssignmentPanel };
 export type FulfillmentWorker = ReturnType<typeof createFulfillmentWorker>;
 
 export function createFulfillmentWorker(options: WorkerOptions) {
@@ -22,11 +26,11 @@ export function createFulfillmentWorker(options: WorkerOptions) {
     healthy = true;
   }
 
-  async function execute(job: ClaimedJob) {
+  async function execute(jobId: string, heartbeat: () => Promise<void>, process: (renew: () => Promise<void>) => Promise<void>) {
     let lost = false;
     async function renew() {
       if (lost) throw new LeaseLost();
-      await renewLease(job, leaseMs);
+      await heartbeat();
       alive();
     }
     let inFlight: Promise<void> | undefined;
@@ -35,11 +39,11 @@ export function createFulfillmentWorker(options: WorkerOptions) {
       inFlight = renew().catch(err => {
         lost = true;
         healthy = false;
-        options.log.warn({ err, jobId: job.id }, "fulfillment heartbeat failed");
+        options.log.warn({ err, jobId }, "fulfillment heartbeat failed");
       }).finally(() => { inFlight = undefined; });
     }, heartbeatMs);
     try {
-      await processJob(job, { ...options, beforePanelCall: renew });
+      await process(renew);
     } finally {
       clearInterval(timer);
       await inFlight;
@@ -51,6 +55,19 @@ export function createFulfillmentWorker(options: WorkerOptions) {
     if (options.maintenance) {
       const processed = await options.maintenance();
       alive();
+      if (!options.panel) return processed;
+    }
+    const panel = options.panel;
+    if (panel) {
+      let processed = 0;
+      while (!stopping && processed < MAX_JOBS_PER_TICK) {
+        const job = await claimRevision(owner, leaseMs);
+        alive();
+        if (!job) break;
+        if (stopping) break; // Lease expires and verify-first resumes in the next process.
+        await execute(job.id, () => renewOwnedLease(job, leaseMs), () => processRevision(job, panel));
+        processed++;
+      }
       return processed;
     }
     let processed = 0;
@@ -62,7 +79,9 @@ export function createFulfillmentWorker(options: WorkerOptions) {
         await rescheduleJob(job, new Date(), "worker draining before dispatch");
         break;
       }
-      await execute(job);
+      await execute(job.id, () => renewLease(job, leaseMs), async renew => {
+        await processJob(job, { ...options, beforePanelCall: renew });
+      });
       processed++;
     }
     return processed;

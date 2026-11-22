@@ -45,6 +45,7 @@ BEGIN
   IF (SELECT count(*) FROM "Subscription" WHERE "legacyUnverified" AND "userId" = 'u' AND revision = 0) <> 1
     OR (SELECT count(*) FROM "Subscription") <> 1
     OR EXISTS (SELECT 1 FROM "OrderAllocation") OR EXISTS (SELECT 1 FROM "PeriodGrant")
+    OR EXISTS (SELECT 1 FROM "PanelBinding") OR EXISTS (SELECT 1 FROM "PanelObservation")
     OR EXISTS (SELECT 1 FROM "DesiredAssignment") OR EXISTS (SELECT 1 FROM "FulfillmentJob" WHERE "assignmentId" IS NOT NULL) THEN
     RAISE EXCEPTION 'Legacy subscription must be preserved for review without inferred commerce facts';
   END IF;

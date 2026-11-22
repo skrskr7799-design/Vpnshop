@@ -60,14 +60,7 @@ export async function claimNextJob(owner: string, leaseMs: number, scheduleTime?
       ORDER BY j."nextAttemptAt", j."createdAt", j.id
       LIMIT 1 FOR UPDATE OF u,j SKIP LOCKED`;
     if (!row) return null;
-    const [lease] = await tx.$queryRaw<{ generation: bigint }[]>`
-      INSERT INTO "FulfillmentLease" ("userId", "jobId", owner, generation, "expiresAt")
-      VALUES (${row.order.userId}, ${row.id}, ${owner}, 1, clock_timestamp() + ${leaseMs} * interval '1 millisecond')
-      ON CONFLICT ("userId") DO UPDATE SET "jobId" = excluded."jobId", owner = excluded.owner,
-        generation = "FulfillmentLease".generation + 1, "expiresAt" = excluded."expiresAt"
-      WHERE "FulfillmentLease"."jobId" IS NULL OR ("FulfillmentLease"."jobId" = excluded."jobId"
-        AND "FulfillmentLease"."expiresAt" <= clock_timestamp())
-      RETURNING generation`;
+    const lease = await acquireLease(tx, row.order.userId, row.id, owner, leaseMs);
     if (!lease) return null;
     await markWriter(tx);
     // Repeated process deaths must eventually become visible for operator review.
@@ -85,14 +78,37 @@ export async function claimNextJob(owner: string, leaseMs: number, scheduleTime?
   });
 }
 
-function ownership(job: ClaimedJob) {
-  return Prisma.sql`"userId" = ${job.order.userId} AND "jobId" = ${job.id} AND owner = ${job.owner}
+export type OwnedLease = { userId: string; id: string; owner: string; generation: bigint };
+
+export async function acquireLease(tx: Db, userId: string, jobId: string, owner: string, leaseMs: number, replaceExpired = false) {
+  const [lease] = await tx.$queryRaw<{ generation: bigint }[]>`
+    INSERT INTO "FulfillmentLease" ("userId", "jobId", owner, generation, "expiresAt")
+    VALUES (${userId}, ${jobId}, ${owner}, 1, clock_timestamp() + ${leaseMs} * interval '1 millisecond')
+    ON CONFLICT ("userId") DO UPDATE SET "jobId" = excluded."jobId", owner = excluded.owner,
+      generation = "FulfillmentLease".generation + 1, "expiresAt" = excluded."expiresAt"
+    WHERE "FulfillmentLease"."jobId" IS NULL OR (
+      (${replaceExpired} OR "FulfillmentLease"."jobId" = excluded."jobId") AND
+      "FulfillmentLease"."expiresAt" <= clock_timestamp())
+    RETURNING generation`;
+  return lease;
+}
+
+export function leaseOwnership(job: OwnedLease) {
+  return Prisma.sql`"userId" = ${job.userId} AND "jobId" = ${job.id} AND owner = ${job.owner}
     AND generation = ${job.generation} AND "expiresAt" > clock_timestamp()`;
 }
 
-export async function renewLease(job: ClaimedJob, leaseMs: number): Promise<void> {
+function ownership(job: ClaimedJob) {
+  return leaseOwnership({ ...job, userId: job.order.userId });
+}
+
+export function renewLease(job: ClaimedJob, leaseMs: number): Promise<void> {
+  return renewOwnedLease({ ...job, userId: job.order.userId }, leaseMs);
+}
+
+export async function renewOwnedLease(job: OwnedLease, leaseMs: number): Promise<void> {
   const count = await prisma.$executeRaw`UPDATE "FulfillmentLease"
-    SET "expiresAt" = clock_timestamp() + ${leaseMs} * interval '1 millisecond' WHERE ${ownership(job)}`;
+    SET "expiresAt" = clock_timestamp() + ${leaseMs} * interval '1 millisecond' WHERE ${leaseOwnership(job)}`;
   if (count !== 1) throw new LeaseLost();
 }
 

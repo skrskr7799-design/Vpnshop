@@ -38,6 +38,20 @@ export const adminJobsRoutes: FastifyPluginAsync = async (app) => {
     return { items, total, page, pageSize };
   });
 
+  app.get("/jobs/revision", { preHandler: requireAdmin("jobs:read") }, async req => {
+    const { page, pageSize } = paginationSchema.parse(req.query);
+    const jobs = await prisma.fulfillmentJob.findMany({
+      where: { assignmentId: { not: null } },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      skip: (page - 1) * pageSize, take: pageSize,
+      select: {
+        id: true, status: true, attempts: true, writes: true, lastError: true, nextAttemptAt: true,
+        assignment: { select: { subscriptionId: true, revision: true, enabled: true } },
+      },
+    });
+    return { jobs, page, pageSize };
+  });
+
   // Вернуть упавшую выдачу в очередь после того, как причина устранена
   app.post("/jobs/:id/requeue", { preHandler: requireAdmin("jobs:write") }, async (req, reply) => {
     const { id } = z.object({ id: z.uuid() }).parse(req.params);

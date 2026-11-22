@@ -117,6 +117,8 @@ GRANT SELECT, INSERT, TRUNCATE ON "PaymentTransaction", "OrderAllocation", "Peri
   "Adjustment", "DesiredAssignment" TO vpnshop_suite;
 GRANT SELECT, INSERT, UPDATE, TRUNCATE ON "ServiceHold", "Subscription" TO vpnshop_suite;
 GRANT TRUNCATE ON "FulfillmentLease", "FulfillmentJob" TO vpnshop_suite;
+GRANT SELECT, INSERT, UPDATE, TRUNCATE ON "PanelBinding" TO vpnshop_suite;
+GRANT SELECT, INSERT, TRUNCATE ON "PanelObservation" TO vpnshop_suite;
 SQL
 export TEST_DATABASE_URL="postgresql://vpnshop_suite:$VPNSHOP_TEST_MARKER@127.0.0.1:$port/vpnshop_suite"
 export DATABASE_URL="$TEST_DATABASE_URL"

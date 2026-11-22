@@ -6,10 +6,12 @@ import { authenticate } from "../auth/authenticate";
 import { paymentOwnerRoutes } from "../payments/payments.routes";
 import type { PaymentProviderAdapter } from "../payments/provider";
 import { getCurrentUser } from "../auth/auth.service";
+import { subscriptionLink } from "../fulfillment/subscription-access";
+import type { AssignmentPanel } from "../remnawave/remnawave.assignment";
 import { dbNow, toOffer } from "./offers";
 import { checkout, ownerOrder, snapshot } from "./orders";
 
-export const commerceRoutes: FastifyPluginAsync<{ payments?: PaymentProviderAdapter }> = async (app, { payments }) => {
+export const commerceRoutes: FastifyPluginAsync<{ payments?: PaymentProviderAdapter; panel?: AssignmentPanel }> = async (app, { payments, panel }) => {
   app.get("/plans", async (req, reply) => {
     const { currency } = catalogQuerySchema.parse(req.query);
     const [versions, asOf] = await prisma.$transaction(async db => [
@@ -33,6 +35,15 @@ export const commerceRoutes: FastifyPluginAsync<{ payments?: PaymentProviderAdap
     });
 
     paymentOwnerRoutes(orders, payments);
+
+    orders.post("/me/subscription/access", {
+      bodyLimit: 1024, config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
+    }, async (req, reply) => {
+      if (req.body !== undefined && (typeof req.body !== "object" || req.body === null ||
+          Array.isArray(req.body) || Object.keys(req.body).length)) throw new AppError(400, "VALIDATION_ERROR");
+      reply.header("Referrer-Policy", "no-referrer");
+      return subscriptionLink(req.auth!.userId, panel);
+    });
 
     orders.post("/orders", async (req, reply) => {
       const { offerVersionId } = checkoutBodySchema.parse(req.body);
