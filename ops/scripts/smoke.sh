@@ -123,8 +123,9 @@ docker run --rm --network "${COMPOSE_PROJECT_NAME}_admin-ingress" --read-only --
       headers: { Host: "admin.mzt.test", "X-Forwarded-For": "127.0.0.1" } },
       r => { r.resume(); if (r.statusCode !== 403) { console.error("Expected isolated ACL rejection, received", r.statusCode); process.exit(1); } })
       .on("error", e => { console.error("Isolated ACL TLS request failed", e.code); process.exit(1); });'
+jq -nc --arg password "smoke-$(openssl rand -hex 18)" '{email:"synthetic@example.invalid",password:$password}' > "$tmp/customer.credentials"
 request public 18443 -fsS -X POST -H 'Origin: https://public.mzt.test:18443' -H 'Content-Type: application/json' \
-  --data '{"email":"synthetic@example.invalid","password":"synthetic-test-strong-12"}' https://public.mzt.test:18443/api/auth/register | jq -e '.ok'
+  --data-binary @"$tmp/customer.credentials" https://public.mzt.test:18443/api/auth/register | jq -e '.ok'
 request public 18443 -fsS https://public.mzt.test:18443/api/plans | jq -e '.offers | length == 0'
 dc exec -T db psql -U postgres -d vpnshop -Atc '
 SELECT count(*)=1 FROM "NotificationOutbox" WHERE payload NOT LIKE '"'"'%synthetic@example.invalid%'"'"'
@@ -199,7 +200,7 @@ if [[ "${MZT_RELEASE_FAILURES:-0}" == 1 ]]; then
   [[ "$(request public 18443 -sS -w '%{http_code}' -o /dev/null -H "Origin: $origin" -H 'Content-Type: application/json' \
     --data-binary @"$tmp/verify.json" "$origin/api/auth/verify-email")" == 400 ]]
   request public 18443 -fsS -c "$tmp/customer.cookies" -D "$tmp/login.headers" -o /dev/null -H "Origin: $origin" -H 'Content-Type: application/json' \
-    --data '{"email":"synthetic@example.invalid","password":"synthetic-test-strong-12"}' "$origin/api/auth/login"
+    --data-binary @"$tmp/customer.credentials" "$origin/api/auth/login"
   tr -d '\r' < "$tmp/login.headers" | grep -Eqi '^set-cookie: vpn_at=.*; Secure;.*HttpOnly;.*SameSite=Lax|^set-cookie: vpn_at=.*; HttpOnly;.*Secure;.*SameSite=Lax'
   grep -Eqi '^cache-control: private, no-store' "$tmp/login.headers"
   dc exec -T db psql -U postgres -d vpnshop -q -v ON_ERROR_STOP=1 <<'SQL'
@@ -226,7 +227,7 @@ SQL
   if dc logs --no-color public-api admin-api public-edge admin-edge notifications | grep -F "$token" >/dev/null; then
     echo "Synthetic verification token appeared in logs"; exit 1
   fi
-  rm -f "$tmp/verify.json" "$tmp/customer.cookies" "$tmp/login.headers"
+  rm -f "$tmp/verify.json" "$tmp/customer.cookies" "$tmp/login.headers" "$tmp/customer.credentials"
   dc stop -t 20 db
   wait_readiness public-api 3000 /api/health 200
   wait_readiness public-api 3000 /api/ready 503

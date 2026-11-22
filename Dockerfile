@@ -41,6 +41,7 @@ USER 1000:1000
 ENTRYPOINT ["mzt-migrate"]
 
 FROM nginx:1.30-alpine@sha256:caf4e1e032a20f9c3c5e28fc7f25ffd768ad8677b4975c54193075997b3a97e3 AS nginx-runtime
+RUN apk upgrade --no-cache libxml2
 ARG REVISION=unknown
 LABEL org.opencontainers.image.revision=${REVISION}
 COPY ops/nginx/base.conf /etc/nginx/nginx.conf
