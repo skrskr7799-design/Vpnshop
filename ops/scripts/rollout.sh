@@ -21,14 +21,25 @@ umask 077
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 jq -e '.version == 1 and (.gitSha | test("^[0-9a-f]{40}$")) and (.schema | test("^[0-9]{14}_[a-z0-9_]+$")) and
+  (.migrationTree | test("^sha256:[0-9a-f]{64}$")) and
   (.images | [.application,.migrator,.db,.web,.admin,.edge,.backup] | all(test("^ghcr\\.io/skrskr7799-design/vpnshop/[a-z]+@sha256:[a-f0-9]{64}$")))' \
   "$candidate" >/dev/null
-if [[ "$action" == stage && "$(jq -r .previousManifest "$candidate")" != first-release ]]; then
-  [[ -n "$previous" && "sha256:$(sha256sum "$previous" | cut -d' ' -f1)" == "$(jq -r .previousManifest "$candidate")" ]]
+if [[ "$action" == stage ]]; then
+  [[ "$(git rev-parse HEAD)" == "$(jq -r .gitSha "$candidate")" ]]
+  migration_tree=$(find apps/api/prisma/migrations -name migration.sql -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+  [[ "sha256:$migration_tree" == "$(jq -r .migrationTree "$candidate")" ]]
+  if [[ "$(jq -r .previousManifest "$candidate")" == first-release ]]; then
+    [[ ! -e "$MZT_DEPLOY_DIR/live-manifest.json" ]]
+  else
+    [[ -n "$previous" && -e "$MZT_DEPLOY_DIR/live-manifest.json" ]]
+    cmp -s "$previous" "$MZT_DEPLOY_DIR/live-manifest.json"
+    [[ "sha256:$(sha256sum "$previous" | cut -d' ' -f1)" == "$(jq -r .previousManifest "$candidate")" ]]
+  fi
 fi
 if [[ "$action" == rollback ]]; then
   # An older schema floor alone does not certify a rollback.
   [[ -n "$previous" && -f "$MZT_DEPLOY_DIR/schema-rollback-approved" ]]
+  cmp -s "$previous" "$MZT_DEPLOY_DIR/live-manifest.json"
   [[ "$(cat "$MZT_DEPLOY_DIR/schema-rollback-approved")" == "$(sha256sum "$candidate" | cut -d' ' -f1)" ]]
   [[ "sha256:$(sha256sum "$candidate" | cut -d' ' -f1)" == "$(jq -r .previousManifest "$previous")" ]]
 fi
@@ -45,12 +56,18 @@ stack=(-f ops/compose.yml)
 if [[ "${MZT_ENABLE_OFFSITE:-0}" == 1 ]]; then stack+=(-f ops/compose.backup.yml); fi
 dc() { docker compose --env-file "$tmp/settings" --profile migration --profile monitoring "${stack[@]}" "$@"; }
 dc config --format json | python3 ops/scripts/preflight.py
-dc up -d --wait db
-if [[ "$MZT_DEPLOY_ENV" == production && -e "$MZT_DEPLOY_DIR/live-manifest.json" ]]; then
-  dc exec -T db pgbackrest --config=/run/secrets/pgbackrest_conf --stanza=vpnshop check
-  dc exec -T db sh -ec 'test -s /state/proofs/physical_epoch && test "$(($(date -u +%s)-$(cat /state/proofs/physical_epoch)))" -lt 93600'
+if [[ -e "$MZT_DEPLOY_DIR/active.settings" ]]; then
+  previous_dc() { docker compose --env-file "$MZT_DEPLOY_DIR/active.settings" --profile migration --profile monitoring "${stack[@]}" "$@"; }
+  if [[ "$MZT_DEPLOY_ENV" == production ]]; then
+    previous_dc exec -T db pgbackrest --config=/run/secrets/pgbackrest_conf --stanza=vpnshop check
+    previous_dc exec -T db sh -ec 'test -s /state/proofs/physical_epoch && test "$(($(date -u +%s)-$(cat /state/proofs/physical_epoch)))" -lt 93600'
+  fi
+  previous_dc stop -t 60 worker billing notifications public-api admin-api
+else
+  # A new operator settings directory must never silently adopt or recreate a live cluster.
+  [[ -z "$(dc ps -aq)" ]]
 fi
-dc stop -t 60 worker billing notifications public-api admin-api
+dc up -d --wait db
 if [[ "$action" == stage ]]; then dc run --rm --no-deps migrator; fi
 dc up -d --wait --wait-timeout 100 web admin public-api admin-api public-edge admin-edge
 for zone in public admin; do

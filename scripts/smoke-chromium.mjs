@@ -26,7 +26,10 @@ export async function launchChromium(profile) {
     const exit = once(browser, "exit");
     browser.kill("SIGTERM");
     await Promise.race([exit, delay(2000, undefined, { ref: false })]);
-    if (browser.exitCode === null && browser.signalCode === null) browser.kill("SIGKILL");
+    if (browser.exitCode === null && browser.signalCode === null) {
+      browser.kill("SIGKILL");
+      await exit;
+    }
   };
 
   try {

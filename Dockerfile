@@ -31,10 +31,11 @@ RUN node -e 'const {PrismaClient}=require("@prisma/client"); new PrismaClient().
 CMD ["node","dist/server.js"]
 
 FROM build AS migrator
-RUN apt-get update && apt-get install -y --no-install-recommends postgresql-client && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends postgresql-client python3-minimal && rm -rf /var/lib/apt/lists/*
 ARG REVISION=unknown
 LABEL org.opencontainers.image.revision=${REVISION}
 COPY --chmod=0555 ops/db/migrate.sh /usr/local/bin/mzt-migrate
+COPY --chmod=0555 ops/db/with-postgres.py /usr/local/bin/mzt-with-postgres
 USER 1000:1000
 ENTRYPOINT ["mzt-migrate"]
 

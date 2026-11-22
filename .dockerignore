@@ -28,6 +28,7 @@
 !ops/db/
 !ops/db/*.sql
 !ops/db/*.sh
+!ops/db/with-postgres.py
 !ops/nginx/
 !ops/nginx/*.conf
 !ops/nginx/*.sh

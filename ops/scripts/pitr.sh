@@ -4,16 +4,20 @@ cd "$(dirname "$0")/../.."
 revision=$(git rev-parse HEAD)
 db_image=${MZT_DRILL_DB_IMAGE:-mzt-ci-db:$revision}
 migrator=${MZT_DRILL_MIGRATOR_IMAGE:-mzt-ci-migrator:$revision}
+storage=${MZT_DRILL_REPO:-local}
+[[ "$storage" == local || "$storage" == s3 ]]
 tmp=$(mktemp -d)
 scope="mzt-pitr-${tmp##*.}"
 pg="$scope-primary"
+object_store="$scope-s3"
+tls_proxy="$scope-tls"
 restored="$scope-restored"
 network="$scope-closed"
 repo="$scope-repo"
 state="$scope-primary-data"
 recovered="$scope-restored-data"
 cleanup() {
-  docker rm -f "$pg" "$restored" >/dev/null 2>&1 || true
+  docker rm -f "$pg" "$restored" "$object_store" "$tls_proxy" >/dev/null 2>&1 || true
   docker network rm "$network" >/dev/null 2>&1 || true
   docker volume rm "$repo" "$state" "$recovered" >/dev/null 2>&1 || true
   rm -rf "$tmp"
@@ -39,15 +43,81 @@ log-level-file=off
 CONF
 chmod a+r "$tmp/pgpass" "$tmp/migrator_url" "$tmp/pgbackrest_conf"
 docker network create --internal "$network" >/dev/null
+mount_repo=(-v "$repo:/state/repo")
+restore_repo=(-v "$repo:/state/repo:ro")
+restore_network=none
+ca_mount=()
+if [[ "$storage" == s3 ]]; then
+  docker run -d --name "$object_store" --network "$network" --network-alias fixture-store \
+    -e SERVICES=s3 -e GATEWAY_LISTEN=0.0.0.0:4566 -e DISABLE_EVENTS=1 -e DNS_ADDRESS=0 \
+    -e AWS_ACCESS_KEY_ID=test -e AWS_SECRET_ACCESS_KEY=test -e AWS_DEFAULT_REGION=us-east-1 \
+    -e AWS_EC2_METADATA_DISABLED=true -e NO_PROXY=127.0.0.1,localhost \
+    'localstack/localstack:4.5.0@sha256:9d4253786e0effe974d77fe3c390358391a56090a4fff83b4600d8a64404d95d' >/dev/null
+  for i in {1..60}; do
+    if docker exec "$object_store" awslocal --endpoint-url http://127.0.0.1:4566 s3api create-bucket --bucket replay-fixture >/dev/null 2>&1; then break; fi
+    if [[ "$i" == 60 ]]; then docker logs --tail 15 "$object_store"; exit 1; fi
+    sleep 1
+  done
+  openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=isolated-drill-s3 -addext 'subjectAltName=DNS:pitr-s3' \
+    -keyout "$tmp/s3.key" -out "$tmp/s3.crt" 2>/dev/null
+  cat > "$tmp/s3.conf" <<'NGINX'
+pid /tmp/nginx.pid;
+error_log stderr;
+events {}
+http {
+  access_log off;
+  client_body_temp_path /tmp/body;
+  proxy_temp_path /tmp/proxy;
+  fastcgi_temp_path /tmp/fastcgi;
+  uwsgi_temp_path /tmp/uwsgi;
+  scgi_temp_path /tmp/scgi;
+  server {
+    listen 9443 ssl;
+    ssl_certificate /test/tls.crt;
+    ssl_certificate_key /test/tls.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    client_max_body_size 0;
+    location / {
+      proxy_set_header Host $http_host;
+      proxy_http_version 1.1;
+      proxy_pass http://fixture-store:4566;
+    }
+  }
+}
+NGINX
+  chmod a+r "$tmp/s3.key" "$tmp/s3.crt" "$tmp/s3.conf"
+  docker run -d --name "$tls_proxy" --network "$network" --network-alias pitr-s3 --read-only --user 101:101 \
+    --cap-drop ALL --security-opt no-new-privileges --tmpfs /tmp:mode=1777 \
+    -v "$tmp/s3.key:/test/tls.key:ro" -v "$tmp/s3.crt:/test/tls.crt:ro" -v "$tmp/s3.conf:/test/nginx.conf:ro" \
+    --entrypoint nginx 'nginx:1.28-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236' \
+    -c /test/nginx.conf -g 'daemon off;' >/dev/null
+  sed -i 's@repo1-path=/state/repo@repo1-path=/drill@' "$tmp/pgbackrest_conf"
+  cat >> "$tmp/pgbackrest_conf" <<'S3'
+repo1-type=s3
+repo1-s3-bucket=replay-fixture
+repo1-s3-endpoint=pitr-s3
+repo1-s3-region=us-east-1
+repo1-s3-key=test
+repo1-s3-key-secret=test
+repo1-s3-uri-style=path
+repo1-storage-port=9443
+repo1-storage-ca-file=/run/secrets/s3_ca
+repo1-storage-verify-tls=y
+S3
+  mount_repo=()
+  restore_repo=()
+  restore_network=$network
+  ca_mount=(-v "$tmp/s3.crt:/run/secrets/s3_ca:ro")
+fi
 for name in "$repo" "$state" "$recovered"; do
   ! docker volume inspect "$name" >/dev/null 2>&1
   docker volume create "$name" >/dev/null
 done
 common=(--user 999:999 --cap-drop ALL --security-opt no-new-privileges --read-only --tmpfs /tmp:mode=1777
-  --tmpfs /var/run/postgresql:mode=1777 -v "$tmp/pgbackrest_conf:/run/secrets/pgbackrest_conf:ro")
+  --tmpfs /var/run/postgresql:mode=1777 -v "$tmp/pgbackrest_conf:/run/secrets/pgbackrest_conf:ro" "${ca_mount[@]}")
 archive='pgbackrest --config=/run/secrets/pgbackrest_conf --stanza=vpnshop archive-push %p'
 docker run -d --name "$pg" --network "$network" --network-alias pitr-db "${common[@]}" \
-  -v "$repo:/state/repo" -v "$state:/state/db" -v "$tmp/pgpass:/run/secrets/drill_pgpass:ro" \
+  "${mount_repo[@]}" -v "$state:/state/db" -v "$tmp/pgpass:/run/secrets/drill_pgpass:ro" \
   --entrypoint sh "$db_image" -ec 'initdb --auth-local=trust --auth-host=scram-sha-256 --username=postgres --pwfile=/run/secrets/drill_pgpass --data-checksums >/dev/null
     exec postgres -c listen_addresses="*" -c archive_mode=on -c archive_timeout=30 -c "archive_command=$1"' sh "$archive" >/dev/null
 ready() {
@@ -81,10 +151,10 @@ sql "$pg" -c 'SELECT pg_switch_wal()' >/dev/null
 br check
 docker stop -t 15 "$pg" >/dev/null
 started=$(date +%s)
-docker run --rm --network none "${common[@]}" -v "$repo:/state/repo:ro" -v "$recovered:/state/db" \
+docker run --rm --network "$restore_network" "${common[@]}" "${restore_repo[@]}" -v "$recovered:/state/db" \
   --entrypoint pgbackrest "$db_image" --config=/run/secrets/pgbackrest_conf --stanza=vpnshop \
   --type=time --target="$target" --target-action=promote --archive-mode=off restore
-docker run -d --name "$restored" --network none "${common[@]}" -v "$repo:/state/repo:ro" -v "$recovered:/state/db" \
+docker run -d --name "$restored" --network "$restore_network" "${common[@]}" "${restore_repo[@]}" -v "$recovered:/state/db" \
   --entrypoint postgres "$db_image" -c listen_addresses= >/dev/null
 ready "$restored"
 for i in {1..30}; do
@@ -106,4 +176,4 @@ sql "$restored" < ops/backup/drill-replay.sql
 sql "$restored" < ops/backup/control-totals.sql > "$tmp/replayed"
 cmp "$tmp/before" "$tmp/replayed"
 digest=$(sha256sum "$tmp/replayed" | cut -d' ' -f1)
-printf 'PITR: %s UTC target, verified local drill runtime %ss, financial/control proof sha256:%s\n' "$target" "$(($(date +%s)-started))" "$digest"
+printf 'PITR (%s): %s UTC target, verified drill runtime %ss, financial/control proof sha256:%s\n' "$storage" "$target" "$(($(date +%s)-started))" "$digest"

@@ -30,6 +30,7 @@ ARG REVISION=unknown
 LABEL org.opencontainers.image.revision=${REVISION}
 USER 0
 RUN apt-get update && apt-get install -y --no-install-recommends awscli gnupg && rm -rf /var/lib/apt/lists/*
+COPY --chmod=0555 ops/db/with-postgres.py /usr/local/bin/mzt-with-postgres
 COPY --chmod=0555 ops/backup/logical.sh /usr/local/bin/mzt-logical
 USER 999:999
 ENTRYPOINT ["mzt-logical"]

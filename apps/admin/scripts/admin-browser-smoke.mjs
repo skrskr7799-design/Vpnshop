@@ -180,5 +180,5 @@ try {
   await chromium?.close();
   server.closeAllConnections();
   server.close();
-  await rm(profile, { recursive: true, force: true });
+  await rm(profile, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
 }

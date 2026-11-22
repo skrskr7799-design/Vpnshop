@@ -6,7 +6,20 @@ revision=$(git rev-parse HEAD)
 prefix=${MZT_TEST_IMAGE_PREFIX:-mzt-ci}
 tmp=$(mktemp -d)
 export COMPOSE_PROJECT_NAME="mzt-ops-${RANDOM}-${RANDOM}"
-dc() { docker compose --env-file "$tmp/settings" --profile migration --profile monitoring -f ops/compose.yml "$@"; }
+dc() {
+  if [[ "${GITHUB_ACTIONS:-}" == true && "$1" =~ ^(up|run|stop)$ ]]; then
+    local output status
+    output=$(mktemp)
+    docker compose --env-file "$tmp/settings" --profile migration --profile monitoring -f ops/compose.yml "$@" >"$output" 2>&1 || status=$?
+    cat "$output"
+    if [[ -n "${status:-}" ]]; then
+      printf '::error::Compose %s: %s\n' "$*" "$(tail -12 "$output" | tr '\n%' '  ' | cut -c1-1100)"
+    fi
+    rm "$output"
+    return "${status:-0}"
+  fi
+  docker compose --env-file "$tmp/settings" --profile migration --profile monitoring -f ops/compose.yml "$@"
+}
 cleanup() {
   if [[ -e "$tmp/settings" ]]; then dc down -v --remove-orphans >/dev/null 2>&1 || true; fi
   rm -rf "$tmp"

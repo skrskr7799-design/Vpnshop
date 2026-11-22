@@ -6,11 +6,11 @@ case "${S3_BUCKET:?}${KEY_VERSION:?}" in *[!a-zA-Z0-9._-]*) exit 64;; esac
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 export AWS_SHARED_CREDENTIALS_FILE=/run/secrets/logical_s3_credentials AWS_EC2_METADATA_DISABLED=true
-export GNUPGHOME="$work/gnupg" PGDATABASE="$(cat /run/secrets/backup_url)"
+export GNUPGHOME="$work/gnupg"
 mkdir -m 700 "$GNUPGHOME"
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 key="$KEY_VERSION/$stamp"
-pg_dump --no-password --enable-row-security --no-owner --no-acl -Fc -f "$work/dump"
+mzt-with-postgres /run/secrets/backup_url pg_dump --no-password --enable-row-security --no-owner --no-acl -Fc -f "$work/dump"
 pg_restore --list "$work/dump" >/dev/null
 gpg --batch --pinentry-mode loopback --passphrase-file /run/secrets/logical_key --symmetric --cipher-algo AES256 \
   --output "$work/dump.gpg" "$work/dump"
