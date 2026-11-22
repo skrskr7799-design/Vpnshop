@@ -40,7 +40,7 @@ COPY --chmod=0555 ops/db/with-postgres.py /usr/local/bin/mzt-with-postgres
 USER 1000:1000
 ENTRYPOINT ["mzt-migrate"]
 
-FROM nginx:1.28-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236 AS nginx-runtime
+FROM nginx:1.30-alpine@sha256:caf4e1e032a20f9c3c5e28fc7f25ffd768ad8677b4975c54193075997b3a97e3 AS nginx-runtime
 ARG REVISION=unknown
 LABEL org.opencontainers.image.revision=${REVISION}
 COPY ops/nginx/base.conf /etc/nginx/nginx.conf
