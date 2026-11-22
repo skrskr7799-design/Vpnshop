@@ -1,11 +1,17 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { setTimeout as delay } from "node:timers/promises";
 
+const ingress = readFileSync(new URL("../ops/nginx/edge.conf", import.meta.url), "utf8");
+const csp = ingress.match(/add_header Content-Security-Policy "([^"]+)" always;/)?.[1];
+assert.ok(csp, "The TLS edge must define the document CSP");
+
 export function serveAsset(req, res, mime, filename, body) {
   res.setHeader("Content-Type", mime);
+  if (filename.endsWith(".html")) res.setHeader("Content-Security-Policy", csp);
   if (/\.(css|js|html)$/.test(filename) && /\bgzip\b/.test(req.headers["accept-encoding"] ?? "")) {
     res.setHeader("Content-Encoding", "gzip");
     res.setHeader("Vary", "Accept-Encoding");

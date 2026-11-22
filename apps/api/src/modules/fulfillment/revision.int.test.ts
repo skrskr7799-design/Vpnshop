@@ -5,10 +5,10 @@ import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { resetDatabase } from "../../test/db";
 import { createUser } from "../../test/factories";
+import { mockPanel, secret } from "../../test/revision-panel";
 import { createSession, revokeSessionFamily } from "../auth/session.service";
 import { dbNow } from "../commerce/offers";
 import { recordLookup } from "../payments/ledger";
-import type { AbsoluteProfile, AssignmentPanel, PanelUser } from "../remnawave/remnawave.assignment";
 import { createFakePanel } from "../remnawave/remnawave.testing";
 import { RemnawaveError } from "../remnawave/remnawave.errors";
 import { allocateCapture } from "../subscriptions/allocation";
@@ -20,29 +20,8 @@ import { claimRevision, requestRevisionCheck } from "./revision.queue";
 
 const squad = "11111111-1111-4111-8111-111111111111";
 const secondSquad = "22222222-2222-4222-8222-222222222222";
-const secret = "https://links.example.invalid/sub/private-credential";
 
-function mockPanel() {
-  let remote: PanelUser | null = null;
-  const setProfile = (profile: AbsoluteProfile) => {
-    if (!remote) throw new Error("Missing fixture");
-    remote = { ...remote, ...profile, status: remote.status === "DISABLED" ? "DISABLED" : "ACTIVE" };
-  };
-  const panel = {
-    instance: "staging-test", origin: "https://panel.example.invalid", timeoutMs: 20,
-    findUser: vi.fn(async (_username: string) => remote && structuredClone(remote)),
-    readBack: vi.fn(async (_id: number) => remote && structuredClone(remote)),
-    createUser: vi.fn(async (username: string, marker: string, profile: AbsoluteProfile) => {
-      if (remote) throw new RemnawaveError("rejected", 400, "Duplicate", "A019");
-      remote = { id: 922, username, marker, status: "ACTIVE", ...profile };
-    }),
-    updateAbsoluteProfile: vi.fn(async (_id: number, profile: AbsoluteProfile) => setProfile(profile)),
-    disableUser: vi.fn(async (_id: number) => { remote!.status = "DISABLED"; }),
-    enableUser: vi.fn(async (_id: number) => { remote!.status = "ACTIVE"; }),
-    getSubscriptionLink: vi.fn(async (_id: number) => remote && { user: structuredClone(remote), url: secret }),
-  } satisfies AssignmentPanel;
-  return { panel, setProfile, get current() { return remote; }, change(user: PanelUser | null) { remote = user; } };
-}
+
 let fixture: ReturnType<typeof mockPanel>;
 let user: Awaited<ReturnType<typeof createUser>>;
 let admin: Awaited<ReturnType<typeof createUser>>;
