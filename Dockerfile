@@ -10,6 +10,7 @@ COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
 COPY apps/admin/package.json apps/admin/
 COPY packages/shared/package.json packages/shared/
+COPY packages/ui/package.json packages/ui/
 RUN --mount=type=secret,id=proxy_ca     if [ -r /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi;     PRISMA_SKIP_POSTINSTALL_GENERATE=true CI=true pnpm install --frozen-lockfile
 COPY . .
 RUN --mount=type=secret,id=proxy_ca     if [ -r /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi;     pnpm db:generate && pnpm build

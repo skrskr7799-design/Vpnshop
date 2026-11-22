@@ -187,6 +187,9 @@ importers:
       '@vpn/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@vpn/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       react:
         specifier: ^19.0.0
         version: 19.3.1
@@ -297,6 +300,9 @@ importers:
       '@vpn/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@vpn/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       qrcode-generator:
         specifier: 2.0.4
         version: 2.0.4
@@ -347,6 +353,18 @@ importers:
       vitest:
         specifier: ^5.1.0
         version: 5.1.0(@types/node@22.20.5)(vite@7.3.8(@types/node@22.20.5)(jiti@2.7.0)(tsx@4.23.15))
+
+  packages/ui:
+    devDependencies:
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.3.0
+      react:
+        specifier: ^19.0.0
+        version: 19.3.1
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
 
 packages:
 
