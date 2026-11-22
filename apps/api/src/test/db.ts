@@ -16,7 +16,6 @@ export async function resetDatabase(): Promise<void> {
   await prisma.$transaction(async (tx) => {
     await checkTestDatabase(tx);
     // Explicit application tables, in foreign-key order. The role has DML grants only.
-    await tx.refundIntent.deleteMany();
     await tx.adminOperationalSettings.deleteMany();
     await tx.$executeRaw`TRUNCATE "FulfillmentLease", "FulfillmentJob", "DesiredAssignment", "ServiceHold",
       "Adjustment", "PeriodGrant", "OrderAllocation", "Subscription", "RefundIntent", "PaymentTransaction", "PanelObservation", "PanelBinding"`;

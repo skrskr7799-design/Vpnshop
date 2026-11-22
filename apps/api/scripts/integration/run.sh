@@ -146,7 +146,7 @@ GRANT SELECT ON test_guard.instance TO vpnshop_suite;
 GRANT SELECT, INSERT, UPDATE, DELETE ON "User","AuthIdentity","Session","PendingRegistration",
   "VerificationToken","AdminTotp","AdminRecoveryCode","AdminSession","Plan","PlanPrice","OfferVersion","Order",
   "Payment","WebhookEvent","FulfillmentJob","FulfillmentLease","MerchantAccount","PaymentCase","SessionFamily","OAuthFlow","IdentityProof","AuthMailWindow" TO vpnshop_suite;
-GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON "RefundIntent" TO vpnshop_suite;
+GRANT SELECT, INSERT, UPDATE, TRUNCATE ON "RefundIntent" TO vpnshop_suite;
 GRANT SELECT, INSERT, UPDATE, DELETE ON "AdminOperationalSettings", "WorkerHeartbeat" TO vpnshop_suite;
 GRANT SELECT, INSERT, TRUNCATE ON "AuditLog" TO vpnshop_suite;
 GRANT SELECT, INSERT, UPDATE, DELETE ON "StaffCredential","StaffChallenge","StaffInvite","StaffReset","AdminConfirmation","AdminCommand" TO vpnshop_suite;

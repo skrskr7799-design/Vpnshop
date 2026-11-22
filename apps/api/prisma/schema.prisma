@@ -600,9 +600,10 @@ model PeriodGrant {
   incidentId String?
   basisGrantId String?
   compensationReason String?
-  basis PeriodGrant? @relation("ServiceCompensation", fields: [basisGrantId], references: [id], onDelete: Restrict)
+  basis PeriodGrant? @relation("ServiceCompensation", fields: [basisGrantId, subscriptionId], references: [id, subscriptionId], onDelete: Restrict)
   compensations PeriodGrant[] @relation("ServiceCompensation")
 
+  @@unique([id, subscriptionId])
   @@unique([subscriptionId, incidentId])
   @@unique([subscriptionId, serial])
 }

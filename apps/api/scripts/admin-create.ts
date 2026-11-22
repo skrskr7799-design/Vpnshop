@@ -1,4 +1,4 @@
-// Создаёт админа или повышает существующего пользователя.
+// Создаёт отдельного сотрудника. Совпадающий адрес отклоняется.
 //   pnpm --filter @vpn/api admin:create you@example.com            (пароль спросит скрытым вводом)
 //   pnpm --filter @vpn/api admin:create you@example.com --support  (роль SUPPORT: только просмотр)
 //   echo 'пароль' | pnpm --filter @vpn/api admin:create you@example.com --password-stdin
@@ -50,8 +50,8 @@ if (args.includes("--password-stdin")) {
 }
 
 try {
-  const result = await createAdminUser({ email, password, role });
-  console.log(result.created ? `Создан ${role}: ${email}` : `Пользователь ${email} теперь ${role}, пароль обновлён`);
+  await createAdminUser({ email, password, role });
+  console.log(`Создан сотрудник ${role}: ${email}`);
   console.log("При первом входе админка предложит подключить приложение-аутентификатор (2FA).");
 } catch (err) {
   console.error(err instanceof Error ? err.message : err);

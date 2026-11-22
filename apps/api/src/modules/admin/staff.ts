@@ -29,7 +29,7 @@ async function staffTarget({ db, targetId, expectedVersion }: CommandContext) {
 
 async function protectLastAdmin(context: CommandContext, userId: string) {
   if (!await context.db.user.count({ where: { id: { not: userId }, role: "ADMIN", status: "ACTIVE",
-    staffCredential: { isNot: null }, totp: { confirmedAt: { not: null } } } })) throw new AppError(409, "LAST_ADMIN");
+    staffCredential: { isNot: null }, totp: { confirmedAt: { not: null }, OR: [{ lockedUntil: null }, { lockedUntil: { lte: context.now } }] } } })) throw new AppError(409, "LAST_ADMIN");
 }
 
 export const staffCommands = {

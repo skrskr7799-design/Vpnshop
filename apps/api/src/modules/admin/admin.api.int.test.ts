@@ -120,6 +120,10 @@ it("sums verified CAPTURE, refunds and chargebacks by currency and marks stale/u
   await financeFact(capture.accountId, "REFUND", 500n, "RUB", capture.movementKey, capture.paymentId!);
   await financeFact(capture.accountId, "CHARGEBACK_DEBIT", 250n, "RUB", capture.movementKey, capture.paymentId!);
   await financeFact(capture.accountId, "CAPTURE", 999n, "USD");
+  const assignment = await prisma.desiredAssignment.findFirstOrThrow({ where: { grant: { orderId: order.id } } });
+  await prisma.panelObservation.create({ data: { assignmentId: assignment.id, revision: assignment.revision, panelInstance: "fixture",
+    remoteUserId: 321n, status: "ACTIVE", expiresAt: assignment.expiresAt, deviceLimit: assignment.deviceLimit, observedAt: new Date(),
+    owner: "fixture", generation: 1n, comparison: "MATCH" } });
   const old = new Date(Date.now() - 65_000);
   await prisma.workerHeartbeat.create({ data: { id: "expired-fixture", observedAt: old, ready: true } });
   const fixture = await buildAdminApp({ logger: false, panel: { getMetadata: async () => { throw new Error("fixture unavailable"); } } });
@@ -135,7 +139,7 @@ it("sums verified CAPTURE, refunds and chargebacks by currency and marks stale/u
     });
     expect((await api.get("/api/orders/" + legacy.id)).json()).toMatchObject({ allocated: false, delivery: "NOT_REQUESTED" });
     const detail = (await api.get("/api/orders/" + order.id)).json();
-    expect(detail).toMatchObject({ allocated: true, allocation: { captureId: capture.id }, period: { id: expect.any(String) }, job: { revision: 1 } });
+    expect(detail).toMatchObject({ allocated: true, allocation: { captureId: capture.id }, period: { id: expect.any(String) }, job: { revision: 1 }, observations: [{ revision: 1, remoteUserId: "321", comparison: "MATCH" }] });
     expect(JSON.stringify(detail)).not.toMatch(/private-payload|subscriptionUrl|secretEnc/);
   } finally { await fixture.close(); }
 });

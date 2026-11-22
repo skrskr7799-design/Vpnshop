@@ -18,7 +18,7 @@ export function Login({ invitation = false }: { invitation?: boolean }) {
   const [recover, setRecover] = useState(false);
   async function entered() {
     cache.removeQueries({ predicate: query => query.queryKey[0] !== "admin-me" });
-    await cache.invalidateQueries({ queryKey: ["admin-me"] });
+    cache.setQueryData(["admin-me"], await api<Principal>("/me"));
     navigate("/", { replace: true });
   }
   async function submit(event: FormEvent<HTMLFormElement>) {

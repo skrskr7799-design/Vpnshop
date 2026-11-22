@@ -256,10 +256,10 @@ describe("сессии", () => {
     const admin = await createEnrolledAdmin("cli@example.com");
     expect(await resolveAdminSession(admin.sessionToken)).not.toBeNull();
 
-    expect(await resetAdminTotp("cli@example.com")).toBe(true);
+    expect(await resetAdminTotp("cli@example.com", "INC-123")).toBe(true);
     expect(await resolveAdminSession(admin.sessionToken)).toBeNull();
     expect((await adminLogin({ email: "cli@example.com", password: PASSWORD }, ctx)).step).toBe("enroll_2fa");
-    expect(await resetAdminTotp("ghost@example.com")).toBe(false);
+    expect(await resetAdminTotp("ghost@example.com", "INC-123")).toBe(false);
   });
 });
 

@@ -20,7 +20,7 @@ export async function paidOrder(userId: string) {
   const offer = await publishOffer(prisma, plan, price, await dbNow(prisma));
   const order = await checkout(userId, randomUUID(), offer.id);
   const payment = await prisma.payment.create({ data: { orderId: order.id, provider: "PLATEGA", accountId: account.id,
-    merchantReference: randomUUID(), externalId: randomUUID(), channel: "SBP", currency: "RUB", amount: 10000, status: "PROCESSING",
+    merchantReference: randomUUID(), externalId: randomUUID(), requestKeyHash: randomUUID(), expiresAt: order.expiresAt, channel: "SBP", currency: "RUB", amount: 10000, status: "PROCESSING",
   } });
   const key = randomUUID();
   await recordLookup(account, { status: "CONFIRMED", externalPaymentId: payment.externalId!, merchantReference: payment.merchantReference,

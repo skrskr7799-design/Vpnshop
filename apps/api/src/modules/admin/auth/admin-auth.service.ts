@@ -182,14 +182,14 @@ export async function invalidateStaff(db: Db, userId: string, now: Date, resetFa
   }
 }
 
-export async function resetAdminTotp(email: string) {
+export async function resetAdminTotp(email: string, incident: string) {
   return prisma.$transaction(async db => {
     await lockStaffWrites(db);
     const user = await db.user.findUnique({ where: { email }, include: { staffCredential: true } });
     if (!user || !isAdminRole(user.role) || !user.staffCredential) return false;
     await lockIdentityOwner(db, user.id);
     await invalidateStaff(db, user.id, await dbNow(db), true);
-    await writeAudit(db, { actorId: null, action: "admin.break_glass.totp_reset", entity: "admin", entityId: user.id, correlationId: randomUUID() });
+    await writeAudit(db, { actorId: null, action: "admin.break_glass.totp_reset", entity: "admin", entityId: user.id, correlationId: randomUUID(), data: { incident } });
     return true;
   });
 }
