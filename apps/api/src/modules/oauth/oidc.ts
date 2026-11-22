@@ -43,6 +43,7 @@ export async function exchangeCode(
 
   const res = await fetch(provider.tokenUrl, {
     method: "POST",
+    redirect: "error",
     headers,
     body,
     signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
@@ -76,9 +77,11 @@ export async function verifyIdToken(
     issuer: provider.issuers,
     audience: provider.clientId,
     algorithms: provider.algorithms,
+    requiredClaims: ["sub", "exp", "iat", ...(provider.useNonce ? ["nonce"] : [])],
     clockTolerance: 60,
   });
+  if (typeof payload.iat !== "number" || payload.iat > Date.now() / 1000 + 60) throw new Error("Invalid ID token issue time");
   if (!payload.sub) throw new Error("id_token has no sub");
-  if (provider.useNonce && payload.nonce !== opts.nonce) throw new Error("nonce mismatch");
+  if (provider.useNonce && (!opts.nonce || payload.nonce !== opts.nonce)) throw new Error("nonce mismatch");
   return payload;
 }

@@ -97,6 +97,14 @@ request() {
   shift 2
   curl --noproxy '*' --max-time 5 --cacert "$tmp/ca.crt" --resolve "$zone.mzt.test:$port:127.0.0.1" "${@}"
 }
+for pair in 'public 18443 /login' 'admin 18444 /login'; do
+  read -r zone port path <<<"$pair"
+  headers=$(request "$zone" "$port" -fsS -D - -o /dev/null "https://$zone.mzt.test:$port$path" | tr -d '\r')
+  grep -Eqi "^content-security-policy: .*script-src 'self';.*frame-ancestors 'none';" <<<"$headers"
+  grep -Eqi '^referrer-policy: no-referrer$' <<<"$headers"
+  grep -Eqi '^x-frame-options: DENY$' <<<"$headers"
+  if grep -Eqi '^content-security-policy: .*unsafe-(inline|eval)' <<<"$headers"; then exit 1; fi
+done
 [[ "$(request public 18443 -sS -o /dev/null -w '%{http_code}' https://public.mzt.test:18443/api/ready)" == 200 ]]
 [[ "$(request admin 18444 -sS -o /dev/null -w '%{http_code}' https://admin.mzt.test:18444/api/ready)" == 200 ]]
 request public 18443 -fsS https://public.mzt.test:18443/account | grep -q '<div id="root">'

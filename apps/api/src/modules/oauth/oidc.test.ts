@@ -1,6 +1,6 @@
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT, type JWK, type JWTVerifyGetKey } from "jose";
-import { beforeAll, describe, expect, it } from "vitest";
-import { buildAuthorizationUrl, verifyIdToken } from "./oidc";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import { buildAuthorizationUrl, exchangeCode, verifyIdToken } from "./oidc";
 import { createGoogleProvider } from "./providers/google";
 import { createTelegramProvider } from "./providers/telegram";
 
@@ -55,11 +55,32 @@ describe("buildAuthorizationUrl", () => {
   });
 });
 
+it("rejects non-success OAuth token responses and disables redirect following", async () => {
+  const tokenEndpoint = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 307 }));
+  vi.stubGlobal("fetch", tokenEndpoint);
+  try {
+    await expect(exchangeCode(google, { code: "synthetic", codeVerifier: "synthetic", redirectUri: "https://mzt.example.invalid/callback" }))
+      .rejects.toThrow(/token endpoint/);
+    expect(tokenEndpoint).toHaveBeenCalledOnce();
+    expect(tokenEndpoint.mock.calls[0]?.[1]).toMatchObject({ method: "POST", redirect: "error" });
+  } finally { vi.unstubAllGlobals(); }
+});
+
 describe("verifyIdToken", () => {
   it("принимает корректный токен", async () => {
     const token = await sign({ nonce: "n1", email: "a@b.co" });
     const payload = await verifyIdToken(google, token, { nonce: "n1", keys });
     expect(payload.sub).toBe("user-1");
+  });
+
+  it("requires an expiration claim in a signed ID token", async () => {
+    const incomplete = await new SignJWT({ nonce: "n1" }).setProtectedHeader({ alg: "RS256" }).setSubject("fixture-user")
+      .setIssuer("https://accounts.google.com").setAudience("google-client").setIssuedAt().sign(privateKey);
+    await expect(verifyIdToken(google, incomplete, { nonce: "n1", keys })).rejects.toThrow();
+  });
+
+  it("requires a server nonce for providers using nonce", async () => {
+    await expect(verifyIdToken(google, await sign({ nonce: "n1" }), { keys })).rejects.toThrow("nonce");
   });
 
   it("отклоняет чужую аудиторию", async () => {
