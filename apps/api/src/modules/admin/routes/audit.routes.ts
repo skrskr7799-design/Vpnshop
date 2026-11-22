@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
+import { AppError } from "../../../lib/errors";
 import { keysetPage, keysetQuery, keysetWhere, newestFirst } from "../../../lib/keyset";
 import { prisma } from "../../../lib/prisma";
 import { requireAdmin } from "../admin.middleware";
@@ -22,4 +23,17 @@ export const adminAuditRoutes: FastifyPluginAsync = async app => {
     });
     return keysetPage(scope, rows, limit, row => row);
   });
+  app.get("/audit/:id", { preHandler: requireAdmin("audit:read") }, async req => {
+    const { id } = z.object({ id: z.uuid() }).parse(req.params);
+    const log = await prisma.auditLog.findUnique({ where: { id }, select: {
+      id: true, actorId: true, role: true, permission: true, action: true, entity: true, entityId: true,
+      reason: true, commandId: true, correlationId: true, outcome: true, createdAt: true,
+    } });
+    if (!log) throw new AppError(404, "NOT_FOUND");
+    // Only normalized command results are exposed alongside the audit entry.
+    const command = log.commandId ? await prisma.adminCommand.findUnique({ where: { id: log.commandId },
+      select: { result: true } }) : null;
+    return { ...log, delta: command?.result ?? null };
+  });
+
 };

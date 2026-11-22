@@ -63,6 +63,7 @@ function UserDetails() {
       <div className="actions">
         <Link to={"/orders?userId=" + row.id}>Заказы</Link>
         <Link to={"/jobs?userId=" + row.id}>Выдача</Link>
+        <Link to={"/support?forUserId=" + row.id}>Обращения</Link>
         <Link to={"/users/" + row.id + "/periods"}>Периоды</Link>
       </div>
     </section>
@@ -156,7 +157,10 @@ export function App() {
         ]} />} />} />
       <Route path="audit" element={<Permit permission="audit:read"><List title="Аудит" path="/audit"
         columns={["action", "actorId", "permission", "entityId", "reason", "commandId", "createdAt"]}
-        filters={[["action", "Действие"], ["entity", "Объект"], ["actorId", "ID сотрудника"]]} /></Permit>} />
+        filters={[["action", "Действие"], ["entity", "Объект"], ["actorId", "ID сотрудника"], ["entityId", "ID объекта"]]} destination={row => "/audit/" + row.id} /></Permit>} />
+      <Route path="audit/:id" element={<Permit permission="audit:read"><Detail title="Запись аудита" path="/audit">
+        {row => <section className="panel"><Facts data={row} /></section>}
+      </Detail></Permit>} />
       <Route path="staff" element={<Permit permission="staff:read"><List title="Сотрудники" path="/staff"
         columns={["email", "role", "status", "enrollmentState", "version"]} filters={[["role", "Роль", ["ADMIN", "SUPPORT"]]]}
         destination={row => "/staff/" + row.id}><Invite /></List></Permit>} />

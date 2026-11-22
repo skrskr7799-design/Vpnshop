@@ -8,7 +8,7 @@ import { listCases, openCase, readCase, replyToCase } from "./support.service";
 
 const params = z.strictObject({ id: z.uuid() });
 const ownerQuery = keysetQuery.extend({ status: supportStatus.optional() });
-const staffQuery = ownerQuery.extend({ category: supportCategory.optional(), orderId: z.uuid().optional() });
+const staffQuery = ownerQuery.extend({ category: supportCategory.optional(), orderId: z.uuid().optional(), forUserId: z.uuid().optional() });
 const detailQuery = keysetQuery.extend({ historyCursor: z.string().max(500).optional() });
 const key = (req: FastifyRequest) => checkoutKeySchema.parse(req.headers["idempotency-key"]);
 const boundedPost = { bodyLimit: 16_384, config: { rateLimit: { max: 8, timeWindow: "1 minute" } } };

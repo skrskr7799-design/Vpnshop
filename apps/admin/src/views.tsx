@@ -121,7 +121,7 @@ export const jobFilters: Filter[] = [["status", "Статус", ["PENDING", "VER
   ["userId", "ID пользователя"], ["overdue", "Просрочено", ["true"]]];
 export const orderFilters: Filter[] = [["userId", "ID пользователя"], ["status", "Статус", ["PENDING", "PAID", "FULFILLED", "REFUNDED", "EXPIRED", "CANCELED"]]];
 export const ticketFilters: Filter[] = [["status", "Статус", ["OPEN", "WAITING_CUSTOMER", "RESOLVED"]],
-  ["category", "Тема", ["PAYMENT", "DELIVERY", "ACCESS", "OTHER"]], ["orderId", "ID заказа"]];
+  ["category", "Тема", ["PAYMENT", "DELIVERY", "ACCESS", "OTHER"]], ["orderId", "ID заказа"], ["forUserId", "ID владельца"]];
 
 export function Dashboard() {
   const query = useAdmin<{ asOf: string; alerts: Record<string, unknown>[]; [key: string]: unknown }>("/dashboard", 30_000);

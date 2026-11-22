@@ -86,7 +86,8 @@ export function StaffActions({ row }: { row: Row }) {
     {row.id !== current && row.version !== null && <Action title="Изменить роль или доступ сотрудника" operation="staff.role"
       permission="staff:write" target={row.id} version={version}
       fields={[{ name: "role", label: "Новый статус", options: ["SUPPORT", "ADMIN", "DISABLED"] }]} />}
-    <Link to={`/staff/${row.id}/sessions`}>Сессии сотрудника</Link>
+    <div className="actions"><Link to={`/staff/${row.id}/sessions`}>Сессии сотрудника</Link>
+      <Link to={`/audit?entityId=${row.id}`}>История действий</Link></div>
     {row.version !== null && <Action title="Запросить сброс TOTP" operation="staff.totp.request" permission="staff:write"
       target={row.id} version={version} fields={[{ name: "recoveryCaseId", label: "ID подтверждённого дела восстановления" }]} />}
     {(row.resets as Row[] | undefined)?.filter(reset => !reset.approvedBy && reset.actorId !== current && row.id !== current).map(reset =>

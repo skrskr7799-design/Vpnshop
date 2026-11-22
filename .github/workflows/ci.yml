@@ -77,6 +77,7 @@ jobs:
         run: pnpm lint
 
       - name: Build workspace
+        id: build
         run: pnpm build
 
       - name: Unit tests
@@ -85,14 +86,26 @@ jobs:
       - name: API contract tests
         run: pnpm test:contract
 
-      - name: Responsive browser smoke
-        run: |
-          export CHROMIUM_BIN="$(command -v chromium || command -v google-chrome)"
-          test -x "$CHROMIUM_BIN"
-          node apps/web/scripts/account-browser-smoke.mjs
-          node apps/admin/scripts/admin-browser-smoke.mjs
-
       - name: Rehearse migrations and run PostgreSQL integration tests
         env:
           VPNSHOP_SERVICE_ID: ${{ job.services.postgres.id }}
         run: pnpm --filter @vpn/api test:integration
+
+      - name: Responsive browser smoke
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          CHROMIUM_BIN="$(command -v google-chrome || command -v chromium)"
+          export CHROMIUM_BIN
+          test -x "$CHROMIUM_BIN"
+          "$CHROMIUM_BIN" --version
+          for site in web admin; do
+            script=account
+            if [[ "$site" == admin ]]; then script=admin; fi
+            output="$(mktemp)"
+            if ! node "apps/$site/scripts/$script-browser-smoke.mjs" >"$output" 2>&1; then
+              cat "$output"
+              sed -n "s/^Error: /::error::Chromium $site: /p" "$output"
+              exit 1
+            fi
+            cat "$output"
+          done

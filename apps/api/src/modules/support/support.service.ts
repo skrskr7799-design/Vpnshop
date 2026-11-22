@@ -23,12 +23,12 @@ const messageDto = (row: SupportMessage) => ({
 });
 
 export async function listCases(userId: string | undefined, input: PageInput & {
-  status?: SupportCase["status"]; category?: SupportCase["category"]; orderId?: string;
+  status?: SupportCase["status"]; category?: SupportCase["category"]; orderId?: string; forUserId?: string;
 }) {
-  const { status, category, orderId, limit, cursor } = input;
-  const scope = JSON.stringify(["support", userId ?? "staff", status ?? null, category ?? null, orderId ?? null]);
+  const { status, category, orderId, forUserId, limit, cursor } = input;
+  const scope = JSON.stringify(["support", userId ?? "staff", status ?? null, category ?? null, orderId ?? null, forUserId ?? null]);
   const rows = await prisma.supportCase.findMany({
-    where: { userId, orderId, category, status, ...keysetWhere(scope, cursor) },
+    where: { userId: userId ?? forUserId, orderId, category, status, ...keysetWhere(scope, cursor) },
     orderBy: newestFirst, take: limit + 1,
   });
   return keysetPage(scope, rows, limit, row => userId ? summary(row) : { ...summary(row), userId: row.userId });
