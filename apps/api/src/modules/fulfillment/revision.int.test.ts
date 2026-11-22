@@ -9,12 +9,14 @@ import { createSession } from "../auth/session.service";
 import { dbNow } from "../commerce/offers";
 import { recordLookup } from "../payments/ledger";
 import type { AbsoluteProfile, AssignmentPanel, PanelUser } from "../remnawave/remnawave.assignment";
+import { createFakePanel } from "../remnawave/remnawave.testing";
 import { RemnawaveError } from "../remnawave/remnawave.errors";
 import { allocateCapture } from "../subscriptions/allocation";
 import { placeStaffHold, releaseStaffHold } from "../subscriptions/holds";
 import { lockSubscription, projectAssignment, refreshDueAssignments, subscriptionTransaction } from "../subscriptions/store";
+import { createFulfillmentWorker } from "./fulfillment.worker";
 import { processRevision } from "./revision.processor";
-import { claimRevision } from "./revision.queue";
+import { claimRevision, requestRevisionCheck } from "./revision.queue";
 
 const squad = "11111111-1111-4111-8111-111111111111";
 const secondSquad = "22222222-2222-4222-8222-222222222222";
@@ -125,6 +127,11 @@ it("creates only for proven rights, verifies identity and shares one lease acros
   expect(await claimRevision("without-capture", 5000)).toBeNull();
   expect(fixture.panel.createUser).not.toHaveBeenCalled();
   const grant = await purchase.capture();
+  const backends = await Promise.all([0, 1].map(() => prisma.$transaction(async db => {
+    const [backend] = await db.$queryRaw<{ pid: number }[]>`SELECT pg_backend_pid() AS pid FROM pg_sleep(0.1)`;
+    return backend!.pid;
+  })));
+  expect(new Set(backends).size).toBe(2);
   const leases = await Promise.all([claimRevision("first", 5000), claimRevision("second", 5000)]);
   const job = leases.find(lease => lease !== null)!;
   expect(leases.filter(Boolean)).toHaveLength(1);
@@ -198,6 +205,11 @@ it("rejects a stale late writer and rechecks the latest confirmed disable", asyn
   await tick("C");
   expect(fixture.current?.status).toBe("DISABLED");
   expect((await jobFor()).status).toBe("CONFIRMED");
+  // Crash after dispatch would drop the immediate signal. Even CONFIRMED stays in the drift scanner.
+  fixture.current!.status = "ACTIVE";
+  await due();
+  await tick("periodic");
+  expect(fixture.current?.status).toBe("DISABLED");
 });
 
 it("repairs drift of expiry, limit and squads after CONFIRMED and keeps a manual disable", async () => {
@@ -295,4 +307,42 @@ it("disables across a real period boundary and applies the new profile only at t
   expect(await refreshDueAssignments()).toBe(1);
   await tick();
   expect(fixture.current).toMatchObject({ status: "ACTIVE", deviceLimit: 9, expiresAt: future.endAt });
+});
+
+it("keeps a verification request delivered during a newer worker's lease and drains safely", async () => {
+  await (await booking()).capture();
+  await tick();
+  await republishSquads(secondSquad);
+  const newer = (await claimRevision("active", 5000))!;
+  await requestRevisionCheck(newer);
+  await processRevision(newer, fixture.panel);
+  expect((await jobFor()).status).toBe("VERIFY_PENDING");
+
+  let entered!: () => void;
+  let allow!: () => void;
+  const pending = new Promise<void>(resolve => { entered = resolve; });
+  const release = new Promise<void>(resolve => { allow = resolve; });
+  fixture.panel.readBack.mockImplementationOnce(async () => {
+    entered();
+    await release;
+    return fixture.current;
+  });
+  const worker = createFulfillmentWorker({
+    panel: fixture.panel, api: createFakePanel().api, internalSquadUuids: [squad],
+    leaseMs: 5000, log: { info() {}, warn() {}, error() {} },
+  });
+  worker.start();
+  try {
+    await pending;
+    const stopping = worker.stop();
+    expect(worker.status().draining).toBe(true);
+    allow();
+    await stopping;
+    expect(worker.status().ready).toBe(false);
+    expect((await jobFor()).status).toBe("CONFIRMED");
+    expect(await prisma.fulfillmentLease.count({ where: { jobId: { not: null } } })).toBe(0);
+  } finally {
+    allow();
+    await worker.stop();
+  }
 });

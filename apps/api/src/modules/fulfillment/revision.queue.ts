@@ -79,6 +79,7 @@ export function guardedRevision<T>(job: RevisionJob, budgetMs: number,
 
 export function markDispatch(job: RevisionJob, budgetMs: number, changes: Prisma.PanelBindingUpdateInput = {}) {
   return guardedRevision(job, budgetMs, async db => {
+    await markRevisionWriter(db);
     const reserved = await db.fulfillmentJob.updateMany({
       where: { id: job.id, status: "RUNNING", writes: { lt: maxWrites } }, data: { writes: { increment: 1 } },
     });
@@ -141,6 +142,7 @@ export async function requestRevisionCheck(job: RevisionJob) {
       subscriptionId: subscription.id, revision: subscription.revision,
     } }, select: { id: true } });
     if (!desired) return;
+    await markRevisionWriter(db);
     await db.fulfillmentJob.updateMany({ where: { assignmentId: desired.id }, data: {
       verificationEpoch: { increment: 1 }, nextAttemptAt: await dbNow(db),
     } });

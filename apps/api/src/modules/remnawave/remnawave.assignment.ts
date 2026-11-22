@@ -17,6 +17,7 @@ export interface AssignmentPanel {
   instance: string;
   origin: string;
   timeoutMs: number;
+  allowedSquads?: readonly string[];
   findUser(username: string): Promise<PanelUser | null>;
   readBack(id: number): Promise<PanelUser | null>;
   createUser(username: string, marker: string, profile: AbsoluteProfile): Promise<void>;
@@ -27,7 +28,7 @@ export interface AssignmentPanel {
 }
 
 export function assignmentPanel(client: RemnawaveClient, installation: {
-  instance: string; origin: string; linkOrigin: string; timeoutMs: number;
+  instance: string; origin: string; linkOrigin: string; timeoutMs: number; allowedSquads?: readonly string[];
 }): AssignmentPanel {
   type User = NonNullable<Awaited<ReturnType<RemnawaveClient["getUserById"]>>>;
   const normalize = (user: User): PanelUser => ({
@@ -37,6 +38,7 @@ export function assignmentPanel(client: RemnawaveClient, installation: {
   });
   return {
     instance: installation.instance, origin: installation.origin, timeoutMs: installation.timeoutMs,
+    allowedSquads: installation.allowedSquads,
     async findUser(username) {
       const user = await client.getUserByUsername(username);
       return user ? normalize(user) : null;

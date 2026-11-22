@@ -33,7 +33,7 @@ export function stagingPanel(timeoutMs: number) {
     client, squads: config.REMNAWAVE_STAGING_SQUADS,
     panel: assignmentPanel(client, {
       instance: config.REMNAWAVE_STAGING_INSTANCE, origin: config.REMNAWAVE_STAGING_ORIGIN,
-      linkOrigin: config.REMNAWAVE_STAGING_LINK_ORIGIN, timeoutMs,
+      linkOrigin: config.REMNAWAVE_STAGING_LINK_ORIGIN, timeoutMs, allowedSquads: config.REMNAWAVE_STAGING_SQUADS,
     }),
   };
 }

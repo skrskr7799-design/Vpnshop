@@ -70,6 +70,9 @@ export async function processRevision(job: RevisionJob, panel: AssignmentPanel) 
       if (!binding || binding.panelInstance !== panel.instance || binding.origin !== panel.origin) {
         throw new RevisionReview("PANEL_INSTALLATION_CONFLICT");
       }
+      if (desired.enabled && panel.allowedSquads && desired.internalSquads.some(id => !panel.allowedSquads?.includes(id))) {
+        throw new RevisionReview("STAGING_SQUAD_UNAPPROVED");
+      }
       return { desired, binding };
     });
     let { binding } = target;

@@ -26,6 +26,19 @@ CREATE TABLE "PanelBinding" (
 CREATE UNIQUE INDEX "PanelBinding_panelInstance_username_key" ON "PanelBinding"("panelInstance",username);
 CREATE UNIQUE INDEX "PanelBinding_panelInstance_remoteUserId_key" ON "PanelBinding"("panelInstance","remoteUserId");
 
+CREATE FUNCTION vpnshop_protect_panel_binding() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF ROW(OLD."subscriptionId", OLD."panelInstance", OLD.origin, OLD.username, OLD.marker)
+     IS DISTINCT FROM ROW(NEW."subscriptionId", NEW."panelInstance", NEW.origin, NEW.username, NEW.marker)
+     OR (OLD."remoteUserId" IS NOT NULL AND OLD."remoteUserId" IS DISTINCT FROM NEW."remoteUserId")
+     OR (OLD."confirmedRevision" IS NOT NULL AND COALESCE(NEW."confirmedRevision", 0) < OLD."confirmedRevision")
+  THEN RAISE EXCEPTION 'Panel binding identity and confirmation order are immutable'; END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER protect_panel_binding BEFORE UPDATE ON "PanelBinding"
+FOR EACH ROW EXECUTE FUNCTION vpnshop_protect_panel_binding();
+
 CREATE TABLE "PanelObservation" (
   id TEXT PRIMARY KEY,
   "assignmentId" TEXT NOT NULL REFERENCES "DesiredAssignment"(id) ON DELETE RESTRICT ON UPDATE CASCADE,
