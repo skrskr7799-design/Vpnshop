@@ -135,3 +135,13 @@ PostgreSQL suite проверяет повтор и конкуренцию за�
 | Staging | Повторить restore из реального TLS S3 с recovery materials, compatibility rollback, VPN/firewall IPv4/IPv6, SMS/email/alert delivery по согласованным каналам, RPO/RTO и нагрузку. Доступы Platega и Remnawave отдельно. |
 
 [Infrastructure workflow](../.github/workflows/infrastructure.yml) · [Восстановление](operations.md#практический-drill-и-off-site)
+
+
+## Визуальная приёмка UX-01–03
+
+Собрать оба frontend, установить MZT_VISUAL_DIR на пустой каталог и запустить оба browser-smoke скрипта с Chromium. Без переменной выполняются функциональные сценарии. Toolchain CI публикует кадры и JSON как mzt-visual-<sha>.
+
+- Проверяются 320, 360, 375, 390, 430, 768, 1024, 1440, 1920 CSS px. Для каждого экрана проверяется заголовок, именование видимых полей, минимум 44 px для основных контролов и отсутствие горизонтального overflow страницы. Таблицы прокручиваются локально. Операторский fixture содержит 1 010 записей, на странице не больше 25.
+- Проверяются Tab, Escape, возврат фокуса и accessible name модального checkout, контраст выбранных пар токенов, reflow при 200% zoom и reduced motion. Полный аудит WCAG и отдельный скринридер остаются частью релизной приёмки.
+- qa.json содержит gzip размеры, результат viewport sweep и три холодных замера login/dashboard при 390 px, CPU 4×, RTT 150 мс и 1,6 Мбит/с. Это синтетические LCP, CLS и transfer. Полевой INP не измеряется этим тестом.
+- Кадры используют только синтетические данные. На экране подключения ссылка и QR закрыты. PostgreSQL, API и инфраструктура проверяются отдельно. [Workflow](../.github/workflows/ci.yml) · [Сценарий](../scripts/visual-qa.mjs)
