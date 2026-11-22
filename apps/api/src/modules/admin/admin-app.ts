@@ -1,3 +1,4 @@
+import { staffSupportRoutes } from "../support/support.routes";
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
@@ -67,6 +68,7 @@ export async function buildAdminApp(options: AdminAppOptions) {
       await api.register(adminPlansRoutes);
       await api.register(adminJobsRoutes);
       await api.register(adminAuditRoutes);
+      await api.register(staffSupportRoutes);
     },
     { prefix: "/api" },
   );

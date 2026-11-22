@@ -10,6 +10,7 @@ import { VerifyEmailPage } from "./features/auth/pages/VerifyEmailPage";
 import { AccountShell } from "./features/account/account";
 import { DashboardPage, PlansPage, OrdersPage, OrderPage, SubscriptionPage } from "./features/account/CommercePages";
 import { ConnectionPage } from "./features/account/ConnectionPage";
+import { SupportPage, SupportThreadPage } from "./features/account/SupportPages";
 import { NotFoundPage } from "./pages/NotFoundPage";
 
 export function App() {
@@ -37,6 +38,8 @@ export function App() {
           <Route path="orders/:id" element={<OrderPage />} />
           <Route path="subscription" element={<SubscriptionPage />} />
           <Route path="connect" element={<ConnectionPage />} />
+          <Route path="support" element={<SupportPage />} />
+          <Route path="support/:id" element={<SupportThreadPage />} />
           <Route path="security" element={<SecurityPage />} />
         </Route>
       </Route>

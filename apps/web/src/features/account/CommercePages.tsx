@@ -127,6 +127,7 @@ export function OrderPage() {
     {order && <>
       <Panel><h2>{titleOf(order.snapshot)}</h2><p>{amount(order.snapshot.price.amountMinor, order.snapshot.price.currency)} · {order.snapshot.durationMonths} мес.</p>
         <OrderFacts order={order} />
+        <Link to={`/account/support?orderId=${order.id}`}>Помощь с заказом</Link>
         {order.allowedChannels.length === 0 && <p>Оплата сейчас недоступна.</p>}
         {order.canStartPayment && order.allowedChannels.map(channel =>
           <button key={channel} disabled={pending} onClick={() => void startPayment(channel)}>{channel === "SBP" ? "СБП" : "Карта"}</button>)}

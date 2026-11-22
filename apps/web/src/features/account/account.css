@@ -46,3 +46,21 @@
 .mzt-account label { display: grid; gap: .35rem; }
 .mzt-account form { display: grid; gap: .75rem; }
 .mzt-qr { display: block; width: min(100%, 14rem); height: auto; }
+
+.mzt-form { display: grid; gap: 1rem; max-width: 42rem; }
+.mzt-form label { display: grid; gap: 0.35rem; min-width: 0; }
+.mzt-form textarea, .mzt-form select {
+  font: inherit;
+  padding: 0.65rem 0.8rem;
+  color: inherit;
+  background: #181820;
+  border: 1px solid #50505b;
+  border-radius: 0.5rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+.mzt-form textarea { resize: vertical; }
+.mzt-form :is(textarea, select):focus-visible { outline: 2px solid #b5a2ff; outline-offset: 2px; }
+.mzt-messages { padding: 0; list-style: none; }
+.mzt-messages li { border-top: 1px solid #3c3c46; padding: 0.5rem 0; }
+.mzt-message { overflow-wrap: anywhere; white-space: pre-wrap; }

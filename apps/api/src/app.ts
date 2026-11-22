@@ -1,3 +1,4 @@
+import { ownerSupportRoutes } from "./modules/support/support.routes";
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
@@ -52,6 +53,7 @@ export async function buildApp(options: { payments?: PaymentProviderAdapter; pan
       });
 
       await api.register(healthRoutes);
+      await api.register(ownerSupportRoutes);
       await api.register(commerceRoutes, { payments, panel: options.panel });
       await api.register(authRoutes, { prefix: "/auth" });
       await api.register(oauthRoutes, { prefix: "/auth/oauth", providers: loadProviders() });

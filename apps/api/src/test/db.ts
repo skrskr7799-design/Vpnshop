@@ -18,6 +18,9 @@ export async function resetDatabase(): Promise<void> {
     // Explicit application tables, in foreign-key order. The role has DML grants only.
     await tx.$executeRaw`TRUNCATE "FulfillmentLease", "FulfillmentJob", "DesiredAssignment", "ServiceHold",
       "Adjustment", "PeriodGrant", "OrderAllocation", "Subscription", "PaymentTransaction", "PanelObservation", "PanelBinding"`;
+    await tx.supportEvent.deleteMany();
+    await tx.supportMessage.deleteMany();
+    await tx.supportCase.deleteMany();
     await tx.paymentCase.deleteMany();
     await tx.payment.deleteMany();
     await tx.order.deleteMany();

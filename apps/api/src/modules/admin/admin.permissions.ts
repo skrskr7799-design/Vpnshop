@@ -11,15 +11,17 @@ export const PERMISSIONS = [
   "jobs:read",
   "jobs:write",
   "audit:read",
+  "support:read",
+  "support:write",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
 export type AdminRole = Extract<UserRole, "ADMIN" | "SUPPORT">;
 
-// ADMIN может всё. SUPPORT только смотрит: без изменений тарифов, заказов и задач.
+// ADMIN может всё. SUPPORT отвечает по обращениям и читает разрешённые операционные данные.
 export const ROLE_PERMISSIONS: Record<AdminRole, readonly Permission[]> = {
   ADMIN: PERMISSIONS,
-  SUPPORT: ["dashboard:read", "users:read", "orders:read", "plans:read", "jobs:read"],
+  SUPPORT: ["dashboard:read", "users:read", "orders:read", "plans:read", "jobs:read", "support:read", "support:write"],
 };
 
 export const isAdminRole = (role: UserRole): role is AdminRole => role === "ADMIN" || role === "SUPPORT";

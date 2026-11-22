@@ -58,6 +58,7 @@ export function AccountShell() {
   const navigation = [
     ["/account", "Обзор"], ["/account/plans", "Тарифы"], ["/account/subscription", "Подписка"],
     ["/account/connect", "Подключение"], ["/account/orders", "Заказы"], ["/account/security", "Безопасность"],
+    ["/account/support", "Поддержка"],
   ];
   return <div className="mzt-account">
     <header className="mzt-top">
