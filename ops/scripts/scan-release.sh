@@ -79,5 +79,8 @@ fi
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   printf 'Supply chain: %s\n' "$(jq -c . "$output/scan-gates.json")" >> "$GITHUB_STEP_SUMMARY"
   printf '::notice title=Supply chain evidence::%s\n' "$(jq -c 'del(.images[].ref)' "$output/scan-gates.json")"
+  if (( decision )); then
+    printf '::error title=Supply-chain gate blocked::%s\n' "$(jq -c '{gitleaksExit, npmProductionExit, images: (.images | map_values(del(.ref, .status)))}' "$output/scan-gates.json")"
+  fi
 fi
 exit "$decision"
