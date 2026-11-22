@@ -144,7 +144,7 @@
 
 REL-01 добавляет исправления ingress CSP, безопасного OIDC обмена, обновляет pinned Nginx и проводит supply-chain scan. REL-02 связывает HTTP, PostgreSQL и fixtures в сквозной сценарий, расширяет PITR, проверяет предыдущий runtime и готовит OCI-кандидат. Внешние коммерческие критерии остаются BLOCKED до стенда и решения владельца. [Приёмка REL](release-acceptance.md)
 
-Remediation для `db` и `backup` остаётся **BLOCKED**. На закреплённом PostgreSQL 17.12 Bookworm доступны те же версии трёх уязвимых пакетов. Trixie сохраняет CRITICAL в libxml2, переход на Alpine требует отдельной проверки collation, PGDATA и совместимости резервных копий. Допуск PR в main зависит от прохождения обязательных проверок на итоговом кандидате. [Разбор CVE и образов](release-acceptance.md#rel-01--проверка-critical-в-postgresql-и-backup)
+**Engineering Not Ready · Commercial NO-GO.** Remediation для `db` и `backup` остаётся BLOCKED. На закреплённом PostgreSQL 17.12 Bookworm доступны те же версии трёх уязвимых пакетов. Trixie сохраняет CRITICAL в libxml2, переход на Alpine требует отдельной проверки collation, PGDATA и резервных копий. Возможность merge зависит от обязательных проверок на итоговом SHA. [Оценка риска и доказательства](release-acceptance.md#rel-01--проверка-critical-в-postgresql-и-backup)
 
 ## Phase 8 — Product Expansion
 
