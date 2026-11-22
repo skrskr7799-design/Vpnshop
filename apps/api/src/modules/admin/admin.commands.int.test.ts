@@ -147,7 +147,7 @@ it("keeps independent holds, rejects old revision requeue and leaves the ledger 
   expect(extra.statusCode).toBe(200);
   const releases = await Promise.all([first, second].map(client =>
     client.command("user.release_hold", user.id, sub.revision, { holdId: extra.json().result.holdId })));
-  expect(releases.some(r => r.statusCode === 200)).toBe(true);
+  expect(releases.map(response => response.statusCode).sort()).toEqual([200, 409]);
   expect(await prisma.serviceHold.count({ where: { subscriptionId: sub.id, releasedAt: null } })).toBe(1);
   expect((await first.command("job.requeue", oldest.id, initial.revision, {})).json().error.code).toBe("STALE_REVISION");
   expect((await first.command("order.reconcile", order.id, order.updatedAt.toISOString(), {})).statusCode).toBe(200);
@@ -169,11 +169,12 @@ it("reserves confirmed refunds once, requires an independent approver and never 
   const refundId = concurrent.find(response => response.statusCode === 200)!.json().result.refundId;
   expect((await winner.command("refund.approve", order.id, version, { refundId })).json().error.code).toBe("SAME_APPROVER");
   const outcomes = await Promise.all([
-    approver.command("refund.approve", order.id, version, { refundId }),
+    winner.command("refund.approve", order.id, version, { refundId }),
     approver.command("refund.approve", order.id, version, { refundId }),
   ]);
   expect(outcomes.map(result => result.statusCode).sort()).toEqual([200, 409]);
   expect(outcomes.find(result => result.statusCode === 200)!.json().result.status).toBe("APPROVED_WAITING_PROVIDER");
+  expect((await approver.command("refund.approve", order.id, version, { refundId })).json().error.code).toBe("ALREADY_DECIDED");
   expect(await prisma.refundIntent.count()).toBe(1);
   expect(await prisma.paymentTransaction.count()).toBe(2);
 });
@@ -193,4 +194,25 @@ it("appends one traced time credit per approved incident with no order or financ
       .toBe("INCIDENT_ALREADY_COMPENSATED");
     expect(await prisma.paymentTransaction.count()).toBe(1);
   } finally { delete process.env.ADMIN_COMPENSATION_POLICY; }
+});
+
+it("requires a separate approver for staff factor reset and keeps other staff sessions valid", async () => {
+  const target = await createEnrolledAdmin("staff-reset@example.invalid", "SUPPORT");
+  const request = await first.command("staff.totp.request", target.userId, 1, { recoveryCaseId: "STAFF-42" });
+  expect(request.statusCode).toBe(200);
+  const requestId = request.json().result.id;
+  expect((await first.command("staff.totp.approve", target.userId, 1, { requestId })).json().error.code).toBe("SAME_APPROVER");
+  expect((await second.command("staff.totp.approve", target.userId, 1, { requestId })).statusCode).toBe(200);
+  expect((await as(app, target.sessionToken).get("/api/me")).statusCode).toBe(401);
+  expect((await first.get("/api/me")).statusCode).toBe(200);
+  expect(await prisma.adminTotp.findUnique({ where: { userId: target.userId } })).toBeNull();
+  expect(await prisma.adminRecoveryCode.count({ where: { userId: target.userId } })).toBe(0);
+  expect(await prisma.staffCredential.findUnique({ where: { userId: target.userId } })).toMatchObject({ version: 2 });
+});
+
+it("protects the only enrolled administrator when the other administrator is locked out", async () => {
+  await prisma.adminTotp.update({ where: { userId: bob.userId }, data: { lockedUntil: new Date(Date.now() + 60_000) } });
+  const reply = await second.command("staff.role", alice.userId, 1, { role: "DISABLED" });
+  expect(reply.json().error.code).toBe("LAST_ADMIN");
+  expect((await first.get("/api/me")).statusCode).toBe(200);
 });

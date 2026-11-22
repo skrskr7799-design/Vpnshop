@@ -127,10 +127,10 @@ try {
     }
     throw new Error("Missing expected UI state: " + expression);
   }
-  const text = value => "document.body.innerText.includes(" + JSON.stringify(value) + ")";
+  const text = value => "Boolean(document.body?.innerText.includes(" + JSON.stringify(value) + "))";
   const click = value => evaluate(`[...document.querySelectorAll("a,button,summary")].find(node => node.textContent.trim() === ${JSON.stringify(value)} && node.checkVisibility()).click()`);
   const fill = (name, value) => evaluate(`[...document.querySelectorAll('[name=' + ${JSON.stringify(name)} + ']')].find(node => node.checkVisibility()).value = ${JSON.stringify(value)}`);
-  const fit = () => until("document.documentElement.scrollWidth <= innerWidth");
+  const fit = () => until("Boolean(document.documentElement && document.documentElement.scrollWidth <= innerWidth)");
   async function login(email) {
     await until(text("Вход для сотрудников"));
     await fill("email", email);

@@ -53,11 +53,9 @@ phase=clean-schema
 check_schema() {
   local output
   if ! output=$(pnpm exec prisma migrate diff --from-schema-datasource prisma/schema.prisma --to-schema-datamodel prisma/schema.prisma --exit-code 2>&1); then
-    printf '%s
-' "$output"
+    printf '%s\n' "$output"
     if [[ "${GITHUB_ACTIONS:-}" == true ]]; then
-      printf '%s
-' "$output" | sed -n '/\[~\]\|\[+\]\|\[-\]\|^  [+-]\|^Error:/s/^/::error::/p'
+      printf '%s\n' "$output" | sed -n '/\[~\]\|\[+\]\|\[-\]\|^  [+-]\|^Error:/s/^/::error::/p'
     fi
     return 1
   fi

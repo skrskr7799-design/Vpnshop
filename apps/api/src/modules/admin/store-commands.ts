@@ -46,6 +46,7 @@ async function refundSource(ctx: CommandContext, captureId: string) {
     throw new AppError(409, "NOT_REFUNDABLE");
   }
   const now = await dbNow(ctx.db);
+  if (fact.providerTime > now) throw new AppError(409, "NOT_REFUNDABLE");
   const reserved = await ctx.db.refundIntent.aggregate({
     where: { captureId, OR: [{ approvedAt: { not: null } }, { expiresAt: { gt: now } }] }, _sum: { amountMinor: true },
   });
@@ -128,6 +129,7 @@ export const storeCommands = {
     expectVersion(ctx.expectedVersion, subscription.revision);
     const hold = await ctx.db.serviceHold.findFirst({ where: { id: input.holdId, subscriptionId: subscription.id } });
     if (!hold || !hold.source.startsWith("staff:")) throw new AppError(409, "HOLD_NOT_MANAGED");
+    if (hold.releasedAt) throw new AppError(409, "HOLD_ALREADY_RELEASED");
     const result = await releaseStoredHold(ctx.db, subscription, await dbNow(ctx.db), hold.source, { actorId: ctx.actor.userId, reason: ctx.reason });
     return { holdId: result.id, releasedAt: result.releasedAt!.toISOString() };
   }),

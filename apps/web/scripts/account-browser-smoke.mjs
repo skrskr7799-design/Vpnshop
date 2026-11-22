@@ -129,9 +129,9 @@ try {
     }
     throw new Error("Missing expected UI state: " + expression);
   }
-  const text = value => "document.body.innerText.includes(" + JSON.stringify(value) + ")";
+  const text = value => "Boolean(document.body?.innerText.includes(" + JSON.stringify(value) + "))";
   const click = value => evaluate(`[...document.querySelectorAll("a,button")].find(e => e.textContent.trim() === ${JSON.stringify(value)}).click()`);
-  const fit = () => until("document.documentElement.scrollWidth <= innerWidth");
+  const fit = () => until("Boolean(document.documentElement && document.documentElement.scrollWidth <= innerWidth)");
   await send("Network.enable");
   await send("Emulation.setDeviceMetricsOverride", { width: 360, height: 800, deviceScaleFactor: 1, mobile: true });
   await send("Page.navigate", { url: origin + "/account" });
@@ -173,7 +173,7 @@ try {
   await until(text("Серверный выход ещё не подтверждён"));
   assert.ok(await evaluate("!document.querySelector('.mzt-account, .mzt-qr')"));
   await click("Повторить выход");
-  await until("!document.body.innerText.includes('Серверный выход ещё не подтверждён')");
+  await until("document.body && !document.body.innerText.includes('Серверный выход ещё не подтверждён')");
   assert.equal(signedIn, false);
   console.log("Chromium 360 px: account, checkout retry, order support with literal HTML, security, local QR and failed/retried logout passed");
 } finally {
