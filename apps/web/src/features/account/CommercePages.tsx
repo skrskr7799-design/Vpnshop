@@ -67,11 +67,11 @@ export function DashboardPage() {
       </div>
       <ConnectionCard compact />
     </>}
-    <div className="mzt-account-overview-bottom">
+    {!overview.isPending && !orders.isPending && <div className="mzt-account-overview-bottom">
       <Card className="mzt-overview-panel">
         <div className="mzt-panel-heading"><h2><Icon name="receipt" size={18} />Последние заказы</h2>
           <Link className="mzt-inline-link" to="/account/orders">Все заказы <Icon name="arrow" size={15} /></Link></div>
-        <LoadState pending={orders.isPending} error={orders.error} retry={orders.refetch} />
+        <LoadState pending={false} error={orders.error} retry={orders.refetch} />
         {orders.data && !orders.isError && (orders.data.items.length ? <ul className="mzt-latest-orders">
           {orders.data.items.map(order => <li key={order.id}><Link to={`/account/orders/${order.id}`}>
             <span>{titleOf(order.snapshot)}<small>{date(order.createdAt)}</small></span>
@@ -85,7 +85,7 @@ export function DashboardPage() {
         <p className="mz-muted">Поможем с заказом или подключением.</p>
         <Link className={buttonClass("secondary")} to="/account/support">Написать в поддержку</Link>
       </Card>
-    </div>
+    </div>}
   </div>;
 }
 

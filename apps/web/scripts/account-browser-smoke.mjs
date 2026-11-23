@@ -233,7 +233,9 @@ try {
   slowOverview = true;
   await send("Page.navigate", { url: origin + "/account" });
   await until('Boolean(document.querySelector("main .mz-skeleton"))');
+  assert.equal(await evaluate(text("Последние заказы")), false);
   await until(text("Активная подписка"));
+  await until(text("Последние заказы"));
   slowOverview = false;
   for (const [state, expected] of [["EMPTY", "Нет подписки"], ["EXPIRED", "Подписка истекла"], ["ERROR", "Действие не завершилось"]]) {
     subscriptionState = state;
