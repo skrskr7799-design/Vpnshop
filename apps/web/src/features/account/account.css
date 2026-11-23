@@ -17,9 +17,16 @@
 .mzt-content h1:not(.mz-page-header h1) { font-size: clamp(1.8rem, 1.1rem + 2vw, 2.85rem); letter-spacing: -.04em; }
 .mzt-content h2 { font-size: clamp(1.15rem, 1rem + .5vw, 1.55rem); }
 .mzt-content p { max-width: 70ch; }
-.mzt-panel, .mzt-content .login-methods__list { background: var(--mz-surface); border: 1px solid var(--mz-line); border-radius: var(--mz-card-radius); padding: clamp(1rem, 2vw, 1.55rem); min-width: 0; }
+.mzt-panel { --mz-outline: color-mix(in srgb, var(--mzt-border-accent) 68%, var(--mz-line));
+  padding: clamp(1rem, 2vw, 1.55rem); min-width: 0; }
 .mzt-panel > * + * { margin-block-start: .8rem; }
+.mzt-section-title, .mzt-record-link { display: flex; align-items: center; gap: .5rem; }
+.mzt-section-title svg, .mzt-record-link svg { flex: none; color: var(--mz-violet-hover); }
+.mzt-record-link { display: inline-flex; min-height: 44px; text-decoration: none; }
+.mzt-record-link:hover { text-decoration: underline; }
 .mzt-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,16rem),1fr)); gap: 1rem; }
+.mzt-catalog { grid-template-columns: repeat(auto-fit,minmax(min(100%,14rem),1fr)); }
+.mzt-catalog .mzt-offer { grid-template-rows: auto auto 1fr auto; --mz-outline: var(--mzt-border-accent); }
 .mzt-stack { display: grid; gap: .75rem; }
 .mzt-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; }
 .mzt-content :is(button, input, select, textarea):not([class^="mz-"]) { max-width: 100%; min-height: 44px; background: var(--mz-raised); border: 1px solid var(--mz-control-border); border-radius: var(--mz-radius); padding: .52rem .8rem; }
@@ -33,6 +40,14 @@
 .mzt-detail { display: grid; grid-template-columns: minmax(6.2rem, .75fr) minmax(0, 1.6fr); gap: .55rem 1rem; min-width: 0; }
 .mzt-detail dt { color: var(--mz-muted); }
 .mzt-detail dd { min-width: 0; }
+.mzt-record-facts {
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .25rem .9rem;
+  padding-block-start: .8rem; border-block-start: 1px solid var(--mz-line);
+}
+.mzt-record-facts dt { grid-row: 1; font-size: .81rem; color: var(--mz-secondary); }
+.mzt-record-facts dd { grid-row: 2; min-width: 0; font-size: .875rem; }
+.mzt-order-price { align-self: center; font-size: 1.25rem; overflow-wrap: anywhere; }
+.mzt-subscription-detail { --mz-outline: var(--mzt-border-accent); }
 .mzt-price { font-size: clamp(1.65rem, 1rem + 1.4vw, 2.3rem); letter-spacing: -.035em; font-weight: 650; }
 .mzt-feature-row { display: flex; flex-wrap: wrap; align-items: start; justify-content: space-between; gap: .65rem; }
 .mzt-notice { display: flex; align-items: start; gap: .65rem; color: var(--mz-secondary); background: var(--mz-info-bg); border: 1px solid var(--mz-line); border-radius: var(--mz-radius); padding: .85rem 1rem; }
@@ -43,16 +58,30 @@
 .mzt-offer dl { padding-block: .8rem; border-block: 1px solid var(--mz-line); }
 .mzt-order-row { display: grid; gap: .65rem; }
 .mzt-order-row > strong { font-size: 1.15rem; }
-.mzt-private { display: grid; gap: 1rem; margin-top: 1rem; max-width: 36rem; min-width: 0; }
-.mzt-qr { width: min(100%, 13.5rem); height: auto; border-radius: .4rem; }
+.mzt-private { display: grid; gap: 1rem; margin-top: 1rem; max-width: 44rem; min-width: 0; padding-block-start: 1rem; border-block-start: 1px solid var(--mz-line); }
+.mzt-private__data { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
+.mzt-qr { display: block; width: min(100%, 11rem); height: auto; border-radius: .25rem; }
 .mzt-steps { padding-inline-start: 1.5rem; color: var(--mz-secondary); }
 .mzt-steps li { padding: .3rem 0 .3rem .35rem; }
+.mzt-help-grid, .mzt-security-grid, .mzt-help-list, .mzt-auth-methods { display: grid; gap: .85rem; align-content: start; }
+.mzt-help-grid > *, .mzt-security-grid > * { min-width: 0; }
 .mzt-messages p { white-space: pre-wrap; }
-.mzt-messages li[data-author="STAFF"] { padding-inline-start: .8rem; background: var(--mz-rail); border-radius: 0 6px 6px 0; }
-.mzt-content .login-methods__list { list-style: none; }
-.mzt-content .login-methods__list li { padding-block: .6rem; }
-.mzt-content .login-methods__list li + li { border-block-start: 1px solid var(--mz-line); }
-.mzt-content .login-methods__list button { margin-top: .55rem; }
+.mzt-messages li { padding-inline-start: .8rem; }
+.mzt-messages li[data-author="STAFF"] { background: var(--mz-rail); border-radius: 0 6px 6px 0; }
+.mzt-disclosure { border-block-start: 1px solid var(--mz-line); }
+.mzt-disclosure summary { min-height: 44px; align-content: center; cursor: pointer; color: var(--mz-secondary); }
+.login-methods__list { display: grid; gap: 0; list-style: none; padding: 0; margin: 0; }
+.login-methods__row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .6rem; padding-block: .65rem; }
+.login-methods__row + .login-methods__row { border-block-start: 1px solid var(--mz-line); }
+.login-methods__row > div { display: grid; justify-items: start; gap: .3rem; min-width: 0; }
+@media (min-width: 620px) {
+  .mzt-private__data { grid-template-columns: minmax(0, 1fr) auto; }
+}
+@media (min-width: 1160px) {
+  .mzt-help-grid { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); }
+  .mzt-security-grid { grid-template-columns: minmax(0, .95fr) minmax(0, 1.05fr); }
+  .mzt-help-grid, .mzt-security-grid { gap: 1.1rem; align-items: start; }
+}
 @media (min-width: 820px) {
   .mzt-account { display: grid; grid-template-columns: 14rem minmax(0, 1fr); }
   .mzt-rail { display: flex; flex-direction: column; gap: 1.75rem; align-self: start; position: sticky; top: 0; min-height: 100dvh; max-height: 100dvh; overflow: auto; border-inline-end: 1px solid var(--mz-line); background: var(--mz-rail); padding: 1.35rem .85rem; }
@@ -60,8 +89,9 @@
   .mzt-top__context { display: inline-flex; color: var(--mz-secondary); font-size: .9rem; }
   .mzt-top__exit { margin-inline-start: auto; }
 }
-@media (max-width: 390px) {
-  .mzt-content .login-methods__row { flex-wrap: wrap; align-content: center; }
+@media (max-width: 1160px) {
+  .mzt-record-facts { grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); row-gap: .55rem; }
+  .mzt-record-facts dt, .mzt-record-facts dd { grid-row: auto; }
 }
 .mzt-form, .mzt-form label { grid-template-columns: minmax(0, 1fr); }
 .mzt-form :is(input, select, textarea) { width: 100%; min-width: 0; }

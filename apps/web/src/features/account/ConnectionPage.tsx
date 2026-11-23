@@ -24,6 +24,7 @@ export function ConnectionCard({ compact = false }: { compact?: boolean }) {
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
   const requestRef = useRef<AbortController>(null);
+  const revealButton = useRef<HTMLButtonElement>(null);
   const delivery = sub ? displayDelivery(sub) : null;
   const ready = !query.isError && delivery === "READY" && sub?.rightStatus === "ACTIVE";
   const periodId = sub?.currentPeriod?.id;
@@ -71,19 +72,24 @@ export function ConnectionCard({ compact = false }: { compact?: boolean }) {
               "Данные появятся после начала периода и подтверждения профиля панелью."}</p>}
           {!compact && sub?.delivery.observedAt && <p className="mz-muted">Последнее подтверждение {date(sub.delivery.observedAt)}</p>}
         </div>
-        {ready && !visible && <Button variant="secondary" loading={pending} onClick={() => void reveal()}>
+        {ready && !visible && <Button ref={revealButton} variant="secondary" loading={pending} onClick={() => void reveal()}>
           <Icon name="lock" size={17} />Показать ссылку и QR
         </Button>}
       </div>
       {message && <p role="status">{message}</p>}
       {visible && <div className="mzt-private">
         <p className="mz-muted">Ссылка даёт доступ к вашей подписке. Она скроется через минуту.</p>
-        <CopyField label="Ссылка подписки" value={visible.url} />
-        <svg className="mzt-qr" role="img" aria-label="QR-код подписки"
-          viewBox={`0 0 ${visible.qr.size} ${visible.qr.size}`}>
-          <rect width="100%" height="100%" fill="white" /><path fill="black" d={visible.qr.path} />
-        </svg>
-        <div><Button variant="secondary" onClick={() => setRevealed(null)}>Скрыть</Button></div>
+        <div className="mzt-private__data">
+          <CopyField label="Ссылка подписки" value={visible.url} />
+          <svg className="mzt-qr" role="img" aria-label="QR-код подписки"
+            viewBox={`0 0 ${visible.qr.size} ${visible.qr.size}`}>
+            <rect width="100%" height="100%" fill="white" /><path fill="black" d={visible.qr.path} />
+          </svg>
+        </div>
+        <div><Button variant="secondary" onClick={() => {
+          setRevealed(null);
+          requestAnimationFrame(() => revealButton.current?.focus());
+        }}>Скрыть</Button></div>
       </div>}
     </Card>}
   </>;
@@ -92,7 +98,7 @@ export function ConnectionCard({ compact = false }: { compact?: boolean }) {
 export function ConnectionPage() {
   return <><PageHeader title="Подключение" description="Добавьте подписку MZT в VPN-клиент." />
     <ConnectionCard />
-    <Card><h2>Как подключиться</h2><ol className="mzt-steps">
+    <Card className="mzt-panel"><h2 className="mzt-section-title"><Icon name="connect" size={20} />Как подключиться</h2><ol className="mzt-steps">
       <li>Откройте совместимый VPN-клиент, который поддерживает импорт подписки.</li>
       <li>Добавьте подписку по ссылке или отсканируйте QR-код с другого устройства.</li>
       <li>Обновите список подключений в клиенте и выберите доступный профиль.</li>

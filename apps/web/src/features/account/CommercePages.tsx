@@ -10,7 +10,9 @@ import { ConnectionCard } from "./ConnectionPage";
 
 const useSubscription = () => useOwner<OwnerSubscription>("/me/subscription");
 const titleOf = (value: { name: string | null }) => value.name ?? "Подписка MZT";
-function Panel({ children }: { children: ReactNode }) { return <section className="mzt-panel">{children}</section>; }
+function Panel({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return <Card className={`mzt-panel ${className}`}>{children}</Card>;
+}
 
 export function DashboardPage() {
   const overview = useSubscription();
@@ -121,12 +123,12 @@ export function PlansPage() {
     <LoadState pending={catalog.isPending} error={catalog.error} retry={catalog.refetch} />
     {error && !choice && <p role="alert">{error}</p>}
     {catalog.data?.offers.length === 0 && <EmptyState title="Доступных предложений пока нет" />}
-    <div className="mzt-grid">{catalog.data?.offers.map(offer => <section className="mzt-panel mzt-offer" key={offer.id}>
+    <div className="mzt-grid mzt-catalog">{catalog.data?.offers.map(offer => <Panel className="mzt-offer" key={offer.id}>
       <header><Badge tone="accent">{offer.durationMonths} мес.</Badge><h2>{offer.name}</h2></header>
       <p className="mzt-price">{amount(offer.price.amountMinor, offer.price.currency)}</p>
       <dl className="mzt-detail"><dt>Устройства</dt><dd>До {offer.deviceLimit}</dd></dl>
       <Button variant="secondary" block onClick={() => { setError(""); setChoice(offer); }}>Выбрать</Button>
-    </section>)}</div>
+    </Panel>)}</div>
     <Dialog open={!!choice} title="Проверьте условия" busy={pending !== null} onClose={() => setChoice(undefined)}>
       {choice && <><h3>{choice.name}</h3><dl className="mzt-detail">
         <dt>Сумма</dt><dd>{amount(choice.price.amountMinor, choice.price.currency)}</dd>
@@ -156,7 +158,7 @@ export function PageList<T extends { id: string }>({ path, empty, render }: {
 }
 
 function OrderFacts({ order }: { order: OwnerOrderSummary }) {
-  return <dl className="mzt-detail">
+  return <dl className="mzt-record-facts">
     <dt>Заказ</dt><dd><StatusIndicator status={order.orderState}>{label(order.orderState)}</StatusIndicator></dd>
     <dt>Оплата</dt><dd><StatusIndicator status={order.moneyStatus}>{label(order.moneyStatus)}</StatusIndicator></dd>
     <dt>Выдача</dt><dd><StatusIndicator status={order.deliveryStatus}>{label(order.deliveryStatus)}</StatusIndicator></dd>
@@ -167,8 +169,8 @@ function OrderFacts({ order }: { order: OwnerOrderSummary }) {
 
 export function OrdersPage() {
   return <><PageHeader title="Заказы" description="История покупок, оплаты и выдачи доступа." /><PageList<OwnerOrderSummary> path="/orders" empty="Заказов пока нет." render={order => <>
-    <div className="mzt-feature-row"><h2><Link to={`/account/orders/${order.id}`}>{titleOf(order.snapshot)}</Link></h2>
-      <strong>{amount(order.snapshot.price.amountMinor, order.snapshot.price.currency)}</strong></div><OrderFacts order={order} />
+    <div className="mzt-feature-row"><h2><Link className="mzt-record-link" to={`/account/orders/${order.id}`}>{titleOf(order.snapshot)} <Icon name="arrow" size={16} /></Link></h2>
+      <strong className="mzt-order-price">{amount(order.snapshot.price.amountMinor, order.snapshot.price.currency)}</strong></div><OrderFacts order={order} />
   </>} /></>;
 }
 
@@ -200,14 +202,14 @@ export function OrderPage() {
       <Panel><div className="mzt-feature-row"><div><h2>{titleOf(order.snapshot)}</h2><p className="mz-muted">{order.snapshot.durationMonths} мес. · до {order.snapshot.deviceLimit} устройств</p></div>
         <p className="mzt-price">{amount(order.snapshot.price.amountMinor, order.snapshot.price.currency)}</p></div>
         <OrderFacts order={order} />
-        <Link to={`/account/support?orderId=${order.id}`}>Помощь с заказом</Link>
+        <div className="mz-actions"><Link className={buttonClass("secondary")} to={`/account/support?orderId=${order.id}`}><Icon name="support" size={17} />Помощь с заказом</Link></div>
         {order.allowedChannels.length === 0 && <div className="mzt-notice"><Icon name="clock" size={18} /><p>Оплата сейчас недоступна.</p></div>}
         {order.canStartPayment && order.allowedChannels.map(channel =>
           <Button key={channel} disabled={pending} onClick={() => void startPayment(channel)}>{channel === "SBP" ? "СБП" : "Карта"}</Button>)}
         {error && <p role="alert">{error}</p>}
         {order.refunds.map(refund => <p key={refund.id}>Возврат {amount(refund.amountMinor, refund.currency)} · {date(refund.confirmedAt)}</p>)}
       </Panel>
-      <h2>Попытки оплаты</h2>
+      <h2 className="mzt-section-title"><Icon name="receipt" size={19} />Попытки оплаты</h2>
       <PageList<OwnerPayment> key={order.id} path={path + "/payments"} empty="Платёжных попыток пока нет." render={attempt => <>
         <p><StatusIndicator status={attempt.status}>{label(attempt.status)}</StatusIndicator> · {date(attempt.updatedAt)}</p>
         {attempt.confirmedCaptures.map(fact => <p key={fact.id}>Поступление {amount(fact.amountMinor, fact.currency)} · {date(fact.confirmedAt)}</p>)}
@@ -222,21 +224,24 @@ export function SubscriptionPage() {
   const delivery = sub ? displayDelivery(sub) : null;
   return <><PageHeader title="Подписка" description="Текущее право, состояние подключения и история периодов." />
     <LoadState pending={overview.isPending} error={overview.error} retry={overview.refetch} />
-    {sub && delivery && <Panel><div className="mzt-feature-row">
-      <h2>Состояние подписки</h2><Link className={buttonClass("secondary")} to="/account/plans">Продлить</Link></div>
-      <dl className="mzt-detail">
+    {overview.data && !sub && <EmptyState title="Доступ ещё не подключён">
+      <Link className={buttonClass("secondary")} to="/account/plans">Посмотреть тарифы</Link>
+    </EmptyState>}
+    {sub && delivery && <Panel className="mzt-subscription-detail"><div className="mzt-feature-row">
+      <h2 className="mzt-section-title"><Icon name="layers" size={20} />Состояние подписки</h2><Link className={buttonClass()} to="/account/plans">Продлить</Link></div>
+      <dl className="mzt-record-facts">
         <dt>Оплаченное право</dt><dd><StatusIndicator status={sub.rightStatus}>{label(sub.rightStatus)}</StatusIndicator></dd>
         <dt>Выдача</dt><dd><StatusIndicator status={delivery}>{label(delivery)}</StatusIndicator></dd>
         <dt>Проверено панелью</dt><dd>{date(sub.delivery.observedAt)}</dd>
         <dt>Доступ до</dt><dd>{date(sub.coverageEndsAt)}</dd>
         <dt>Следующее изменение</dt><dd>{date(sub.nextBoundaryAt)}</dd>
       </dl></Panel>}
-    <h2>Периоды доступа</h2>
+    <h2 className="mzt-section-title"><Icon name="clock" size={19} />Периоды доступа</h2>
     <PageList<OwnerPeriod> path="/me/subscription/periods" empty="Оплаченных периодов пока нет." render={period => <>
       <Timeline><li><h3>{period.snapshot ? titleOf(period.snapshot) : "Компенсация"} · {period.deviceLimit} устройств</h3>
       <p>{date(period.startAt)} — {date(period.endAt)}</p>
       {period.adjustments.map(item => <p key={item.id}>Корректировка права с {date(item.effectiveAt)}</p>)}
-      {period.orderId && <Link to={`/account/orders/${period.orderId}`}>Заказ периода</Link>}</li></Timeline>
+      {period.orderId && <Link className="mzt-record-link" to={`/account/orders/${period.orderId}`}>Заказ периода <Icon name="arrow" size={16} /></Link>}</li></Timeline>
     </>} />
   </>;
 }

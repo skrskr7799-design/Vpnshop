@@ -30,7 +30,12 @@ const order = { id: "order-1", userId: customer.id, status: "PAID", delivery: "V
   observations: [{ status: "STALE", receivedAt: now }] };
 const job = { id: "job-pending", status: "VERIFY_PENDING", revision: 3, currentRevision: 3, attempts: 2, userId: customer.id, leaseUntil: null };
 const movement = { id: "capture-001", kind: "CAPTURE", currency: "RUB", amountMinor: 27000, providerTime: now, allocation: order.id };
+const unsettledMovement = { ...movement, id: "movement-002", currency: "USD", allocation: null };
+const paymentCase = { id: "case-payment-001", kind: "UNKNOWN", status: "OPEN", priority: 2, nextCheckAt: now, updatedAt: now, version: 1 };
 const staff = { id: "staff-001", email: "team@example.invalid", role: "ADMIN", version: 3, status: "ACTIVE", enrollmentState: "CONFIRMED" };
+const session = { id: "session-fixture-001", userAgent: "Chromium Smoke", current: true, lastSeenAt: now, expiresAt: now, revokedAt: null };
+const historical = { id: "audit-fixture-001", action: "plan.publish", actorId: staff.id, permission: "plans:write",
+  entityId: plan.id, commandId: "local-audit-command", reason: "Локальная проверка", createdAt: now };
 const listCustomer = Array.from({ length: 1010 }, (_, index) => index === 0 ? customer : {
   ...customer, id: "synthetic-operator-list-record-" + index, email: "synthetic-long-identifier-" + index + "•••@example.invalid",
 });
@@ -79,16 +84,27 @@ const server = createServer(async (req, res) => {
   }
   if (path === "/api/orders") return json(pages([order]));
   if (path === "/api/orders/order-1") return json(order);
-  if (path === "/api/orders/order-1/refunds" || path === "/api/payments/cases") return json(pages([]));
-  if (path === "/api/payments/transactions") return json(pages([movement]));
+  if (path === "/api/orders/order-1/refunds") return json(pages([]));
+  if (path === "/api/orders/order-1/finance") return json(pages([movement]));
+  if (path === "/api/payments/cases") return json(pages([paymentCase]));
+  if (path === "/api/payments/cases/case-payment-001") return json(paymentCase);
+  if (path === "/api/payments/transactions") return json(pages([movement, unsettledMovement]));
   if (path === "/api/jobs") return json(pages([job]));
   if (path === "/api/jobs/job-pending") return json(job);
   if (path === "/api/staff") return json(pages([staff]));
+  if (path === "/api/staff/staff-001") return json(staff);
+  if (path === "/api/staff/staff-001/sessions" || path === "/api/auth/sessions") return json(pages([session]));
+  if (path === "/api/audit") return json(pages([historical]));
+  if (path === "/api/audit/audit-fixture-001") return json(historical);
+  if (path === "/api/subscriptions") return json(pages([{ id: "subscription-fixture-001", userId: customer.id, revision: 3,
+    panelBinding: null, _count: { periods: 1 }, nextBoundaryAt: now }]));
   if (path === "/api/operations/status") return json({ asOf: now, services: [
     { key: "worker", state: "STALE", observedAt: now, data: null, reasonCode: "WORKER_STALE" },
     { key: "panel", state: "UNAVAILABLE", observedAt: null, data: null, reasonCode: "PANEL_UNAVAILABLE" },
   ], alerts: [{ id: "panel", kind: "panel", reasonCode: "PANEL_UNAVAILABLE" }] });
   if (path === "/api/users/id-customer") return json({ ...customer, right: "ACTIVE", subscription: null, version: now });
+  if (path === "/api/users/id-customer/periods") return json(pages([{ id: "period-fixture-001", orderId: order.id, serial: 1,
+    startAt: now, endAt: now, deviceLimit: 5 }]));
   if (path === "/api/plans") return json(pages([plan]));
   if (path === "/api/plans/fixture-plan/versions") return json({ plan, ...pages(process.env.MZT_VISUAL_DIR ? [
     { id: "offer-001", version: 1, name: plan.name, amount: 9000, currency: "RUB", deviceLimit: 3, durationMonths: 1, withdrawnAt: now },
@@ -176,9 +192,9 @@ try {
   await send("Page.navigate", { url: origin });
   await login("admin@example.invalid");
   await fit();
-  assert.ok(await evaluate(text("Движения по валюте")));
-  assert.ok(await evaluate(text("Данные устарели")));
-  assert.ok(await evaluate(text("Источник недоступен")));
+  await until(text("Движения по валюте"));
+  await until(text("Данные устарели"));
+  await until(text("Источник недоступен"));
   await evaluate("document.body.tabIndex = -1; document.body.focus()");
   await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 });
   await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 });
@@ -200,6 +216,12 @@ try {
   await click("Опубликовать предложение");
   await fill("amountMinor", "10000");
   await fill("reason", "Проверка команды на стенде");
+  await evaluate('[...document.querySelectorAll("button")].find(button => button.checkVisibility() && button.textContent === "Проверить команду").focus()');
+  await click("Проверить команду");
+  await until(text("Свежий код TOTP"));
+  await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+  await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+  await until("!document.querySelector('dialog[open]') && document.activeElement.textContent === 'Проверить команду'");
   await click("Проверить команду");
   await until(text("Свежий код TOTP"));
   await fill("password", "local-test-password");
@@ -212,6 +234,7 @@ try {
   assert.equal(commandBody.command.amountMinor, 10000);
   await click("Выйти");
   await login("support@example.invalid");
+  await until(text("Открытые обращения"));
   assert.equal(await evaluate(text("Движения по валюте")), false);
   assert.equal(await evaluate("Boolean(document.querySelector('nav a[href=\"/staff\"]'))"), false);
   await send("Page.navigate", { url: origin + "/payments" });
@@ -223,25 +246,46 @@ try {
   assert.equal(await evaluate("Boolean(window.adminUnsafe || document.querySelector('.messages img'))"), false);
   assert.equal(await evaluate(text("Ответить или изменить статус")), false);
   assert.ok(requests.every(value => value.startsWith(origin) || value.startsWith("data:")));
-  console.log("Chromium 360 px: staff login and rejected TOTP, mobile routes and filters, focus, freshness, ADMIN command retry and SUPPORT isolation passed");
+  console.log("Chromium 360 px: rejected TOTP, mobile filters, dialog Escape/focus, freshness, ADMIN command retry and SUPPORT isolation passed");
   if (process.env.MZT_VISUAL_DIR) {
     await visualQa({ site: "admin", dist, send, evaluate, until, origin,
-      prepare: screen => { signedIn = !screen.guest; role = "ADMIN"; }, afterLoad: () => {},
+      prepare: screen => { signedIn = !screen.guest; role = "ADMIN"; },
+      afterLoad: async () => {
+        await click("Опубликовать предложение");
+        await fill("amountMinor", "10000");
+        await fill("reason", "Локальная визуальная проверка");
+        await click("Проверить команду");
+        await until(text("Свежий код TOTP"));
+      },
       screens: [
         { id: "login", path: "/login", ready: "Вход для сотрудников", guest: true, measure: true },
+        { id: "invitation", path: "/invitation", ready: "Код приглашения", guest: true },
         { id: "dashboard", path: "/", ready: "Движения по валюте", measure: true },
         { id: "users", path: "/users", ready: customer.email },
         { id: "user-details", path: "/users/id-customer", ready: customer.email },
+        { id: "user-periods", path: "/users/id-customer/periods", ready: order.id },
+        { id: "subscriptions", path: "/subscriptions", ready: customer.id },
         { id: "orders", path: "/orders", ready: order.id },
         { id: "order-details", path: "/orders/order-1", ready: "От оплаты до подключения" },
+        { id: "order-finance", path: "/orders/order-1/finance", ready: movement.id },
         { id: "payments", path: "/payments", ready: movement.id },
+        { id: "payment-cases", path: "/payments/cases", ready: paymentCase.id },
+        { id: "payment-case-details", path: "/payments/cases/case-payment-001", ready: paymentCase.id },
         { id: "fulfillment", path: "/jobs", ready: job.id },
+        { id: "fulfillment-details", path: "/jobs/job-pending", ready: job.id },
         { id: "plans", path: "/plans", ready: plan.name },
         { id: "offer-versions", path: "/plans/fixture-plan", ready: "offer-002" },
+        { id: "offer-confirmation", path: "/plans/fixture-plan", ready: "offer-002", afterLoad: true },
         { id: "support", path: "/support", ready: ticket.id },
         { id: "support-thread", path: "/support/case-1", ready: "Переписка" },
         { id: "staff", path: "/staff", ready: staff.email },
+        { id: "staff-details", path: "/staff/staff-001", ready: staff.email },
+        { id: "staff-sessions", path: "/staff/staff-001/sessions", ready: session.id },
+        { id: "security", path: "/security", ready: session.id },
+        { id: "audit", path: "/audit", ready: historical.action },
+        { id: "audit-details", path: "/audit/audit-fixture-001", ready: historical.action },
         { id: "operations", path: "/operations", ready: "Источник недоступен" },
+        { id: "not-found", path: "/page-not-found", ready: "Страница не найдена" },
       ] });
     await send("Page.navigate", { url: origin + "/users?status=ACTIVE&cursor=1000" });
     await until(text("10 на странице"));

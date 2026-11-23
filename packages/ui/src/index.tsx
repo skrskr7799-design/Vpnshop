@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type HTMLAttributes,
+import { useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type ComponentPropsWithRef, type HTMLAttributes,
   type InputHTMLAttributes, type KeyboardEvent, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
 import { Icon, LabyrinthBackground, type IconName } from "./icons";
 export { Icon, Labyrinth, LabyrinthBackground, type IconName } from "./icons";
@@ -14,7 +14,7 @@ export function buttonClass(kind = "primary", block = false) {
   return ["mz-button", "mz-button--" + kind, block && "mz-button--block"].filter(Boolean).join(" ");
 }
 export function Button({ variant = "primary", block, loading, disabled, type = "button", className = "", children, ...props }:
-  ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "quiet" | "danger"; block?: boolean; loading?: boolean }) {
+  ComponentPropsWithRef<"button"> & { variant?: "primary" | "secondary" | "quiet" | "danger"; block?: boolean; loading?: boolean }) {
   return <button {...props} type={type} className={buttonClass(variant, block) + " " + className}
     disabled={disabled || loading} aria-busy={loading || undefined}>
     {loading && <span className="mz-spinner" aria-hidden="true" />}{children}
@@ -73,8 +73,8 @@ export function Tabs({ label, items, value, onChange, children }: { label: strin
 }
 export function statusTone(status: string): Tone {
   if (["ACTIVE", "READY", "FRESH", "CONFIRMED", "SUCCEEDED", "CAPTURE_RECORDED", "ALLOCATED", "RESOLVED", "FULFILLED"].includes(status)) return "success";
-  if (["HELD", "FAILED", "UNAVAILABLE", "BLOCKED"].includes(status)) return "danger";
-  if (["UNKNOWN", "STALE", "NEEDS_REVIEW", "REVIEW", "LEGACY_REVIEW", "LATE_CAPTURE", "VERIFY_PENDING"].includes(status)) return "warning";
+  if (["HELD", "HOLD", "FAILED", "UNAVAILABLE", "BLOCKED"].includes(status)) return "danger";
+  if (["UNKNOWN", "STALE", "NEEDS_REVIEW", "REVIEW", "LEGACY_REVIEW", "LATE_CAPTURE", "VERIFY_PENDING", "RETRY_WAIT", "INVESTIGATING"].includes(status)) return "warning";
   if (["OPEN", "WAITING", "PROCESSING", "PENDING", "AWAITING_CUSTOMER", "RUNNING", "SCHEDULED", "WAITING_EXTERNAL"].includes(status)) return "info";
   return "neutral";
 }
@@ -189,9 +189,16 @@ export function CodeDisplay({ children }: { children: ReactNode }) {
 }
 export function CopyField({ label, value }: { label: string; value: string }) {
   const [feedback, setFeedback] = useState("");
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(value);
+      setFeedback("Скопировано.");
+    } catch {
+      setFeedback("Выделите значение и скопируйте вручную.");
+    }
+  }
   return <div className="mz-copy"><FormField label={label}>{props => <Input {...props} readOnly value={value} />}</FormField>
-    <Button variant="secondary" onClick={() => void navigator.clipboard.writeText(value)
-      .then(() => setFeedback("Скопировано.")).catch(() => setFeedback("Выделите значение и скопируйте вручную."))}>
+    <Button variant="secondary" onClick={() => void copy()}>
       <Icon name="copy" size={16} />Копировать
     </Button>{feedback && <Toast>{feedback}</Toast>}</div>;
 }

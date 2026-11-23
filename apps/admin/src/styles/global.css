@@ -38,9 +38,10 @@
 .admin-main button:disabled, .login button:disabled { color: var(--muted); cursor: default; }
 .actions, .admin-main .filters { display: flex; align-items: end; flex-wrap: wrap; gap: .6rem; }
 .actions a { display: inline-flex; align-items: center; min-height: 44px; }
-.admin-main .filters { padding: .8rem 1rem; background: var(--mz-rail); border: 1px solid var(--border); border-radius: var(--mz-card-radius); }
+.admin-main .filters { padding: .8rem 1rem; --mz-outline: var(--mz-line); --mz-fill: var(--mz-rail); }
 .filters label { flex: 1 1 11rem; max-width: min(100%,25rem); }
-.panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--mz-card-radius); padding: clamp(1rem, 2vw, 1.4rem); min-width: 0; }
+.panel { --mz-outline: color-mix(in srgb, var(--mzt-border-accent) 68%, var(--mz-line));
+  padding: clamp(.92rem, 1.7vw, 1.35rem); min-width: 0; }
 .panel > * + * { margin-block-start: .75rem; }
 .panel + .panel { margin-block-start: 1rem; }
 .skip { position: fixed; left: .75rem; top: .75rem; z-index: var(--mz-layer-skip); padding: .65rem .9rem; background: var(--mz-violet); color: var(--mz-on-violet); transform: translateY(-250%); }
@@ -51,10 +52,19 @@
 .table-scroll table { min-width: 32rem; font-size: .88rem; }
 .table-scroll th { min-width: 6.5rem; }
 .table-scroll td { max-width: 22rem; overflow-wrap: anywhere; }
+.table-scroll--records { --mz-outline: var(--mz-line); --mz-fill: var(--mz-rail); padding: 8px; }
+.table-scroll--records .mz-table-scroll { border: 0; border-radius: 4px; background: var(--mz-surface); }
+.table-scroll--records .mz-table-scroll:focus-visible { outline-offset: 2px; }
+.table-scroll--records thead th { color: var(--mz-secondary); }
+.table-scroll--records tbody tr:nth-child(even) td { background: #13111b; }
+.table-scroll--records td:focus-within, .table-scroll--records tbody tr:hover td { background: var(--mz-hover); }
+.table-scroll--records td > a:focus-visible { outline-offset: 1px; }
 .table-scroll tr:hover td { background: var(--mz-rail); }
 .table-scroll a { display: inline-flex; align-items: center; min-height: 44px; }
 .facts { display: grid; gap: .35rem; margin-block: .6rem; font-size: .9rem; }
 .facts > div { display: grid; grid-template-columns: minmax(6rem,1fr) minmax(0,2fr); gap: .55rem; padding-block: .24rem; }
+.panel > .facts > div + div { border-block-start: 1px solid var(--mz-line); padding-block-start: .52rem; }
+.facts dd > .facts { padding-inline-start: .6rem; border-inline-start: 1px solid var(--mz-line); }
 .facts dt { color: var(--muted); }
 .facts dd { min-width: 0; }
 .facts dd > .facts { margin-block: 0; }
@@ -74,6 +84,8 @@
 .command summary::before { content: "+"; color: var(--mz-violet); font-weight: 450; width: 1rem; flex: none; }
 .command[open] summary::before { content: "−"; }
 .command form { max-width: 44rem; margin-block: .8rem; }
+.command[open] summary { padding-block-end: .5rem; border-block-end: 1px solid var(--mz-line); }
+.command [role="status"] { padding: .8rem; background: var(--mz-success-bg); border-inline-start: 2px solid var(--mz-success); }
 .command button { justify-self: start; }
 .command-confirm form { display: grid; gap: .85rem; }
 .command-confirm label { display: grid; gap: .35rem; }
@@ -104,14 +116,18 @@
   .facts > div { grid-template-columns: minmax(0,1fr); gap: .08rem; }
 }
 .command-comparison { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,13rem),1fr)); gap: .65rem; }
-.command-comparison section { background: var(--mz-surface); border: 1px solid var(--border); border-radius: var(--mz-radius); padding: .8rem; min-width: 0; }
+.command-comparison section { --mz-outline: var(--mz-line); padding: .8rem; min-width: 0; }
 .command-comparison .facts > div { grid-template-columns: 1fr; gap: .15rem; }
 .table-scroll :is([data-column="status"],[data-column="delivery"],[data-column="right"]) { min-width: 11rem; }
 .table-scroll .mz-badge { overflow-wrap: normal; }
 .table-hint { display: none; margin: .6rem 0; color: var(--muted); font-size: .81rem; }
 .admin-finance section { margin-block-start: .75rem; }
 .admin-finance .facts > div { grid-template-columns: minmax(0,1fr) minmax(0,1fr); }
-@media (max-width: 820px) { .table-hint { display: block; } }
+@media (max-width: 820px) {
+  .table-hint { display: flex; align-items: center; gap: 6px; padding-inline: 4px; }
+  .table-hint svg { flex: none; color: var(--mz-violet); }
+  .table-scroll--records :is(th,td) { padding-inline: .62rem; }
+}
 .table-scroll [data-column="email"] { min-width: 14rem; }
 .table-scroll [data-column="role"] { min-width: 9.5rem; }
 .table-scroll :is([data-column="kind"],[data-column="category"]) { min-width: 8.25rem; }

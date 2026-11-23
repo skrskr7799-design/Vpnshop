@@ -66,7 +66,7 @@ function Refunds({ row }: { row: Row }) {
   const query = useAdmin<Page>(`/orders/${row.id}/refunds`);
   const actor = useSession()!.user.id;
   const version = String(row.version);
-  return <section className="panel"><h2>Намерения возврата</h2>
+  return <section className="mz-card panel"><h2>Намерения возврата</h2>
     <p>Одобрение резервирует сумму. Исполнение провайдером закрыто до приёмки интеграции.</p>
     <RequestState state={query} />
     {query.data && <Table rows={query.data.items} columns={["id", "status", "amountMinor", "currency", "expiresAt"]} />}

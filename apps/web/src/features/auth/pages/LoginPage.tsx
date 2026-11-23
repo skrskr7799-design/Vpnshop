@@ -33,9 +33,9 @@ export function LoginPage() {
     <AuthPage title="Добро пожаловать" lead="Войдите в свой аккаунт, чтобы продолжить.">
       {logoutPending && <Alert variant="error">
         Данные скрыты. Серверный выход ещё не подтверждён.
-        <button type="button" onClick={() => void authApi.logout().then(() => {
+        <Button type="button" variant="secondary" onClick={() => void authApi.logout().then(() => {
           setLogoutHidden(false); setLogoutPending(false); publishSessionEvent("logout-confirmed");
-        }).catch(() => {})}>Повторить выход</button>
+        }).catch(() => {})}>Повторить выход</Button>
       </Alert>}
       <form className="auth-form auth-form--signin" noValidate onSubmit={handleSubmit((values) => login.mutate(values))}>
         {login.isError && <Alert variant="error">{getErrorMessage(login.error)}</Alert>}

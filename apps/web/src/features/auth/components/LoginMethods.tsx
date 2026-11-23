@@ -1,4 +1,4 @@
-import { Button, Dialog, PasswordInput, Select } from "@vpn/ui";
+import { Badge, Button, Dialog, Icon, PasswordInput, Select, Toast } from "@vpn/ui";
 import { useQuery } from "@tanstack/react-query";
 import type { AuthProvider } from "@vpn/shared";
 import { useState, type FormEvent } from "react";
@@ -6,7 +6,6 @@ import { request } from "../../../api/client";
 import { useConsumedSearchParam } from "../../../hooks/useConsumedSearchParam";
 import { useOAuthProviders } from "../oauth";
 import { useMe } from "../queries";
-import "./LoginMethods.css";
 
 const labels: Record<AuthProvider, string> = { EMAIL: "Почта и пароль", GOOGLE: "Google", TELEGRAM: "Telegram" };
 type Method = { provider: AuthProvider; usable: boolean; canUnlink: boolean; verified: boolean };
@@ -66,31 +65,31 @@ export function LoginMethods() {
     });
   }
 
-  return <section aria-labelledby="methods-title">
-    <h2 id="methods-title">Способы входа</h2>
-    {linked && <p role="status">Способ входа подключён.</p>}
+  return <section className="mzt-auth-methods" aria-labelledby="methods-title">
+    <h2 id="methods-title" className="mzt-section-title"><Icon name="key" size={20} />Способы входа</h2>
+    {linked && <Toast>Способ входа подключён.</Toast>}
     {(outcome || (error && !action)) && <p role="alert">{error || "Подтверждение способа входа не завершилось."}</p>}
     {methods.isPending && <p>Загружаем способы входа…</p>}
     {methods.isError && <p role="alert">Не удалось прочитать способы входа.</p>}
     <ul className="login-methods__list">
       {methods.data?.identities.map(identity => <li className="login-methods__row" key={identity.provider}>
-        <span>{labels[identity.provider]} · {identity.usable ? "доступен" : "ожидает проверки"}</span>
-        {identity.canUnlink && <button type="button" onClick={() => {
+        <div><strong>{labels[identity.provider]}</strong>
+          <Badge tone={identity.usable ? "success" : "warning"}>{identity.usable ? "Доступен" : "Ожидает проверки"}</Badge></div>
+        {identity.canUnlink && <Button variant="secondary" onClick={() => {
           setAction({ target: identity.provider, purpose: "UNLINK" }); setMethod(usable.find(entry => entry.provider !== identity.provider)?.provider ?? "EMAIL");
-        }}>Отключить</button>}
+        }}>Отключить</Button>}
       </li>)}
     </ul>
-    {(["google", "telegram"] as const).filter(provider => enabled.data?.[provider] &&
+    <div className="mz-actions">{(["google", "telegram"] as const).filter(provider => enabled.data?.[provider] &&
       !methods.data?.identities.some(identity => identity.provider.toLowerCase() === provider)).map(provider =>
-      <button key={provider} type="button" disabled={!usable.length} onClick={() => {
+      <Button variant="secondary" key={provider} disabled={!usable.length} onClick={() => {
         setAction({ target: provider.toUpperCase() as AuthProvider, purpose: "LINK" });
         setMethod(usable[0]?.provider ?? "EMAIL");
-      }}>Подключить {labels[provider === "google" ? "GOOGLE" : "TELEGRAM"]}</button>)}
-    {proofs.data?.confirmations.map(proof => <p key={proof.id}>
-      <button disabled={busy} type="button" onClick={() => void execute(() => apply(proof))}>
+      }}>Подключить {labels[provider === "google" ? "GOOGLE" : "TELEGRAM"]}</Button>)}
+    {proofs.data?.confirmations.map(proof =>
+      <Button key={proof.id} loading={busy} onClick={() => void execute(() => apply(proof))}>
         Подтвердить {proof.purpose === "LINK" ? "подключение" : "отключение"} {labels[proof.target]}
-      </button>
-    </p>)}
+      </Button>)}</div>
     <Dialog open={action !== null} title={action ? (action.purpose === "LINK" ? "Подключение" : "Отключение") + " · " + labels[action.target] : ""}
       busy={busy} onClose={() => setAction(null)}>
     {action && <form className="mzt-form" onSubmit={submit}>

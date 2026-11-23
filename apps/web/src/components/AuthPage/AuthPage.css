@@ -1,6 +1,9 @@
 .auth-page__title { font-weight: 650; }
 .auth-page__lead { margin: 10px auto 0; color: var(--mz-secondary); max-width: 39ch; font-size: .91rem; }
 .auth-page__body { display: grid; gap: 18px; margin-top: 22px; }
+.auth-page__body > a:not(.mz-button), .auth-page__body > p > a {
+  display: inline-flex; min-height: 44px; align-items: center; justify-content: center;
+}
 .auth-form { display: grid; gap: 12px; text-align: start; }
 .auth-form .mz-field { gap: 4px; }
 .auth-form .mz-field label { color: var(--mz-secondary); font-size: .82rem; }

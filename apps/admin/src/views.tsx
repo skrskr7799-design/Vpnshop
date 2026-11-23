@@ -76,16 +76,19 @@ export function Table({ rows, columns, destination, compactUsers }: {
   const location = useLocation();
   const returnTo = location.pathname + location.search;
   if (!rows.length) return <EmptyState title="Записей пока нет"><p className="admin-meta">Попробуйте изменить фильтры.</p></EmptyState>;
-  return <div className={compactUsers ? "table-scroll admin-compact-users" : "table-scroll"}><p className="table-hint">Таблицу можно прокручивать по горизонтали.</p><DataTable label="Таблица результатов" columns={columns.map(id => ({ id, label: label(id) }))}>
+  return <div className={compactUsers ? "table-scroll admin-compact-users" : "mz-cut table-scroll table-scroll--records"}>
+    <p className="table-hint"><Icon name="arrow" size={15} />Таблицу можно прокручивать по горизонтали.</p>
+    <DataTable label="Таблица результатов" columns={columns.map(id => ({ id, label: label(id) }))}>
     {rows.map(row => <tr key={row.id}>{columns.map((key, index) => <td key={key} data-column={key}>{index === 0 && destination
-      ? <Link id={"row-" + row.id} state={{ returnTo, focusRow: row.id }} to={destination(row)}>{compactUsers && <Icon name="users" size={19} />}{valueText(row[key])}</Link>
+      ? <Link id={"row-" + row.id} state={{ returnTo, focusRow: row.id }} to={destination(row)}>{compactUsers && <Icon name="users" size={19} />}
+        {key === "id" ? <CodeDisplay>{row.id}</CodeDisplay> : valueText(row[key])}</Link>
       : key === "id" || key.endsWith("Id") ? <CodeDisplay>{valueText(row[key])}</CodeDisplay> : valueText(row[key])}</td>)}</tr>)}
   </DataTable></div>;
 }
 type Filter = [key: string, title: string, values?: string[]];
-export function List({ title, path, columns, filters = [], destination, children, actions }: {
+export function List({ title, path, columns, filters = [], destination, children, actions, nested = false }: {
   title: string; path: string; columns: string[]; filters?: Filter[]; destination?: (row: Row) => string;
-  children?: ReactNode; actions?: (rows: Row[]) => ReactNode;
+  children?: ReactNode; actions?: (rows: Row[]) => ReactNode; nested?: boolean;
 }) {
   const [params, setParams] = useSearchParams();
   const queryString = new URLSearchParams();
@@ -123,7 +126,7 @@ export function List({ title, path, columns, filters = [], destination, children
     const frame = requestAnimationFrame(() => document.getElementById("row-" + state.focusRow)?.focus());
     return () => cancelAnimationFrame(frame);
   }, [state?.focusRow, data]);
-  const filterForm = filters.length > 0 && <form key={filters.map(([key]) => params.get(key)).join("|")} className="filters"
+  const filterForm = filters.length > 0 && <form key={filters.map(([key]) => params.get(key)).join("|")} className="mz-cut filters" aria-label="Фильтры списка"
       onSubmit={event => {
         event.preventDefault();
         lookup.current?.abort();
@@ -137,13 +140,13 @@ export function List({ title, path, columns, filters = [], destination, children
       </select> : <input name={key} defaultValue={params.get(key) ?? ""} />}</label>)}
       <Button type="submit" variant="secondary">Применить фильтры</Button>
     </form>;
-  return <><PageHeader title={title} />{children}
-    {(path === "/users" || path === "/orders") && <form className={path === "/users" ? "filters admin-users-search" : "filters"} onSubmit={event => void find(event)}>
+  return <>{nested ? <h2>{title}</h2> : <PageHeader title={title} />}{children}
+    {(path === "/users" || path === "/orders") && <form className={path === "/users" ? "mz-cut filters admin-users-search" : "mz-cut filters"} aria-label="Поиск записи" onSubmit={event => void find(event)}>
       <label>Искать по<select name="kind"><option value="ORDER">ID</option>
         {path === "/users" && <option value="EMAIL">Email</option>}
         {path === "/orders" && finance && <><option value="MERCHANT_REFERENCE">Ссылка продавца</option><option value="TRANSACTION">Движение</option></>}
       </select></label><label>Точное значение<input name="term" required /></label><Button type="submit" loading={finding}>Найти</Button>
-      {search && <button type="button" onClick={() => setSearch(undefined)}>Вернуться к списку</button>}
+      {search && <Button variant="secondary" onClick={() => setSearch(undefined)}>Вернуться к списку</Button>}
       {searchError && <p role="alert">{searchError}</p>}
     </form>}
     {path === "/users" && filterForm ? <details className="admin-users-filter">
@@ -328,10 +331,10 @@ export function PlanDetail({ actions }: { actions?: (plan: Row, rows: Row[]) => 
   const query = useAdmin<Page & { plan: Row }>(path + (cursor ? "?cursor=" + encodeURIComponent(cursor) : ""));
   return <><Breadcrumbs><Link to="/plans"><Icon name="back" size={16} />К тарифам</Link></Breadcrumbs>
     <PageHeader title="История предложений" description="Действующие предложения и неизменяемые версии условий." /><RequestState state={query} />{query.data && <>
-    <section className="panel"><Facts data={query.data.plan} keys={["name", "code", "revision", "deviceLimit", "isActive"]} /></section>
+    <section className="mz-card panel"><Facts data={query.data.plan} keys={["name", "code", "revision", "deviceLimit", "isActive"]} /></section>
     <Table rows={query.data.items} columns={["id", "version", "name", "amount", "currency", "deviceLimit", "durationMonths", "publishedAt", "withdrawnAt"]} />
-    <div className="actions">{cursor && <button onClick={() => setParams({})}>К началу</button>}
-      {query.data.nextCursor && <button onClick={() => setParams({ cursor: query.data!.nextCursor! })}>Следующая страница</button>}</div>
+    <Pagination onFirst={cursor ? () => setParams({}) : undefined}
+      onNext={query.data.nextCursor ? () => setParams({ cursor: query.data!.nextCursor! }) : undefined} />
     {actions?.(query.data.plan, query.data.items)}
   </>}</>;
 }
@@ -344,18 +347,20 @@ export function SupportDetail({ command }: { command?: (ticket: Row, refresh: ()
   const back = state?.returnTo?.startsWith("/support?") ? state.returnTo : "/support";
   return <><Breadcrumbs><Link to={back} state={{ focusRow: state?.focusRow }}><Icon name="back" size={16} />К обращениям</Link></Breadcrumbs>
     <PageHeader title="Обращение" /><RequestState state={query} />{query.data && <>
-    <div className="admin-thread"><section className="panel"><h2>Карточка обращения</h2><Facts data={query.data.case} keys={["id", "userId", "status", "category", "updatedAt"]} />
+    <div className="admin-thread"><section className="mz-card panel"><h2>Карточка обращения</h2><Facts data={query.data.case} keys={["id", "userId", "status", "category", "updatedAt"]} />
       {typeof query.data.case.orderId === "string" && <Link to={"/orders/" + query.data.case.orderId}>Связанный заказ</Link>}
     </section>
-    <section className="panel"><h2>Переписка</h2><ol className="messages">
+    <section className="mz-card panel"><h2>Переписка</h2><ol className="messages">
       {[...query.data.messages.items].reverse().map(message => <li key={message.id} data-author={message.author}>
         <p>{message.author === "STAFF" ? "Поддержка" : "Клиент"} · {valueText(message.createdAt)}</p><p>{String(message.text)}</p>
       </li>)}</ol>
-      {query.data.messages.nextCursor && <button onClick={() => setPagination({ cursor: query.data!.messages.nextCursor! })}>Ранее</button>}
-      {pagination.has("cursor") && <button onClick={() => setPagination({})}>К новым сообщениям</button>}
+      <div className="mz-actions">
+        {query.data.messages.nextCursor && <Button variant="secondary" onClick={() => setPagination({ cursor: query.data!.messages.nextCursor! })}>Ранее</Button>}
+        {pagination.has("cursor") && <Button variant="secondary" onClick={() => setPagination({})}>К новым сообщениям</Button>}
+      </div>
     </section></div>
-    <section className="panel"><h2>История статусов</h2><Table rows={query.data.history.items} columns={["status", "author", "reason", "createdAt"]} />
-      {query.data.history.nextCursor && <button onClick={() => setPagination({ historyCursor: query.data!.history.nextCursor! })}>Ранние статусы</button>}
+    <section className="mz-card panel"><h2>История статусов</h2><Table rows={query.data.history.items} columns={["status", "author", "reason", "createdAt"]} />
+      {query.data.history.nextCursor && <Button variant="secondary" onClick={() => setPagination({ historyCursor: query.data!.history.nextCursor! })}>Ранние статусы</Button>}
     </section>
     {command?.(query.data.case, query.refetch)}
   </>}</>;

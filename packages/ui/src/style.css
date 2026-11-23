@@ -191,7 +191,10 @@ textarea.mz-control { resize: vertical; }
 .mz-cut--auth { --mz-cut-size: var(--mzt-cut-auth); }
 .mz-nav-link[aria-current] { --mz-cut-size: 7px; --mz-outline: var(--mzt-border-accent); --mz-fill: linear-gradient(105deg,#321f4a,#201629); }
 .mz-skeleton { --mz-outline: var(--mz-line); }
-.mz-dialog:not(.mz-drawer) { --mz-cut-size: var(--mzt-cut-dialog); --mz-fill: var(--mz-raised); }
+.mz-dialog:not(.mz-drawer) {
+  --mz-cut-size: var(--mzt-cut-dialog); --mz-fill: var(--mz-raised);
+  position: fixed; inset: 0; margin: auto; block-size: fit-content;
+}
 .mz-button:not(.mz-button--quiet) { --mz-cut-size: var(--mzt-cut-action); --mz-fill: var(--mz-raised); }
 .mz-button:not(.mz-button--quiet):hover { --mz-fill: var(--mz-hover); }
 .mz-button--primary:not(.mz-button--quiet) {
