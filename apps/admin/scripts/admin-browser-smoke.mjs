@@ -165,7 +165,12 @@ try {
     throw new Error("Missing expected UI state: " + expression);
   }
   const text = value => "Boolean(document.body?.innerText.includes(" + JSON.stringify(value) + "))";
-  const click = value => evaluate(`[...document.querySelectorAll("a,button,summary")].find(node => node.textContent.trim() === ${JSON.stringify(value)} && node.checkVisibility() && (!document.querySelector("dialog[open]") || node.closest("dialog[open]"))).click()`);
+  async function click(value) {
+    const target = `[...document.querySelectorAll("a,button,summary")].find(node =>
+      node.textContent.trim() === ${JSON.stringify(value)} && node.checkVisibility() && !node.disabled &&
+      (!document.querySelector("dialog[open]") || node.closest("dialog[open]")))`;
+    await until(`(() => { const control = ${target}; if (!control) return false; control.click(); return true; })()`);
+  }
   const fill = (name, value) => evaluate(`[...document.querySelectorAll('[name=' + ${JSON.stringify(name)} + ']')].find(node => node.checkVisibility()).value = ${JSON.stringify(value)}`);
   const menu = async value => {
     await evaluate('document.querySelector(`button[aria-label="Открыть меню"]`).click()');
