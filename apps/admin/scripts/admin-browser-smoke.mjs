@@ -36,7 +36,7 @@ const listCustomer = Array.from({ length: 1010 }, (_, index) => index === 0 ? cu
 });
 const pages = items => ({ items, nextCursor: null });
 const block = (data, state = "FRESH") => ({ data, state, observedAt: now });
-const mime = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml" };
+const mime = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".woff2": "font/woff2" };
 const server = createServer(async (req, res) => {
   const { pathname: path, searchParams } = new URL(req.url, "http://127.0.0.1");
   if (!path.startsWith("/api/")) {
@@ -69,12 +69,13 @@ const server = createServer(async (req, res) => {
     ...(admin ? ["plans:write", "finance:read", "audit:read", "staff:read", "support:write"] : [])];
   if (path === "/api/me") return json({ user: { id: role, email: role.toLowerCase() + "@example.invalid", role }, permissions });
   if (path === "/api/dashboard") return json({ asOf: now, users: block({ total: 1010, new: 18 }), subscriptions: block({ active: 82 }), orders: block({ paid: 56 }),
-    jobs: block({ active: 3, errors: 1 }), support: block({ open: 2 }), panel: block(null, "UNAVAILABLE"),
-    worker: block(null, "STALE"), alerts: [], ...(admin ? { finance: block([{ currency: "RUB", captured: "100" }]) } : {}) });
+    jobs: block({ overdue: 3, errors: 1 }), payments: block({ stuck: 1, awaiting: 2 }), support: block({ open: 2 }), panel: block(null, "UNAVAILABLE"),
+    worker: block(null, "STALE"), alerts: [{ kind: "jobs", reasonCode: "JOBS_OVERDUE" }], ...(admin ? { finance: block([{ currency: "RUB", captured: "100" }]) } : {}) });
   if (path === "/api/users") {
     if (!process.env.MZT_VISUAL_DIR) return json(pages([customer]));
     const start = Number(searchParams.get("cursor") ?? 0);
-    return json({ items: listCustomer.slice(start, start + 25), nextCursor: start + 25 < listCustomer.length ? String(start + 25) : null });
+    const limit = Number(searchParams.get("limit") ?? 25);
+    return json({ items: listCustomer.slice(start, start + limit), nextCursor: start + limit < listCustomer.length ? String(start + limit) : null });
   }
   if (path === "/api/orders") return json(pages([order]));
   if (path === "/api/orders/order-1") return json(order);
@@ -84,7 +85,7 @@ const server = createServer(async (req, res) => {
   if (path === "/api/jobs/job-pending") return json(job);
   if (path === "/api/staff") return json(pages([staff]));
   if (path === "/api/operations/status") return json({ asOf: now, services: [
-    { key: "worker", state: "FRESH", observedAt: now, data: { ready: true }, reasonCode: null },
+    { key: "worker", state: "STALE", observedAt: now, data: null, reasonCode: "WORKER_STALE" },
     { key: "panel", state: "UNAVAILABLE", observedAt: null, data: null, reasonCode: "PANEL_UNAVAILABLE" },
   ], alerts: [{ id: "panel", kind: "panel", reasonCode: "PANEL_UNAVAILABLE" }] });
   if (path === "/api/users/id-customer") return json({ ...customer, right: "ACTIVE", subscription: null, version: now });
@@ -162,9 +163,13 @@ try {
     await fill("password", "local-test-password");
     await click("Продолжить");
     await until(text("Код приложения"));
+    await fill("code", "000000");
+    await click("Подтвердить");
+    await until(text("Код неверен или уже использован"));
+    assert.equal(await evaluate(text("Админ-панель MZT")), false);
     await fill("code", "123456");
     await click("Подтвердить");
-    await until(text("Операционный обзор"));
+    await until(text("Админ-панель MZT"));
   }
   await send("Network.enable");
   await send("Emulation.setDeviceMetricsOverride", { width: 360, height: 800, deviceScaleFactor: 1, mobile: true });
@@ -178,10 +183,16 @@ try {
   await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 });
   await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 });
   await until("document.activeElement.className === 'skip'");
-  await menu("Пользователи");
+  await evaluate(`document.querySelector(".mz-mobile-nav a[href='/operations']").click()`);
+  await until(text("Состояние фоновых процессов"));
+  await evaluate(`document.querySelector(".mz-mobile-nav a[href='/users']").click()`);
   await until(text(customer.email));
   await fit();
   assert.ok(await evaluate("document.querySelector('.mz-table-scroll').tabIndex === 0"));
+  await evaluate('document.querySelector(".admin-users-filter summary").click()');
+  await fill("status", "ACTIVE");
+  await click("Применить фильтры");
+  await until("new URLSearchParams(location.search).get('status') === 'ACTIVE'");
   await menu("Тарифы");
   await until(text(plan.name));
   await click(plan.name);
@@ -203,6 +214,8 @@ try {
   await login("support@example.invalid");
   assert.equal(await evaluate(text("Движения по валюте")), false);
   assert.equal(await evaluate("Boolean(document.querySelector('nav a[href=\"/staff\"]'))"), false);
+  await send("Page.navigate", { url: origin + "/payments" });
+  await until(text("Раздел закрыт"));
   await menu("Поддержка");
   await until(text(ticket.id));
   await click(ticket.id);
@@ -210,7 +223,7 @@ try {
   assert.equal(await evaluate("Boolean(window.adminUnsafe || document.querySelector('.messages img'))"), false);
   assert.equal(await evaluate(text("Ответить или изменить статус")), false);
   assert.ok(requests.every(value => value.startsWith(origin) || value.startsWith("data:")));
-  console.log("Chromium 360 px: staff login, keyboard focus, dashboard freshness, ADMIN command retry, SUPPORT isolation and literal support text passed");
+  console.log("Chromium 360 px: staff login and rejected TOTP, mobile routes and filters, focus, freshness, ADMIN command retry and SUPPORT isolation passed");
   if (process.env.MZT_VISUAL_DIR) {
     await visualQa({ site: "admin", dist, send, evaluate, until, origin,
       prepare: screen => { signedIn = !screen.guest; role = "ADMIN"; }, afterLoad: () => {},

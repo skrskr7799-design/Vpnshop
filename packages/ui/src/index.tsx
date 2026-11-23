@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type HTMLAttributes,
   type InputHTMLAttributes, type KeyboardEvent, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
-import { Icon, type IconName } from "./icons";
-export { Icon, Labyrinth, type IconName } from "./icons";
+import { Icon, LabyrinthBackground, type IconName } from "./icons";
+export { Icon, Labyrinth, LabyrinthBackground, type IconName } from "./icons";
 
 type Tone = "neutral" | "success" | "warning" | "danger" | "info" | "accent";
 export function buttonClass(kind = "primary", block = false) {
@@ -37,7 +37,8 @@ export function FormField({ label, hint, error, children }: { label: ReactNode; 
 export function PasswordInput({ className = "", ...props }: Omit<InputHTMLAttributes<HTMLInputElement>, "type">) {
   const [visible, setVisible] = useState(false);
   return <span className="mz-password"><Input {...props} className={className} type={visible ? "text" : "password"} />
-    <button className="mz-password-toggle" type="button" onClick={() => setVisible(value => !value)}>{visible ? "Скрыть" : "Показать"}</button>
+    <button className="mz-password-toggle" type="button" aria-label={visible ? "Скрыть пароль" : "Показать пароль"}
+      onClick={() => setVisible(value => !value)}><Icon name={visible ? "eyeOff" : "eye"} size={18} /></button>
   </span>;
 }
 export function Checkbox({ children, ...props }: Omit<InputHTMLAttributes<HTMLInputElement>, "type">) {
@@ -80,8 +81,27 @@ export function StatusIndicator({ status, children }: { status: string; children
 export function Card({ className = "", ...props }: HTMLAttributes<HTMLElement>) {
   return <section {...props} className={"mz-card " + className} />;
 }
-export function MetricCard({ label, value, children }: { label: string; value: ReactNode; children?: ReactNode }) {
-  return <Card className="mz-metric"><h2>{label}</h2><p className="mz-metric-value">{value}</p>{children}</Card>;
+export function MetricCard({ label, value, icon, children }: { label: string; value: ReactNode; icon?: IconName; children?: ReactNode }) {
+  return <Card className="mz-metric">{icon && <span className="mz-metric-icon"><Icon name={icon} /></span>}
+    <div className="mz-metric-body"><h2>{label}</h2><div className="mz-metric-value">{value}</div>{children}</div></Card>;
+}
+export function SignatureScene({ brand, children, mainId }: { brand: ReactNode; children: ReactNode; mainId?: string }) {
+  return <div className="mz-signature-scene">
+    <LabyrinthBackground scene="login" />
+    {mainId && <a className="mz-skip" href={`#${mainId}`}>Перейти к форме</a>}
+    <div className="mz-signature-brand">{brand}</div>
+    <main id={mainId} className="mz-signature-panel mz-cut mz-cut--auth" tabIndex={mainId ? -1 : undefined}>
+      <p className="mz-signature-kicker">Private Digital Connectivity</p>
+      {children}
+    </main>
+  </div>;
+}
+export function MobileNavigation({ label, expanded, onMore, children }: {
+  label: string; expanded: boolean; onMore: () => void; children: ReactNode;
+}) {
+  return <nav className="mz-mobile-nav" aria-label={label}>{children}
+    <button type="button" aria-expanded={expanded} onClick={onMore}><Icon name="more" size={19} />Ещё</button>
+  </nav>;
 }
 type DialogProps = { open: boolean; title: string; onClose: () => void; children: ReactNode; busy?: boolean; className?: string };
 export function Dialog({ open, title, onClose, children, busy, className = "" }: DialogProps) {
@@ -99,7 +119,8 @@ export function Dialog({ open, title, onClose, children, busy, className = "" }:
   }, [open]);
   return <dialog ref={ref} className={"mz-dialog " + className} aria-labelledby={id} aria-busy={busy || undefined}
     onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
-    {open && <><header><h2 id={id}>{title}</h2><IconButton icon="close" label="Закрыть" disabled={busy} onClick={onClose} /></header>{children}</>}
+    {open && <div className="mz-dialog-body"><header><h2 id={id}>{title}</h2>
+      <IconButton icon="close" label="Закрыть" disabled={busy} onClick={onClose} /></header>{children}</div>}
   </dialog>;
 }
 export function ConfirmDialog({ confirmLabel, onConfirm, busy, ...props }: DialogProps & { confirmLabel: string; onConfirm: () => void }) {

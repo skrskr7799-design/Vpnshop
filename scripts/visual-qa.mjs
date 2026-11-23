@@ -19,7 +19,7 @@ export function serveAsset(req, res, mime, filename, body) {
   } else res.end(body);
 }
 
-const viewports = [320, 360, 375, 390, 430, 768, 1024, 1440, 1920];
+const viewports = [320, 360, 375, 390, 428, 430, 768, 1024, 1440, 1920];
 const textExists = value => "Boolean(document.querySelector('main')?.innerText.includes(" + JSON.stringify(value) + "))";
 const monitor = `
   window.__mztMetrics = { lcp: null, cls: 0 };
@@ -50,14 +50,14 @@ export async function visualQa({ site, dist, send, evaluate, until, origin, scre
 
   for (const screen of screens) {
     for (const width of viewports) {
-      await viewport(width, width < 768 ? 844 : 920);
+      await viewport(width, width < 768 ? 844 : screen.id === "login" ? 810 : 920);
       await visit(screen);
       const geometry = await evaluate(`({
         viewport: innerWidth, root: document.documentElement.scrollWidth,
         headings: document.querySelectorAll('main h1').length,
         unlabeled: [...document.querySelectorAll('input,select,textarea')].filter(x => x.checkVisibility() &&
           !x.labels?.length && !x.getAttribute('aria-label') && !x.hasAttribute('aria-labelledby')).map(x => x.name),
-        narrow: [...document.querySelectorAll('.mz-button')].filter(x => x.checkVisibility() &&
+        narrow: [...document.querySelectorAll('.mz-button, .mz-mobile-nav > a, .mz-mobile-nav > button')].filter(x => x.checkVisibility() &&
           (x.offsetHeight < 44 || x.offsetWidth < 44)).map(x => x.textContent.trim())
       })`);
       assert.ok(geometry.root <= width && geometry.viewport === width, `${site} ${screen.id} overflow at ${width}: ${JSON.stringify(geometry)}`);
@@ -80,16 +80,19 @@ export async function visualQa({ site, dist, send, evaluate, until, origin, scre
   assert.equal(await evaluate("matchMedia('(prefers-reduced-motion: reduce)').matches"), true);
   assert.equal(await evaluate("Number.parseFloat(getComputedStyle(document.querySelector('.mz-button')).transitionDuration) <= 0.00001"), true);
   await send("Emulation.setEmulatedMedia", { features: [] });
-  // A page at half the CSS width exercises reflow at 200% browser zoom on a 640px window.
-  await viewport(320, 844);
-  await visit(screens[0]);
-  await send("Emulation.setPageScaleFactor", { pageScaleFactor: 2 });
-  assert.ok(await evaluate("document.documentElement.scrollWidth <= innerWidth"));
-  await send("Emulation.setPageScaleFactor", { pageScaleFactor: 1 });
-  await evaluate("document.body.style.zoom = 2");
-  await viewport(640, 900);
-  assert.ok(await evaluate("document.documentElement.scrollWidth <= innerWidth"));
-  await evaluate("document.body.style.removeProperty('zoom')");
+  // Half of a 640 px window exercises reflow at 200% browser zoom without a physical device.
+  const zoomScreens = screens.filter(screen => ["login", "dashboard", site === "web" ? "connection" : "users"].includes(screen.id));
+  for (const screen of zoomScreens) {
+    await viewport(320, 844);
+    await visit(screen);
+    await send("Emulation.setPageScaleFactor", { pageScaleFactor: 2 });
+    assert.ok(await evaluate("document.documentElement.scrollWidth <= innerWidth"), `${site} ${screen.id} reflow`);
+    await send("Emulation.setPageScaleFactor", { pageScaleFactor: 1 });
+    await evaluate("document.body.style.zoom = 2");
+    await viewport(640, 900);
+    assert.ok(await evaluate("document.documentElement.scrollWidth <= innerWidth"), `${site} ${screen.id} 200% layout`);
+    await evaluate("document.body.style.removeProperty('zoom')");
+  }
   const contrast = await evaluate(`(() => {
     const style = getComputedStyle(document.documentElement);
     const luminance = token => {
@@ -112,7 +115,7 @@ export async function visualQa({ site, dist, send, evaluate, until, origin, scre
     assert.ok(ratio >= (pair === "fieldBorder" || pair === "focus" ? 3 : 4.5), `${pair} contrast: ${ratio}`);
   }
   metrics.accessibility = { reducedMotion: true, formLabels: true, mainHeadings: true, primaryTargetsCssPx: 44,
-    reflowCssPx: 320, zoom: 2, contrast };
+    reflowCssPx: 320, zoom: 2, zoomScreens: zoomScreens.map(screen => screen.id), contrast };
 
   const files = await readdir(join(dist, "assets"));
   for (const file of files) {

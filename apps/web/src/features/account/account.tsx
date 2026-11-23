@@ -1,6 +1,6 @@
 import type { OwnerSubscription } from "@vpn/shared";
 import { useQuery } from "@tanstack/react-query";
-import { Button, Drawer, ErrorState, Icon, IconButton, Skeleton, type IconName } from "@vpn/ui";
+import { Button, Drawer, ErrorState, Icon, IconButton, LabyrinthBackground, MobileNavigation, Skeleton, type IconName } from "@vpn/ui";
 import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router";
 import { request } from "../../api/client";
@@ -65,6 +65,8 @@ const navigation: { path: string; title: string; icon: IconName }[] = [
   { path: "/account/security", title: "Безопасность", icon: "key" },
 ];
 
+const quickLinks = navigation.filter(({ path }) => ["/account", "/account/subscription", "/account/connect"].includes(path));
+
 export function displayDelivery(subscription: NonNullable<OwnerSubscription["subscription"]>) {
   return subscription.delivery.status === "READY" && !subscription.delivery.observationFresh ? "WAITING" : subscription.delivery.status;
 }
@@ -81,15 +83,16 @@ export function AccountShell() {
     document.title = active.title + " — MZT";
   }, [pathname, active.title]);
   const links = (close?: () => void) => <nav className="mzt-nav" aria-label="Разделы кабинета">{navigation.map(({ path, title, icon }) =>
-    <NavLink end={path === "/account"} key={path} to={path} onClick={close}><Icon name={icon} size={18} />{title}</NavLink>)}</nav>;
-  return <div className="mzt-account">
+    <NavLink end={path === "/account"} key={path} to={path} className="mz-nav-link" onClick={close}><Icon name={icon} size={18} />{title}</NavLink>)}</nav>;
+  return <div className={`mzt-account${pathname === "/account" ? " mzt-account--overview" : ""}`}>
+    <LabyrinthBackground />
     <a className="mz-skip" href="#account-main">Перейти к содержимому</a>
-    <aside className="mzt-rail"><Link to="/account" className="mz-wordmark">MZT</Link>{links()}</aside>
+    <aside className="mzt-rail"><div className="mzt-rail__brand"><Link to="/account" className="mz-wordmark">MZT</Link><p>Личный кабинет</p></div>{links()}</aside>
     <div className="mzt-workspace">
       <header className="mzt-top">
         <div className="mzt-top__mobile"><IconButton icon="menu" label="Открыть меню" aria-expanded={menu} onClick={() => setMenu(true)} />
           <Link to="/account" className="mz-wordmark">MZT</Link></div>
-        <span className="mzt-top__context">Личный кабинет</span>
+        <span className="mzt-top__context">{data?.email}</span>
         <Button variant="quiet" className="mzt-top__exit" onClick={() => logout.mutate()}><Icon name="out" size={17} />Выйти</Button>
       </header>
       <Drawer open={menu} title="Личный кабинет" onClose={() => setMenu(false)}>{links(() => {
@@ -98,6 +101,9 @@ export function AccountShell() {
       })}</Drawer>
       <main id="account-main" className="mzt-content" ref={main} tabIndex={-1}><Outlet key={data?.sessionId} /></main>
     </div>
+    <MobileNavigation label="Быстрые разделы кабинета" expanded={menu} onMore={() => setMenu(true)}>
+      {quickLinks.map(({ path, title, icon }) => <NavLink key={path} end={path === "/account"} to={path}><Icon name={icon} size={19} />{title}</NavLink>)}
+    </MobileNavigation>
   </div>;
 }
 

@@ -1,4 +1,4 @@
-import { Badge, Button, Drawer, EmptyState, Icon, IconButton, PageHeader, StatusIndicator, Timeline, type IconName } from "@vpn/ui";
+import { Badge, Button, Drawer, EmptyState, Icon, IconButton, LabyrinthBackground, MobileNavigation, PageHeader, StatusIndicator, Timeline, type IconName } from "@vpn/ui";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from "react-router";
@@ -39,7 +39,9 @@ function Shell() {
   const location = useLocation();
   const main = useRef<HTMLElement>(null);
   const visibleGroups = groups.map(group => ({ ...group, links: group.links.filter(([, , perm]) => !perm || session.permissions.includes(perm)) }));
-  const active = visibleGroups.flatMap(group => group.links).find(([path]) => path !== "/" && location.pathname.startsWith(path))?.[1] ?? "Обзор";
+  const visibleLinks = visibleGroups.flatMap(group => group.links);
+  const quickLinks = ["/", "/users", "/operations"].flatMap(path => visibleLinks.filter(link => link[0] === path));
+  const active = visibleLinks.find(([path]) => path !== "/" && location.pathname.startsWith(path))?.[1] ?? "Обзор";
   useEffect(() => {
     main.current?.focus({ preventScroll: true });
     document.title = active + " — MZT";
@@ -57,12 +59,13 @@ function Shell() {
   const navigation = (close?: () => void) => <nav className="admin-nav" aria-label="Разделы администрирования">
     {visibleGroups.filter(group => group.links.length).map(group => <section key={group.title}>
       <p>{group.title}</p>
-      {group.links.map(([path, title, , icon]) => <NavLink end={path === "/"} key={path} to={path} onClick={close}>
+      {group.links.map(([path, title, , icon]) => <NavLink end={path === "/"} key={path} to={path} className="mz-nav-link" onClick={close}>
         <Icon name={icon} size={17} />{title}</NavLink>)}
     </section>)}
   </nav>;
   return hidden ? <main className="login"><p role="status">{error || "Выходим…"}</p>
-    {error && <Button variant="secondary" onClick={() => void logout()}>Повторить выход</Button>}</main> : <div className="shell">
+    {error && <Button variant="secondary" onClick={() => void logout()}>Повторить выход</Button>}</main> : <div className={`shell${location.pathname === "/" ? " shell--overview" : ""}`}>
+    <LabyrinthBackground />
     <a className="skip" href="#main">Перейти к содержимому</a>
     <aside className="sidebar"><div className="admin-brand"><NavLink to="/" className="mz-wordmark">MZT</NavLink><span>Администрирование</span></div>{navigation()}</aside>
     <div className="body"><header className="admin-topbar">
@@ -78,6 +81,9 @@ function Shell() {
         requestAnimationFrame(() => main.current?.focus({ preventScroll: true }));
       })}</Drawer>
       <main id="main" className="admin-main" ref={main} tabIndex={-1}><Outlet /></main></div>
+    <MobileNavigation label="Быстрые разделы админки" expanded={menu} onMore={() => setMenu(true)}>
+      {quickLinks.map(([path, title, , icon]) => <NavLink end={path === "/"} key={path} to={path}><Icon name={icon} size={19} />{title}</NavLink>)}
+    </MobileNavigation>
   </div>;
 }
 

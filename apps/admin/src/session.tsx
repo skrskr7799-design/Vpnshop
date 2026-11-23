@@ -1,4 +1,4 @@
-import { Button, CodeDisplay, Labyrinth } from "@vpn/ui";
+import { Button, CodeDisplay, Icon, SignatureScene } from "@vpn/ui";
 import { createContext, useContext, useState, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router";
@@ -51,10 +51,9 @@ export function Login({ invitation = false }: { invitation?: boolean }) {
     } catch (error) { setIssue(errorText(error)); }
     finally { setPending(false); }
   }
-  return <main className="login login--signature">
-    <div className="login__art"><Labyrinth /></div><section className="panel">
-    <p className="mz-wordmark">MZT</p>
-    <h1>{invitation ? "Приглашение" : "Вход для сотрудников"}</h1>
+  return <SignatureScene brand={<span className="mz-wordmark">MZT</span>}>
+    <section className="admin-signin">
+    <h1>{invitation ? "Приглашение" : stage ? "Подтвердите вход" : "Вход для сотрудников"}</h1>
     {!stage && !recoveryCodes.length && <p className="login__context">{invitation ?
       "Используйте код, полученный от администратора." : "Войдите с помощью служебной учётной записи и кода приложения."}</p>}
     {issue && <p role="alert">{issue}</p>}
@@ -64,8 +63,8 @@ export function Login({ invitation = false }: { invitation?: boolean }) {
       <button onClick={() => { setCodes([]); void entered(); }}>Коды сохранены</button>
     </> : <form onSubmit={event => void submit(event)} key={stage?.token ?? "login"}>
       {invitation ? <label>Код приглашения<input name="token" required autoComplete="off" /></label> : !stage &&
-        <label>Служебная почта<input name="email" type="email" required autoComplete="username" /></label>}
-      {!stage && <label>Пароль<input name="password" type="password" required autoComplete={invitation ? "new-password" : "current-password"} /></label>}
+        <label>Служебная почта<span className="mz-input-icon"><Icon name="mail" size={19} /><input name="email" type="email" required autoComplete="username" /></span></label>}
+      {!stage && <label>Пароль<span className="mz-input-icon"><Icon name="lock" size={19} /><input name="password" type="password" required autoComplete={invitation ? "new-password" : "current-password"} /></span></label>}
       {stage?.secret && <p>Добавьте ключ в приложение-аутентификатор. <CodeDisplay>{stage.secret}</CodeDisplay></p>}
       {stage && <label>{recover ? "Резервный код" : "Код приложения"}<input name="code" required autoComplete="one-time-code"
         inputMode={recover ? "text" : "numeric"} pattern={recover ? undefined : "[0-9]{6}"} /></label>}
@@ -76,5 +75,5 @@ export function Login({ invitation = false }: { invitation?: boolean }) {
       </div>}
     </form>}
     {!stage && !recoveryCodes.length && <Link to={invitation ? "/login" : "/invitation"}>{invitation ? "Ко входу" : "У меня есть приглашение"}</Link>}
-  </section></main>;
+  </section></SignatureScene>;
 }

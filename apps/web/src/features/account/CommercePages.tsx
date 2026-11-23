@@ -1,4 +1,4 @@
-import { Badge, Breadcrumbs, Button, Dialog, EmptyState, Icon, Labyrinth, PageHeader, Pagination, StatusIndicator,
+import { Badge, Breadcrumbs, Button, Card, Dialog, EmptyState, Icon, PageHeader, Pagination, StatusIndicator,
   Timeline, buttonClass } from "@vpn/ui";
 import type { Offer, OwnerOrderDetail, OwnerOrderSummary, OwnerPayment, OwnerPeriod, OwnerSubscription, Page, PaymentChannel } from "@vpn/shared";
 import { useRef, useState, type ReactNode } from "react";
@@ -6,6 +6,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { request } from "../../api/client";
 import { ApiError } from "../../api/ApiError";
 import { amount, date, displayDelivery, errorMessage, label, LoadState, useOwner } from "./account";
+import { ConnectionCard } from "./ConnectionPage";
 
 const useSubscription = () => useOwner<OwnerSubscription>("/me/subscription");
 const titleOf = (value: { name: string | null }) => value.name ?? "Подписка MZT";
@@ -13,7 +14,7 @@ function Panel({ children }: { children: ReactNode }) { return <section classNam
 
 export function DashboardPage() {
   const overview = useSubscription();
-  const orders = useOwner<Page<OwnerOrderSummary>>("/orders?limit=1");
+  const orders = useOwner<Page<OwnerOrderSummary>>("/orders?limit=3");
   const sub = overview.data?.subscription;
   const period = sub?.currentPeriod;
   const latest = orders.data?.items[0];
@@ -38,33 +39,54 @@ export function DashboardPage() {
     : pendingOrder?.moneyStatus === "UNKNOWN" ? "Дождитесь уточнения исхода в деталях заказа, прежде чем повторять оплату."
     : pendingOrder?.moneyStatus === "WAITING" ? "Срок и доступные действия указаны в деталях заказа."
     : "Выберите срок подписки и лимит устройств.";
-  return <><PageHeader title="Обзор" description="Подписка и состояние подключения." />
+  return <div className="mzt-dashboard">
+    <PageHeader title="Мой кабинет" description="Управление подпиской и подключениями." />
     <LoadState pending={overview.isPending} error={overview.error} retry={overview.refetch} />
     {overview.data && !overview.isError && <>
-      <section className="mzt-hero">
-        <div className="mzt-hero__content">
-          <StatusIndicator status={delivery ?? pendingOrder?.moneyStatus ?? "EMPTY"}>{delivery ? label(delivery) : pendingOrder ? label(pendingOrder.moneyStatus) : "Нет подписки"}</StatusIndicator>
-          <h2>{headline}</h2><p>{detail}</p>
-          <div className="mz-actions">
-            {ready && <Link className={buttonClass()} to="/account/connect"><Icon name="connect" size={18} />Подключиться</Link>}
-            <Link className={buttonClass(ready ? "secondary" : "primary")} to={sub?.rightStatus === "HELD" ? "/account/support" : pendingOrder ? "/account/orders/" + pendingOrder.id : "/account/plans"}>
-              {sub?.rightStatus === "HELD" ? "Написать в поддержку" : pendingOrder ? "Открыть заказ" : sub ? "Продлить" : "Выбрать тариф"}<Icon name="arrow" size={17} /></Link>
-          </div>
+      <Card className="mzt-subscription-summary">
+        <div className="mzt-subscription-summary__detail">
+          <StatusIndicator status={sub?.rightStatus ?? pendingOrder?.moneyStatus ?? "EMPTY"}>{sub?.rightStatus === "ACTIVE"
+            ? "Активная подписка" : sub ? label(sub.rightStatus) : pendingOrder ? label(pendingOrder.moneyStatus) : "Нет подписки"}</StatusIndicator>
+          <h2>{period?.snapshot ? `${titleOf(period.snapshot)} · ${period.snapshot.durationMonths} мес.` : headline}</h2>
+          <p className="mz-muted">{sub?.coverageEndsAt ? `Действует до ${date(sub.coverageEndsAt)}` : detail}</p>
         </div>
-        <div className="mzt-hero__art"><Labyrinth /></div>
-      </section>
-      <dl className="mzt-facts-bar">
-        <div><dt>Тариф</dt><dd>{period?.snapshot ? titleOf(period.snapshot) : "—"}</dd></div>
-        <div><dt>Право доступа</dt><dd>{sub ? label(sub.rightStatus) : "Периода нет"}</dd></div>
-        <div><dt>Доступ до</dt><dd>{date(sub?.coverageEndsAt)}{remaining !== null && <span className="mz-muted"> · {remaining} дн.</span>}</dd></div>
-        <div><dt>Лимит устройств</dt><dd>{period?.deviceLimit ?? "—"}</dd></div>
-      </dl>
+        <div className="mz-actions mzt-subscription-summary__actions">
+          <Link className={buttonClass()} to={sub?.rightStatus === "HELD" ? "/account/support" : pendingOrder ? "/account/orders/" + pendingOrder.id : "/account/plans"}>
+            {sub?.rightStatus === "HELD" ? "Написать в поддержку" : pendingOrder ? "Открыть заказ" : sub ? "Продлить" : "Выбрать тариф"}
+          </Link>
+          {ready && <Link className="mzt-inline-link" to="/account/connect">Подключиться <Icon name="arrow" size={15} /></Link>}
+        </div>
+      </Card>
+      <div className="mzt-account-facts">
+        <Card className="mz-cut--stat"><Icon name="clock" size={19} /><div><h2>Осталось</h2>
+          <p>{remaining === null ? "—" : `${remaining} дн.`}</p></div></Card>
+        <Card className="mz-cut--stat"><Icon name="terminal" size={19} /><div><h2>Лимит устройств</h2>
+          <p>{period ? `До ${period.deviceLimit}` : "—"}</p></div></Card>
+        <Card className="mz-cut--stat"><Icon name="pulse" size={19} /><div><h2>Статус подключения</h2>
+          <p><StatusIndicator status={delivery ?? "EMPTY"}>{delivery ? label(delivery) : "Не запрошено"}</StatusIndicator></p></div></Card>
+      </div>
+      <ConnectionCard compact />
     </>}
-    {latest && !orders.isError && <Panel><div className="mzt-feature-row"><div><h2>Последний заказ</h2>
-      <p className="mz-muted">{titleOf(latest.snapshot)} · {date(latest.createdAt)}</p></div>
-      <Link className={buttonClass("secondary")} to={"/account/orders/" + latest.id}>Детали заказа<Icon name="arrow" size={16} /></Link></div>
-      <OrderFacts order={latest} /></Panel>}
-  </>;
+    <div className="mzt-account-overview-bottom">
+      <Card className="mzt-overview-panel">
+        <div className="mzt-panel-heading"><h2><Icon name="receipt" size={18} />Последние заказы</h2>
+          <Link className="mzt-inline-link" to="/account/orders">Все заказы <Icon name="arrow" size={15} /></Link></div>
+        <LoadState pending={orders.isPending} error={orders.error} retry={orders.refetch} />
+        {orders.data && !orders.isError && (orders.data.items.length ? <ul className="mzt-latest-orders">
+          {orders.data.items.map(order => <li key={order.id}><Link to={`/account/orders/${order.id}`}>
+            <span>{titleOf(order.snapshot)}<small>{date(order.createdAt)}</small></span>
+            <span className="mzt-latest-orders__amount">{amount(order.snapshot.price.amountMinor, order.snapshot.price.currency)}
+              <small>{label(order.moneyStatus)}</small></span>
+          </Link></li>)}
+        </ul> : <p className="mz-muted">Заказов пока нет.</p>)}
+      </Card>
+      <Card className="mzt-overview-panel">
+        <div className="mzt-panel-heading"><h2><Icon name="support" size={18} />Поддержка</h2></div>
+        <p className="mz-muted">Поможем с заказом или подключением.</p>
+        <Link className={buttonClass("secondary")} to="/account/support">Написать в поддержку</Link>
+      </Card>
+    </div>
+  </div>;
 }
 
 export function PlansPage() {
