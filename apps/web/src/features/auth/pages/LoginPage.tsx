@@ -14,6 +14,7 @@ import { authApi, logoutHidden, publishSessionEvent, setLogoutHidden } from "../
 import { useState } from "react";
 import { useLogin } from "../queries";
 import { getRedirectTarget } from "../redirect";
+import { Icon } from "@vpn/ui";
 
 export function LoginPage() {
   const login = useLogin();
@@ -29,18 +30,20 @@ export function LoginPage() {
   } = useForm<LoginInput>({ resolver: zodResolver(loginSchema), defaultValues: { email: "", password: "" } });
 
   return (
-    <AuthPage title="Вход" lead="Войдите, чтобы управлять подпиской и подключениями.">
+    <AuthPage title="Добро пожаловать" lead="Войдите в свой аккаунт, чтобы продолжить.">
       {logoutPending && <Alert variant="error">
         Данные скрыты. Серверный выход ещё не подтверждён.
-        <button type="button" onClick={() => void authApi.logout().then(() => {
+        <Button type="button" variant="secondary" onClick={() => void authApi.logout().then(() => {
           setLogoutHidden(false); setLogoutPending(false); publishSessionEvent("logout-confirmed");
-        }).catch(() => {})}>Повторить выход</button>
+        }).catch(() => {})}>Повторить выход</Button>
       </Alert>}
-      <form className="auth-form" noValidate onSubmit={handleSubmit((values) => login.mutate(values))}>
+      <form className="auth-form auth-form--signin" noValidate onSubmit={handleSubmit((values) => login.mutate(values))}>
         {login.isError && <Alert variant="error">{getErrorMessage(login.error)}</Alert>}
         {!login.isError && oauthError && <Alert variant="error">{getMessageByCode(oauthError)}</Alert>}
         <Field
           label="Электронная почта"
+          icon="mail"
+          placeholder=" "
           type="email"
           autoComplete="username"
           inputMode="email"
@@ -51,19 +54,17 @@ export function LoginPage() {
         />
         <PasswordField
           label="Пароль"
+          icon="lock"
+          placeholder=" "
           autoComplete="current-password"
           error={errors.password?.message}
           {...register("password")}
         />
-        <Button type="submit" loading={login.isPending}>
-          Войти
-        </Button>
+        <div className="auth-recovery"><Link to="/forgot-password">Забыли пароль?</Link></div>
+        <Button type="submit" loading={login.isPending}>Войти <Icon name="arrow" size={17} /></Button>
       </form>
       {!logoutPending && <OAuthButtons returnTo={returnTo === "/account" ? undefined : returnTo} />}
-      <div className="auth-links">
-        <Link to="/forgot-password">Забыли пароль?</Link>
-        <Link to="/register">Создать аккаунт</Link>
-      </div>
+      <p className="auth-links auth-links--register">Нет аккаунта? <Link to="/register">Зарегистрироваться</Link></p>
     </AuthPage>
   );
 }

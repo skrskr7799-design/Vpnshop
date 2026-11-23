@@ -91,7 +91,7 @@ export function Action({ title, operation, permission, target, version, fields =
   }
   const prior = preview ? baseline?.(preview.command) : undefined;
   const waiting = result?.result.status === "WAITING_EXTERNAL" || result?.result.state === "WAITING_EXTERNAL";
-  return <details className="panel command" onToggle={event => { if (!event.currentTarget.open) setResult(undefined); }}>
+  return <details className="mz-card panel command" onToggle={event => { if (!event.currentTarget.open) setResult(undefined); }}>
     <summary>{title}</summary>
     {result && <div role="status"><p>{waiting ? "Команда ожидает внешнего подтверждения" : "Команда записана"} · <CodeDisplay>{result.commandId}</CodeDisplay></p>
       {waiting && <StatusIndicator status="WAITING_EXTERNAL">{states.WAITING_EXTERNAL}</StatusIndicator>}
@@ -116,8 +116,8 @@ export function Action({ title, operation, permission, target, version, fields =
       {preview && <>
         <p>Объект <CodeDisplay>{preview.targetId}</CodeDisplay> · версия {preview.expectedVersion}</p>
         <div className={prior ? "command-comparison" : ""}>
-          {prior && <section><h3>Текущая версия</h3><Facts data={prior} /></section>}
-          <section><h3>{prior ? "Новая версия" : "Изменения"}</h3><Facts data={{ ...preview.command, reason: preview.reason }} /></section>
+          {prior && <section className="mz-card"><h3>Текущая версия</h3><Facts data={prior} /></section>}
+          <section className={prior ? "mz-card" : undefined}><h3>{prior ? "Новая версия" : "Изменения"}</h3><Facts data={{ ...preview.command, reason: preview.reason }} /></section>
         </div>
         {error && <p role="alert">{error}</p>}
         {conflict ? <Button variant="secondary" onClick={() => { closePreview(); void cache.invalidateQueries({ queryKey: ["admin"] }); }}>Обновить объект</Button>

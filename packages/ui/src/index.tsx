@@ -1,14 +1,20 @@
-import { useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type HTMLAttributes,
+import { useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type ComponentPropsWithRef, type HTMLAttributes,
   type InputHTMLAttributes, type KeyboardEvent, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
-import { Icon, type IconName } from "./icons";
-export { Icon, Labyrinth, type IconName } from "./icons";
+import { Icon, LabyrinthBackground, type IconName } from "./icons";
+export { Icon, Labyrinth, LabyrinthBackground, type IconName } from "./icons";
+
+const brandMarkUrl = new URL("./assets/mzt-logo.svg", import.meta.url).href;
+
+export function BrandMark() {
+  return <img className="mz-brand-mark" src={brandMarkUrl} width={804} height={804} alt="MZT" />;
+}
 
 type Tone = "neutral" | "success" | "warning" | "danger" | "info" | "accent";
 export function buttonClass(kind = "primary", block = false) {
   return ["mz-button", "mz-button--" + kind, block && "mz-button--block"].filter(Boolean).join(" ");
 }
 export function Button({ variant = "primary", block, loading, disabled, type = "button", className = "", children, ...props }:
-  ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "quiet" | "danger"; block?: boolean; loading?: boolean }) {
+  ComponentPropsWithRef<"button"> & { variant?: "primary" | "secondary" | "quiet" | "danger"; block?: boolean; loading?: boolean }) {
   return <button {...props} type={type} className={buttonClass(variant, block) + " " + className}
     disabled={disabled || loading} aria-busy={loading || undefined}>
     {loading && <span className="mz-spinner" aria-hidden="true" />}{children}
@@ -37,7 +43,8 @@ export function FormField({ label, hint, error, children }: { label: ReactNode; 
 export function PasswordInput({ className = "", ...props }: Omit<InputHTMLAttributes<HTMLInputElement>, "type">) {
   const [visible, setVisible] = useState(false);
   return <span className="mz-password"><Input {...props} className={className} type={visible ? "text" : "password"} />
-    <button className="mz-password-toggle" type="button" onClick={() => setVisible(value => !value)}>{visible ? "Скрыть" : "Показать"}</button>
+    <button className="mz-password-toggle" type="button" aria-label={visible ? "Скрыть пароль" : "Показать пароль"}
+      onClick={() => setVisible(value => !value)}><Icon name={visible ? "eyeOff" : "eye"} size={18} /></button>
   </span>;
 }
 export function Checkbox({ children, ...props }: Omit<InputHTMLAttributes<HTMLInputElement>, "type">) {
@@ -66,8 +73,8 @@ export function Tabs({ label, items, value, onChange, children }: { label: strin
 }
 export function statusTone(status: string): Tone {
   if (["ACTIVE", "READY", "FRESH", "CONFIRMED", "SUCCEEDED", "CAPTURE_RECORDED", "ALLOCATED", "RESOLVED", "FULFILLED"].includes(status)) return "success";
-  if (["HELD", "FAILED", "UNAVAILABLE", "BLOCKED"].includes(status)) return "danger";
-  if (["UNKNOWN", "STALE", "NEEDS_REVIEW", "REVIEW", "LEGACY_REVIEW", "LATE_CAPTURE", "VERIFY_PENDING"].includes(status)) return "warning";
+  if (["HELD", "HOLD", "FAILED", "UNAVAILABLE", "BLOCKED"].includes(status)) return "danger";
+  if (["UNKNOWN", "STALE", "NEEDS_REVIEW", "REVIEW", "LEGACY_REVIEW", "LATE_CAPTURE", "VERIFY_PENDING", "RETRY_WAIT", "INVESTIGATING"].includes(status)) return "warning";
   if (["OPEN", "WAITING", "PROCESSING", "PENDING", "AWAITING_CUSTOMER", "RUNNING", "SCHEDULED", "WAITING_EXTERNAL"].includes(status)) return "info";
   return "neutral";
 }
@@ -80,8 +87,27 @@ export function StatusIndicator({ status, children }: { status: string; children
 export function Card({ className = "", ...props }: HTMLAttributes<HTMLElement>) {
   return <section {...props} className={"mz-card " + className} />;
 }
-export function MetricCard({ label, value, children }: { label: string; value: ReactNode; children?: ReactNode }) {
-  return <Card className="mz-metric"><h2>{label}</h2><p className="mz-metric-value">{value}</p>{children}</Card>;
+export function MetricCard({ label, value, icon, children }: { label: string; value: ReactNode; icon?: IconName; children?: ReactNode }) {
+  return <Card className="mz-metric">{icon && <span className="mz-metric-icon"><Icon name={icon} /></span>}
+    <div className="mz-metric-body"><h2>{label}</h2><div className="mz-metric-value">{value}</div>{children}</div></Card>;
+}
+export function SignatureScene({ brand, children, mainId }: { brand: ReactNode; children: ReactNode; mainId?: string }) {
+  return <div className="mz-signature-scene">
+    <LabyrinthBackground scene="login" />
+    {mainId && <a className="mz-skip" href={`#${mainId}`}>Перейти к форме</a>}
+    <div className="mz-signature-brand">{brand}</div>
+    <main id={mainId} className="mz-signature-panel mz-cut mz-cut--auth" tabIndex={mainId ? -1 : undefined}>
+      <p className="mz-signature-kicker">Private Digital Connectivity</p>
+      {children}
+    </main>
+  </div>;
+}
+export function MobileNavigation({ label, expanded, onMore, children }: {
+  label: string; expanded: boolean; onMore: () => void; children: ReactNode;
+}) {
+  return <nav className="mz-mobile-nav" aria-label={label}>{children}
+    <button type="button" aria-expanded={expanded} onClick={onMore}><Icon name="more" size={19} />Ещё</button>
+  </nav>;
 }
 type DialogProps = { open: boolean; title: string; onClose: () => void; children: ReactNode; busy?: boolean; className?: string };
 export function Dialog({ open, title, onClose, children, busy, className = "" }: DialogProps) {
@@ -99,7 +125,8 @@ export function Dialog({ open, title, onClose, children, busy, className = "" }:
   }, [open]);
   return <dialog ref={ref} className={"mz-dialog " + className} aria-labelledby={id} aria-busy={busy || undefined}
     onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
-    {open && <><header><h2 id={id}>{title}</h2><IconButton icon="close" label="Закрыть" disabled={busy} onClick={onClose} /></header>{children}</>}
+    {open && <div className="mz-dialog-body"><header><h2 id={id}>{title}</h2>
+      <IconButton icon="close" label="Закрыть" disabled={busy} onClick={onClose} /></header>{children}</div>}
   </dialog>;
 }
 export function ConfirmDialog({ confirmLabel, onConfirm, busy, ...props }: DialogProps & { confirmLabel: string; onConfirm: () => void }) {
@@ -162,9 +189,16 @@ export function CodeDisplay({ children }: { children: ReactNode }) {
 }
 export function CopyField({ label, value }: { label: string; value: string }) {
   const [feedback, setFeedback] = useState("");
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(value);
+      setFeedback("Скопировано.");
+    } catch {
+      setFeedback("Выделите значение и скопируйте вручную.");
+    }
+  }
   return <div className="mz-copy"><FormField label={label}>{props => <Input {...props} readOnly value={value} />}</FormField>
-    <Button variant="secondary" onClick={() => void navigator.clipboard.writeText(value)
-      .then(() => setFeedback("Скопировано.")).catch(() => setFeedback("Выделите значение и скопируйте вручную."))}>
+    <Button variant="secondary" onClick={() => void copy()}>
       <Icon name="copy" size={16} />Копировать
     </Button>{feedback && <Toast>{feedback}</Toast>}</div>;
 }

@@ -1,7 +1,9 @@
 import { useEffect } from "react";
+import { BrandMark, SignatureScene } from "@vpn/ui";
+import { Link } from "react-router";
+import { AuthPage } from "../components/AuthPage/AuthPage";
 import { ButtonLink } from "../components/Button/ButtonLink";
 import { APP_NAME } from "../config";
-import "./NotFoundPage.css";
 
 export function NotFoundPage() {
   useEffect(() => {
@@ -9,12 +11,10 @@ export function NotFoundPage() {
   }, []);
 
   return (
-    <main className="not-found">
-      <h1 className="not-found__title">Страница не найдена</h1>
-      <p>Проверьте адрес или вернитесь на главную.</p>
-      <ButtonLink to="/" block={false}>
-        На главную
-      </ButtonLink>
-    </main>
+    <SignatureScene mainId="auth-main" brand={<Link to="/" className="mz-brand-home"><BrandMark /></Link>}>
+      <AuthPage title="Страница не найдена" lead="Проверьте адрес или вернитесь на главную.">
+        <ButtonLink to="/">На главную</ButtonLink>
+      </AuthPage>
+    </SignatureScene>
   );
 }

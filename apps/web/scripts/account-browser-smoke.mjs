@@ -16,6 +16,7 @@ const now = new Date().toISOString();
 const later = new Date(Date.now() + 86_400_000).toISOString();
 const url = "https://links.example.invalid/s/synthetic-secret";
 const payload = "<img src=x onerror=window.__supportUnsafe=true>";
+const emailToken = "synthetic-email-token";
 const user = { id: "synthetic-user", email: "test@example.invalid", role: "USER" };
 const sessionId = "synthetic-browser-session";
 let signedIn = true;
@@ -23,6 +24,10 @@ let checkoutKeys = [];
 let history = [];
 let ticket;
 let failLogout = true;
+let subscriptionState = "ACTIVE";
+let accessRequests = 0;
+let slowOverview = false;
+let oauthEnabled = false;
 
 const price = { amountMinor: 10000, currency: "RUB" };
 const offer = { id: "offer-smoke", name: "MZT Smoke", durationMonths: 1, deviceLimit: 3, price };
@@ -48,8 +53,19 @@ const server = createServer(async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   const json = (body, status = 200) => res.writeHead(status).end(JSON.stringify(body));
   if (path === "/api/auth/me") return signedIn ? json({ user, sessionId }) : json({ error: { code: "UNAUTHENTICATED" } }, 401);
+  if (path === "/api/auth/login") {
+    req.resume();
+    return json({ error: { code: "INVALID_CREDENTIALS" } }, 401);
+  }
   if (path === "/api/auth/refresh") return json({ error: { code: "INVALID_SESSION" } }, 401);
-  if (path === "/api/auth/oauth/providers") return json({ providers: { google: false, telegram: false } });
+  if (path === "/api/auth/oauth/providers") return json({ providers: { google: oauthEnabled, telegram: oauthEnabled } });
+  if (["/api/auth/register", "/api/auth/forgot-password"].includes(path)) { req.resume(); return json({ ok: true }); }
+  if (["/api/auth/reset-password", "/api/auth/verify-email"].includes(path)) {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    assert.equal(JSON.parse(Buffer.concat(chunks)).token, emailToken);
+    return res.writeHead(204).end();
+  }
   if (path === "/api/auth/logout") {
     if (failLogout) { failLogout = false; return json({ error: { code: "INTERNAL" } }, 503); }
     signedIn = false;
@@ -65,15 +81,21 @@ const server = createServer(async (req, res) => {
     if (checkoutKeys.length === 1) return json({ error: { code: "INTERNAL" } }, 503);
     return json({ orderId: order.id }, 201);
   }
-  if (path === "/api/orders") return json(page(checkoutKeys.length > 1 ? [order] : []));
+  if (path === "/api/orders") return json(page(subscriptionState !== "EMPTY" && checkoutKeys.length > 1 ? [order] : []));
   if (path === "/api/orders/order-smoke") return json(order);
-  if (path === "/api/orders/order-smoke/payments") return json(page([]));
-  if (path === "/api/me/subscription") return json({ serverTime: now, subscription: {
-    rightStatus: "ACTIVE", currentPeriod: period, coverageEndsAt: later, paidThroughAt: later,
-    delivery: { status: "READY", observedAt: now, observationFresh: true },
-  } });
+  if (path === "/api/orders/order-smoke/payments") return json(page([{ id: "attempt-local", status: "UNKNOWN",
+    updatedAt: now, confirmedCaptures: [] }]));
+  if (path === "/api/me/subscription") {
+    if (slowOverview) await delay(850);
+    if (subscriptionState === "ERROR") return json({ error: { code: "INTERNAL" } }, 503);
+    const active = subscriptionState === "ACTIVE";
+    return json({ serverTime: now, subscription: subscriptionState === "EMPTY" ? null : {
+      rightStatus: subscriptionState, currentPeriod: active ? period : null, coverageEndsAt: active ? later : null, paidThroughAt: later,
+      delivery: { status: active ? "READY" : "EXPIRED", observedAt: now, observationFresh: active },
+    } });
+  }
   if (path === "/api/me/subscription/periods") return json(page([period]));
-  if (path === "/api/me/subscription/access") return json({ subscriptionUrl: url });
+  if (path === "/api/me/subscription/access") { accessRequests++; return json({ subscriptionUrl: url }); }
   if (path === "/api/me/support/cases" && req.method === "GET") return json(page(ticket ? [ticket] : []));
   if (path.startsWith("/api/me/support/cases") && req.method === "POST") {
     const chunks = [];
@@ -130,12 +152,25 @@ try {
     await click(value);
   };
   const fit = () => until("Boolean(document.documentElement && document.documentElement.scrollWidth <= innerWidth)");
+  const fillAuth = values => evaluate(`for (const [name,value] of ${JSON.stringify(Object.entries(values))}) {
+    const input = document.querySelector("[name=" + name + "]");
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, value);
+    input.dispatchEvent(new Event("input", {bubbles:true}));
+  }`);
   await send("Network.enable");
   await send("Emulation.setDeviceMetricsOverride", { width: 360, height: 800, deviceScaleFactor: 1, mobile: true });
   await send("Page.navigate", { url: origin + "/account" });
   await until(text("Доступ подтверждён"));
   await fit();
-  await menu("Тарифы");
+  assert.equal(accessRequests, 0);
+  assert.equal(await evaluate(text(url)), false);
+  await evaluate(`document.querySelector(".mz-mobile-nav a[href='/account/subscription']").click()`);
+  await until(text("Состояние подписки"));
+  await evaluate(`document.querySelector(".mz-mobile-nav a[href='/account']").click()`);
+  await until(text("Мой кабинет"));
+  await evaluate('[...document.querySelectorAll(".mz-mobile-nav button")].find(x => x.textContent.trim() === "Ещё").click()');
+  await until('Boolean(document.querySelector("dialog[open]"))');
+  await click("Тарифы");
   await until(text("Выбрать"));
   await evaluate('[...document.querySelectorAll("button")].find(button => button.textContent.trim() === "Выбрать").focus()');
   await click("Выбрать");
@@ -158,6 +193,7 @@ try {
   await until(text("Действие не завершилось"));
   await click("Создать заказ");
   await until(text("Оплата сейчас недоступна"));
+  await until(text("Исход операции уточняется"));
   assert.ok(checkoutKeys[0] && checkoutKeys[0] === checkoutKeys[1]);
   await click("Помощь с заказом");
   await until(text("Новое обращение"));
@@ -181,6 +217,16 @@ try {
   await click("Показать ссылку и QR");
   await until('Boolean(document.querySelector("svg.mzt-qr path"))');
   await fit();
+  await send("Browser.grantPermissions", { origin, permissions: ["clipboardReadWrite", "clipboardSanitizedWrite"] });
+  await click("Копировать");
+  await until(text("Скопировано."));
+  const clipboard = await send("Runtime.evaluate", { expression: "navigator.clipboard.readText()", awaitPromise: true, returnByValue: true });
+  assert.equal(clipboard.result.value, url);
+  await send("Runtime.evaluate", { expression: "navigator.clipboard.writeText('')", awaitPromise: true });
+  await click("Скрыть");
+  await until("!document.querySelector('.mzt-qr, .mzt-private') && document.activeElement.textContent.includes('Показать ссылку и QR')");
+  await click("Показать ссылку и QR");
+  await until('Boolean(document.querySelector("svg.mzt-qr path"))');
   assert.ok(await evaluate(`[sessionStorage, localStorage].every(storage => !JSON.stringify(storage).includes(${JSON.stringify(url)}))`));
   assert.ok(requests.every(value => value.startsWith(origin) || value.startsWith("data:")));
   await click("Выйти");
@@ -189,15 +235,86 @@ try {
   await click("Повторить выход");
   await until("document.body && !document.body.innerText.includes('Серверный выход ещё не подтверждён')");
   assert.equal(signedIn, false);
-  console.log("Chromium 360 px: account, checkout retry, order support with literal HTML, security, local QR and failed/retried logout passed");
+
+  await send("Emulation.setDeviceMetricsOverride", { width: 360, height: 440, deviceScaleFactor: 1, mobile: true });
+  await send("Page.navigate", { url: origin + "/login" });
+  await until(text("Добро пожаловать"));
+  await evaluate(`for (const [name,value] of [["email","synthetic@example.invalid"],["password","not-a-real-password"]]) {
+    const input = document.querySelector("[name=" + name + "]");
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, value);
+    input.dispatchEvent(new Event("input", {bubbles:true}));
+    input.focus();
+  }`);
+  assert.ok(await evaluate(`(() => {
+    const button = document.querySelector(".auth-form button[type='submit']");
+    button.scrollIntoView({block:"center"});
+    const rect = button.getBoundingClientRect();
+    return rect.top >= 0 && rect.bottom <= innerHeight;
+  })()`));
+  await click("Войти");
+  await until(text("Неверный email или пароль"));
+  await fit();
+  const password = "local-test-password";
+  oauthEnabled = true;
+  await send("Page.navigate", { url: origin + "/login?error=OAUTH_DENIED" });
+  await until(text("Продолжить через Google"));
+  assert.ok(await evaluate("location.search === '' && Boolean(document.querySelector('[role=alert]'))"));
+  assert.ok(await evaluate("[...document.querySelectorAll('.oauth__buttons a')].every(a => a.origin === location.origin && a.pathname.endsWith('/start'))"));
+  oauthEnabled = false;
+  await send("Page.navigate", { url: origin + "/register" });
+  await until(text("Создать аккаунт"));
+  await fillAuth({ email: "synthetic@example.invalid", password, confirmPassword: "different-password" });
+  await click("Создать аккаунт");
+  await until(text("Пароли не совпадают"));
+  await fillAuth({ confirmPassword: password });
+  await click("Создать аккаунт");
+  await until(text("Проверьте почту"));
+  await send("Page.navigate", { url: origin + "/forgot-password" });
+  await until(text("Отправить ссылку"));
+  await fillAuth({ email: "synthetic@example.invalid" });
+  await click("Отправить ссылку");
+  await until(text("Проверьте почту"));
+  await send("Page.navigate", { url: origin + "/verify-email?token=" + emailToken });
+  await until(text("Почта подтверждена"));
+  assert.equal(await evaluate("location.search"), "");
+  await send("Page.navigate", { url: origin + "/reset-password?token=" + emailToken });
+  await until(text("Сохранить пароль"));
+  assert.equal(await evaluate("location.search"), "");
+  await fillAuth({ password, confirmPassword: password });
+  await click("Сохранить пароль");
+  await until(text("Пароль изменён"));
+  signedIn = true;
+  await send("Emulation.setDeviceMetricsOverride", { width: 360, height: 800, deviceScaleFactor: 1, mobile: true });
+  slowOverview = true;
+  await send("Page.navigate", { url: origin + "/account" });
+  await until('Boolean(document.querySelector("main .mz-skeleton"))');
+  assert.equal(await evaluate(text("Последние заказы")), false);
+  await until(text("Активная подписка"));
+  await until(text("Последние заказы"));
+  slowOverview = false;
+  for (const [state, expected] of [["EMPTY", "Нет подписки"], ["EXPIRED", "Подписка истекла"], ["ERROR", "Действие не завершилось"]]) {
+    subscriptionState = state;
+    await send("Page.navigate", { url: origin + "/account" });
+    await until(text(expected));
+    assert.equal(await evaluate(text("Показать ссылку и QR")), false);
+    await fit();
+  }
+  subscriptionState = "ACTIVE";
+  assert.equal(accessRequests, 2);
+  console.log("Chromium 360 px: checkout retry and UNKNOWN, support, local QR/copy/hide/logout, account states, auth validation/OAuth/registration/verify/reset passed");
   if (process.env.MZT_VISUAL_DIR) {
     await visualQa({ site: "web", dist, send, evaluate, until, origin,
-      prepare: screen => { signedIn = !screen.guest; },
+      prepare: screen => { signedIn = !screen.guest; oauthEnabled = Boolean(screen.oauth); },
       afterLoad: async () => { await click("Выбрать"); await until(text("Проверьте условия")); },
       screens: [
         { id: "login", path: "/login", ready: "Войти", guest: true, measure: true },
         { id: "register", path: "/register", ready: "Пароль", guest: true },
-        { id: "dashboard", path: "/account", ready: "Подключение готово", measure: true },
+        { id: "forgot-password", path: "/forgot-password", ready: "Отправить ссылку", guest: true },
+        { id: "verify-email", path: "/verify-email?token=" + emailToken, ready: "Почта подтверждена", guest: true },
+        { id: "reset-password", path: "/reset-password?token=" + emailToken, ready: "Сохранить пароль", guest: true },
+        { id: "oauth-login", path: "/login?error=OAUTH_DENIED", ready: "Продолжить через Google", guest: true, oauth: true },
+        { id: "not-found", path: "/page-not-found", ready: "Страница не найдена", guest: true },
+        { id: "dashboard", path: "/account", ready: "Показать ссылку и QR", measure: true },
         { id: "plans", path: "/account/plans", ready: offer.name },
         { id: "checkout", path: "/account/plans", ready: offer.name, afterLoad: true },
         { id: "order", path: "/account/orders/order-smoke", ready: "Попытки оплаты" },

@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { Button, FormField, Input, Labyrinth, StatusIndicator, statusTone } from "./index";
+import { BrandMark, Button, FormField, Input, Labyrinth, StatusIndicator, statusTone } from "./index";
 
 describe("MZT UI semantics", () => {
   it("renders a pending native button with its original accessible name", () => {
@@ -32,5 +32,10 @@ describe("MZT UI semantics", () => {
     expect(html).toContain('aria-hidden="true"');
     expect(html).toContain("mz-maze-route");
     expect(html).not.toMatch(/<image|href=/);
+  });
+
+  it("exposes an accessible brand image and reserves its square proportions", () => {
+    const html = renderToStaticMarkup(<BrandMark />);
+    expect(html).toMatch(/<img[^>]+src="[^"]*mzt-logo.svg"[^>]+width="804" height="804" alt="MZT"/);
   });
 });

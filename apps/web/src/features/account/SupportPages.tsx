@@ -54,7 +54,7 @@ export function SupportPage() {
     if (result) navigate(`/account/support/${result.case.id}`);
   }
   return <><PageHeader title="Поддержка" description="Вопросы об оплате, доступе и подключении." />
-    <section className="mzt-panel"><h2>Новое обращение</h2>
+    <div className="mzt-help-grid"><section className="mz-card mzt-panel"><h2 className="mzt-section-title"><Icon name="support" size={20} />Новое обращение</h2>
       <p>Если оплата подтверждена, а доступ ещё готовится, приложите номер заказа. Пароли, платёжные данные и ссылки для подключения оставьте при себе.</p>
       <form className="mzt-form" onSubmit={event => void submit(event)}>
         <label>Тема<select name="category">{Object.entries(categories).map(([key, value]) => <option key={key} value={key}>{value}</option>)}</select></label>
@@ -70,11 +70,11 @@ export function SupportPage() {
         {error && <p role="alert">{error}</p>}
       </form>
     </section>
-    <h2>Мои обращения</h2>
+    <section className="mzt-help-list"><h2 className="mzt-section-title"><Icon name="receipt" size={19} />Мои обращения</h2>
     <PageList<CaseSummary> path={path} empty="Обращений пока нет." render={ticket => <>
-      <h3><Link to={`/account/support/${ticket.id}`}>{categories[ticket.category]}</Link></h3>
+      <h3><Link className="mzt-record-link" to={`/account/support/${ticket.id}`}>{categories[ticket.category]} <Icon name="arrow" size={16} /></Link></h3>
       <p><StatusIndicator status={ticket.status}>{label(ticket.status)}</StatusIndicator> · {date(ticket.updatedAt)}</p>
-    </>} />
+    </>} /></section></div>
   </>;
 }
 
@@ -106,9 +106,9 @@ function SupportThread({ ticketPath }: { ticketPath: string }) {
   const ticket = query.data?.case;
   return <><Breadcrumbs><Link to="/account/support"><Icon name="back" size={16} />Все обращения</Link></Breadcrumbs><PageHeader title="Обращение" />
     <LoadState pending={query.isPending} error={query.error} retry={query.refetch} />
-    {ticket && <section className="mzt-panel"><h2>{categories[ticket.category]}</h2>
+    {ticket && <section className="mz-card mzt-panel"><h2>{categories[ticket.category]}</h2>
       <p><StatusIndicator status={ticket.status}>{label(ticket.status)}</StatusIndicator> · {date(ticket.updatedAt)}</p>
-      {ticket.orderId && <Link to={`/account/orders/${ticket.orderId}`}>Связанный заказ</Link>}
+      {ticket.orderId && <Link className="mzt-record-link" to={`/account/orders/${ticket.orderId}`}>Связанный заказ <Icon name="arrow" size={16} /></Link>}
       <div className="mzt-messages" aria-label="Переписка"><Timeline>
         {query.data?.messages.items.slice().reverse().map(message => <li key={message.id} data-author={message.author}>
           <p><strong>{message.author === "STAFF" ? "Поддержка" : "Вы"}</strong> · {date(message.createdAt)}</p>
@@ -116,20 +116,20 @@ function SupportThread({ ticketPath }: { ticketPath: string }) {
         </li>)}
       </Timeline></div>
       <div className="mzt-actions">
-        {cursor && <button onClick={() => setCursor(undefined)}>Новые сообщения</button>}
-        {query.data?.messages.nextCursor && <button onClick={() => setCursor(query.data!.messages.nextCursor!)}>Ранние сообщения</button>}
+        {cursor && <Button variant="secondary" onClick={() => setCursor(undefined)}>Новые сообщения</Button>}
+        {query.data?.messages.nextCursor && <Button variant="secondary" onClick={() => setCursor(query.data!.messages.nextCursor!)}>Ранние сообщения</Button>}
       </div>
       {ticket.status === "RESOLVED" ? <p>Обращение закрыто.</p> : <form className="mzt-form" onSubmit={event => void submit(event)}>
         <label>Ответ<textarea value={draft} onChange={event => setDraft(event.target.value)} rows={3} maxLength={2000} required /></label>
         <div className="mzt-actions"><Button type="submit" loading={pending}>Отправить</Button></div>
         {error && <p role="alert">{error}</p>}
       </form>}
-      <details><summary>История статусов</summary>
+      <details className="mzt-disclosure"><summary>История статусов</summary>
         <ul>{query.data?.history.items.map(entry =>
           <li key={entry.id}>{label(entry.status)} · {date(entry.createdAt)}</li>)}</ul>
         <div className="mzt-actions">
-          {historyCursor && <button onClick={() => setHistoryCursor(undefined)}>Последние изменения</button>}
-          {query.data?.history.nextCursor && <button onClick={() => setHistoryCursor(query.data!.history.nextCursor!)}>Ранние изменения</button>}
+          {historyCursor && <Button variant="secondary" onClick={() => setHistoryCursor(undefined)}>Последние изменения</Button>}
+          {query.data?.history.nextCursor && <Button variant="secondary" onClick={() => setHistoryCursor(query.data!.history.nextCursor!)}>Ранние изменения</Button>}
         </div>
       </details>
     </section>}

@@ -1,4 +1,4 @@
-import { Button, CodeDisplay, Labyrinth } from "@vpn/ui";
+import { BrandMark, Button, CodeDisplay, Icon, Input, SignatureScene } from "@vpn/ui";
 import { createContext, useContext, useState, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router";
@@ -51,30 +51,29 @@ export function Login({ invitation = false }: { invitation?: boolean }) {
     } catch (error) { setIssue(errorText(error)); }
     finally { setPending(false); }
   }
-  return <main className="login login--signature">
-    <div className="login__art"><Labyrinth /></div><section className="panel">
-    <p className="mz-wordmark">MZT</p>
-    <h1>{invitation ? "Приглашение" : "Вход для сотрудников"}</h1>
+  return <SignatureScene brand={<BrandMark />}>
+    <section className="admin-signin">
+    <h1>{invitation ? "Приглашение" : stage ? "Подтвердите вход" : "Вход для сотрудников"}</h1>
     {!stage && !recoveryCodes.length && <p className="login__context">{invitation ?
       "Используйте код, полученный от администратора." : "Войдите с помощью служебной учётной записи и кода приложения."}</p>}
     {issue && <p role="alert">{issue}</p>}
     {recoveryCodes.length > 0 ? <><h2>Резервные коды</h2>
       <p>Сохраните коды отдельно от пароля. Они показаны один раз.</p>
       <ul className="codes">{recoveryCodes.map(code => <li key={code}><CodeDisplay>{code}</CodeDisplay></li>)}</ul>
-      <button onClick={() => { setCodes([]); void entered(); }}>Коды сохранены</button>
+      <Button onClick={() => { setCodes([]); void entered(); }}>Коды сохранены</Button>
     </> : <form onSubmit={event => void submit(event)} key={stage?.token ?? "login"}>
-      {invitation ? <label>Код приглашения<input name="token" required autoComplete="off" /></label> : !stage &&
-        <label>Служебная почта<input name="email" type="email" required autoComplete="username" /></label>}
-      {!stage && <label>Пароль<input name="password" type="password" required autoComplete={invitation ? "new-password" : "current-password"} /></label>}
+      {invitation ? <label>Код приглашения<Input name="token" required autoComplete="off" /></label> : !stage &&
+        <label>Служебная почта<span className="mz-input-icon"><Icon name="mail" size={19} /><Input name="email" type="email" required autoComplete="username" /></span></label>}
+      {!stage && <label>Пароль<span className="mz-input-icon"><Icon name="lock" size={19} /><Input name="password" type="password" required autoComplete={invitation ? "new-password" : "current-password"} /></span></label>}
       {stage?.secret && <p>Добавьте ключ в приложение-аутентификатор. <CodeDisplay>{stage.secret}</CodeDisplay></p>}
-      {stage && <label>{recover ? "Резервный код" : "Код приложения"}<input name="code" required autoComplete="one-time-code"
+      {stage && <label>{recover ? "Резервный код" : "Код приложения"}<Input name="code" required autoComplete="one-time-code"
         inputMode={recover ? "text" : "numeric"} pattern={recover ? undefined : "[0-9]{6}"} /></label>}
       <Button type="submit" loading={pending}>{stage ? "Подтвердить" : invitation ? "Активировать" : "Продолжить"}</Button>
       {stage && <div className="actions">
-        {!stage.secret && <button type="button" onClick={() => setRecover(!recover)}>{recover ? "Код приложения" : "Использовать резервный код"}</button>}
-        <button type="button" onClick={() => { setStage(undefined); setRecover(false); }}>Начать заново</button>
+        {!stage.secret && <Button variant="secondary" onClick={() => setRecover(!recover)}>{recover ? "Код приложения" : "Использовать резервный код"}</Button>}
+        <Button variant="quiet" onClick={() => { setStage(undefined); setRecover(false); }}>Начать заново</Button>
       </div>}
     </form>}
     {!stage && !recoveryCodes.length && <Link to={invitation ? "/login" : "/invitation"}>{invitation ? "Ко входу" : "У меня есть приглашение"}</Link>}
-  </section></main>;
+  </section></SignatureScene>;
 }

@@ -1,4 +1,4 @@
-import { Badge, Button, Drawer, EmptyState, Icon, IconButton, PageHeader, StatusIndicator, Timeline, type IconName } from "@vpn/ui";
+import { Badge, BrandMark, Button, Drawer, EmptyState, Icon, IconButton, LabyrinthBackground, MobileNavigation, PageHeader, SignatureScene, StatusIndicator, Timeline, buttonClass, type IconName } from "@vpn/ui";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from "react-router";
@@ -25,7 +25,9 @@ function Guard() {
       catch (error) { if (error instanceof ApiError && error.status === 401) return null; throw error; }
     }, retry: false, refetchInterval: 30_000,
   });
-  if (me.isPending || me.isError) return <main className="login"><RequestState state={me} /></main>;
+  if (me.isPending || me.isError) return <SignatureScene brand={<BrandMark />}>
+    <div className="admin-signin"><h1>Администрирование</h1><RequestState state={me} /></div>
+  </SignatureScene>;
   return me.data ? <Session.Provider value={me.data}><Shell key={me.data.user.id} /></Session.Provider> : <Navigate to="/login" replace />;
 }
 
@@ -39,7 +41,9 @@ function Shell() {
   const location = useLocation();
   const main = useRef<HTMLElement>(null);
   const visibleGroups = groups.map(group => ({ ...group, links: group.links.filter(([, , perm]) => !perm || session.permissions.includes(perm)) }));
-  const active = visibleGroups.flatMap(group => group.links).find(([path]) => path !== "/" && location.pathname.startsWith(path))?.[1] ?? "Обзор";
+  const visibleLinks = visibleGroups.flatMap(group => group.links);
+  const quickLinks = ["/", "/users", "/operations"].flatMap(path => visibleLinks.filter(link => link[0] === path));
+  const active = visibleLinks.find(([path]) => path !== "/" && location.pathname.startsWith(path))?.[1] ?? "Обзор";
   useEffect(() => {
     main.current?.focus({ preventScroll: true });
     document.title = active + " — MZT";
@@ -57,17 +61,20 @@ function Shell() {
   const navigation = (close?: () => void) => <nav className="admin-nav" aria-label="Разделы администрирования">
     {visibleGroups.filter(group => group.links.length).map(group => <section key={group.title}>
       <p>{group.title}</p>
-      {group.links.map(([path, title, , icon]) => <NavLink end={path === "/"} key={path} to={path} onClick={close}>
+      {group.links.map(([path, title, , icon]) => <NavLink end={path === "/"} key={path} to={path} className="mz-nav-link" onClick={close}>
         <Icon name={icon} size={17} />{title}</NavLink>)}
     </section>)}
   </nav>;
-  return hidden ? <main className="login"><p role="status">{error || "Выходим…"}</p>
-    {error && <Button variant="secondary" onClick={() => void logout()}>Повторить выход</Button>}</main> : <div className="shell">
+  return hidden ? <SignatureScene brand={<BrandMark />}>
+    <div className="admin-signin"><h1>Выход из панели</h1><p role="status">{error || "Выходим…"}</p>
+      {error && <Button variant="secondary" onClick={() => void logout()}>Повторить выход</Button>}</div>
+  </SignatureScene> : <div className={`shell${location.pathname === "/" ? " shell--overview" : ""}`}>
+    <LabyrinthBackground />
     <a className="skip" href="#main">Перейти к содержимому</a>
-    <aside className="sidebar"><div className="admin-brand"><NavLink to="/" className="mz-wordmark">MZT</NavLink><span>Администрирование</span></div>{navigation()}</aside>
+    <aside className="sidebar"><div className="admin-brand"><Link to="/" className="mz-brand-home"><BrandMark /></Link><span>Администрирование</span></div>{navigation()}</aside>
     <div className="body"><header className="admin-topbar">
       <div className="admin-topbar__mobile"><IconButton icon="menu" label="Открыть меню" aria-expanded={menu} onClick={() => setMenu(true)} />
-        <Link to="/" className="mz-wordmark">MZT</Link></div>
+        <Link to="/" className="mz-brand-home"><BrandMark /></Link></div>
       <span className="admin-topbar__context">{active}</span>
       <div className="admin-topbar__identity"><span className="admin-topbar__email">{session.user.email}</span>
         <Badge tone="accent">{session.user.role}</Badge>
@@ -78,21 +85,27 @@ function Shell() {
         requestAnimationFrame(() => main.current?.focus({ preventScroll: true }));
       })}</Drawer>
       <main id="main" className="admin-main" ref={main} tabIndex={-1}><Outlet /></main></div>
+    <MobileNavigation label="Быстрые разделы админки" expanded={menu} onMore={() => setMenu(true)}>
+      {quickLinks.map(([path, title, , icon]) => <NavLink end={path === "/"} key={path} to={path}><Icon name={icon} size={19} />{title}</NavLink>)}
+    </MobileNavigation>
   </div>;
 }
 
 function Permit({ permission, children }: { permission: string; children: ReactNode }) {
-  return useCan(permission) ? children : <><h1>Раздел закрыт</h1><p>У вашей роли нет разрешения.</p></>;
+  return useCan(permission) ? children : <><PageHeader title="Раздел закрыт" />
+    <EmptyState title="Недостаточно прав"><p>У вашей роли нет разрешения.</p>
+      <Link to="/" className={buttonClass("secondary")}>Вернуться к обзору</Link>
+    </EmptyState></>;
 }
 function UserDetails() {
   return <Detail title="Пользователь" path="/users">{row => <>
-    <section className="panel"><Facts data={row} />
-      <div className="actions">
-        <Link to={"/orders?userId=" + row.id}>Заказы</Link>
-        <Link to={"/jobs?userId=" + row.id}>Выдача</Link>
-        <Link to={"/support?forUserId=" + row.id}>Обращения</Link>
-        <Link to={"/users/" + row.id + "/periods"}>Периоды</Link>
-      </div>
+    <section className="mz-card panel"><Facts data={row} />
+      <nav className="mz-actions" aria-label="Связанные записи пользователя">
+        <Link className={buttonClass("secondary")} to={"/orders?userId=" + row.id}>Заказы</Link>
+        <Link className={buttonClass("secondary")} to={"/jobs?userId=" + row.id}>Выдача</Link>
+        <Link className={buttonClass("secondary")} to={"/support?forUserId=" + row.id}>Обращения</Link>
+        <Link className={buttonClass("secondary")} to={"/users/" + row.id + "/periods"}>Периоды</Link>
+      </nav>
     </section>
     <AccessActions row={row} />
   </>}</Detail>;
@@ -100,9 +113,9 @@ function UserDetails() {
 function OrderDetails() {
   const finance = useCan("finance:read");
   return <Detail title="Детали заказа" path="/orders">{row => <>
-    <section className="panel"><h2>Снимок и текущее состояние</h2>
+    <section className="mz-card panel"><h2>Снимок и текущее состояние</h2>
       <Facts data={row} keys={["id", "status", "allocated", "delivery", "revision", "snapshot", "entitlement", "owner"]} /></section>
-    <section className="panel"><h2>От оплаты до подключения</h2>
+    <section className="mz-card panel"><h2>От оплаты до подключения</h2>
       <div className="admin-trace"><Timeline>
         <li><h3>Платёжные попытки</h3><Facts data={row} keys={["attempts"]} />
           {finance && <Link to={"/orders/" + row.id + "/finance"}>Подтверждённые движения</Link>}</li>
@@ -131,7 +144,7 @@ function OwnSessions() {
   return <List title="Административные сессии" path="/auth/sessions"
     columns={["id", "userAgent", "lastSeenAt", "expiresAt", "revokedAt", "current"]}
     actions={rows => <><div className="actions">{rows.filter(row => !row.revokedAt).map(row =>
-      <button key={row.id} onClick={() => void revoke(row)}>{row.current ? "Завершить текущую сессию" : "Отозвать " + row.id.slice(0, 8)}</button>)}</div>
+      <Button variant="secondary" key={row.id} onClick={() => void revoke(row)}>{row.current ? "Завершить текущую сессию" : "Отозвать " + row.id.slice(0, 8)}</Button>)}</div>
       {issue && <p role="alert">{issue}</p>}</>} />;
 }
 type ServiceStatus = {
@@ -150,7 +163,7 @@ function Operations() {
     <RequestState state={service} />
     {service.data && <><p className="admin-meta">Снимок {valueText(service.data.asOf)}</p>
       {!service.data.services.length && <EmptyState title="Наблюдений пока нет" />}
-      <div className="grid">{service.data.services.map(source => <section className="panel" key={source.key}>
+      <div className="grid">{service.data.services.map(source => <section className="mz-card panel" key={source.key}>
         <div className="dashboard-source-heading"><h2>{serviceTitle[source.key] ?? source.key}</h2>
           <StatusIndicator status={source.state}>{states[source.state]}</StatusIndicator></div>
         {source.observedAt && <p className="admin-meta">Проверено {valueText(source.observedAt)}</p>}
@@ -179,12 +192,12 @@ export default function AdminWorkspace() {
       <Route path="payments" element={<Permit permission="finance:read"><List title="Денежные движения" path="/payments/transactions"
         columns={["id", "kind", "currency", "amountMinor", "providerTime", "allocation"]}
         filters={[["currency", "Валюта", ["RUB", "USD", "XTR"]], ["unallocated", "Не распределено", ["true"]]]}>
-        <Link to="/payments/cases">Дела сверки</Link></List></Permit>} />
+        <div className="mz-actions"><Link className={buttonClass("secondary")} to="/payments/cases">Дела сверки <Icon name="arrow" size={16} /></Link></div></List></Permit>} />
       <Route path="payments/cases" element={<Permit permission="finance:read"><List title="Дела сверки" path="/payments/cases"
         columns={["id", "kind", "status", "priority", "nextCheckAt", "updatedAt"]}
         filters={[["status", "Статус", ["OPEN", "INVESTIGATING", "RESOLVED"]]]} destination={row => "/payments/cases/" + row.id} /></Permit>} />
       <Route path="payments/cases/:id" element={<Permit permission="finance:read">
-        <Detail title="Дело сверки" path="/payments/cases">{row => <><section className="panel"><Facts data={row} /></section>
+        <Detail title="Дело сверки" path="/payments/cases">{row => <><section className="mz-card panel"><Facts data={row} /></section>
           <Action title="Записать результат разбора" operation="payment.case_review" permission="finance:reconcile"
             target={row.id} version={String(row.version)} fields={[{ name: "disposition", label: "Исход", options: ["INVESTIGATING", "RESOLVED"] }]} />
         </>}</Detail>
@@ -195,7 +208,7 @@ export default function AdminWorkspace() {
       <Route path="jobs" element={<List title="Очередь выдачи" path="/jobs" columns={jobColumns} filters={jobFilters}
         destination={row => "/jobs/" + row.id} />} />
       <Route path="jobs/:id" element={<Detail title="Задача выдачи" path="/jobs">{row => <>
-        <section className="panel"><Facts data={row} /></section>
+        <section className="mz-card panel"><Facts data={row} /></section>
         {row.revision !== null && row.currentRevision === row.revision && <Action title="Запросить повторную проверку"
           operation="job.requeue" permission="jobs:write" target={row.id} version={String(row.revision)} />}
       </>}</Detail>} />
@@ -213,23 +226,25 @@ export default function AdminWorkspace() {
         columns={["action", "actorId", "permission", "entityId", "reason", "commandId", "createdAt"]}
         filters={[["action", "Действие"], ["entity", "Объект"], ["actorId", "ID сотрудника"], ["entityId", "ID объекта"]]} destination={row => "/audit/" + row.id} /></Permit>} />
       <Route path="audit/:id" element={<Permit permission="audit:read"><Detail title="Запись аудита" path="/audit">
-        {row => <section className="panel"><Facts data={row} /></section>}
+        {row => <section className="mz-card panel"><Facts data={row} /></section>}
       </Detail></Permit>} />
       <Route path="staff" element={<Permit permission="staff:read"><List title="Сотрудники" path="/staff"
         columns={["email", "role", "status", "enrollmentState", "version"]} filters={[["role", "Роль", ["ADMIN", "SUPPORT"]]]}
         destination={row => "/staff/" + row.id}><Invite /></List></Permit>} />
       <Route path="staff/:id" element={<Permit permission="staff:read"><Detail title="Сотрудник" path="/staff">{row => <>
-        <section className="panel"><Facts data={row} /></section><StaffActions row={row} />
+        <section className="mz-card panel"><Facts data={row} /></section><StaffActions row={row} />
       </>}</Detail></Permit>} />
       <Route path="staff/:id/sessions" element={<Permit permission="staff:read">
-        <Detail title="Сессии сотрудника" path="/staff">{staff => <List title="Устройства" path={`/staff/${staff.id}/sessions`}
+        <Detail title="Сессии сотрудника" path="/staff">{staff => <List title="Устройства" nested path={`/staff/${staff.id}/sessions`}
           columns={["id", "userAgent", "lastSeenAt", "expiresAt", "revokedAt"]} actions={rows => rows.filter(row => !row.revokedAt).map(row =>
             <Action key={row.id} title={"Отозвать сессию · " + row.id.slice(0, 8)} operation="staff.session.revoke"
               permission="staff:write" version={String(staff.version)} target={staff.id} payload={{ sessionId: row.id }} />)} />}
         </Detail></Permit>} />
       <Route path="security" element={<OwnSessions />} />
       <Route path="operations" element={<Operations />} />
-      <Route path="*" element={<><h1>Страница не найдена</h1><Link to="/">Вернуться к обзору</Link></>} />
+      <Route path="*" element={<><PageHeader title="Страница не найдена" /><EmptyState title="Проверьте адрес">
+        <Link to="/" className={buttonClass("secondary")}>Вернуться к обзору</Link>
+      </EmptyState></>} />
     </Route>
   </Routes>;
 }

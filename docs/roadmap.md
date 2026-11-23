@@ -133,6 +133,8 @@
 
 [Дизайн-система](frontend.md) · [Визуальная приёмка](testing.md#визуальная-приёмка-ux-0103)
 
+- **DES‑03 IMPLEMENTED.** Premium Balance покрывает внутренние и служебные маршруты web/admin. Браузерная карта и критерии приёмки включают checkout, приватное подключение, OAuth, финансы, аудит, сессии и команды. Интеграция подчиняется обязательным GitHub checks. Коммерческий статус — **Engineering Not Ready · Commercial NO-GO**. [Карта и визуальная приёмка](design/MZT-PREMIUM-BALANCE.md#12-des03--покрытие-маршрутов-и-визуальная-приёмка)
+
 ## Phase 7 — Security & Release
 
 Цель — коммерческий допуск одного кандидата. Вход — результаты Foundations, Commerce, Account, Administration, Operations и UX. Выход — все строки коммерческого gate с доказательствами и подписанным решением владельца.
