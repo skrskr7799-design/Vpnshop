@@ -1,4 +1,4 @@
-import { Badge, Button, Drawer, EmptyState, Icon, IconButton, LabyrinthBackground, MobileNavigation, PageHeader, StatusIndicator, Timeline, type IconName } from "@vpn/ui";
+import { Badge, BrandMark, Button, Drawer, EmptyState, Icon, IconButton, LabyrinthBackground, MobileNavigation, PageHeader, StatusIndicator, Timeline, type IconName } from "@vpn/ui";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from "react-router";
@@ -67,10 +67,10 @@ function Shell() {
     {error && <Button variant="secondary" onClick={() => void logout()}>Повторить выход</Button>}</main> : <div className={`shell${location.pathname === "/" ? " shell--overview" : ""}`}>
     <LabyrinthBackground />
     <a className="skip" href="#main">Перейти к содержимому</a>
-    <aside className="sidebar"><div className="admin-brand"><NavLink to="/" className="mz-wordmark">MZT</NavLink><span>Администрирование</span></div>{navigation()}</aside>
+    <aside className="sidebar"><div className="admin-brand"><Link to="/" className="mz-brand-home"><BrandMark /></Link><span>Администрирование</span></div>{navigation()}</aside>
     <div className="body"><header className="admin-topbar">
       <div className="admin-topbar__mobile"><IconButton icon="menu" label="Открыть меню" aria-expanded={menu} onClick={() => setMenu(true)} />
-        <Link to="/" className="mz-wordmark">MZT</Link></div>
+        <Link to="/" className="mz-brand-home"><BrandMark /></Link></div>
       <span className="admin-topbar__context">{active}</span>
       <div className="admin-topbar__identity"><span className="admin-topbar__email">{session.user.email}</span>
         <Badge tone="accent">{session.user.role}</Badge>

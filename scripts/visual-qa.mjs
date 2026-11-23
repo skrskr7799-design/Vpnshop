@@ -46,6 +46,20 @@ export async function visualQa({ site, dist, send, evaluate, until, origin, scre
     await until(textExists(screen.ready));
     if (screen.afterLoad) await afterLoad(screen);
     await until("document.fonts.status === 'loaded'");
+    if (screen.id === "login" || screen.id === "dashboard") {
+      await until(`(() => {
+        const marks = [...document.querySelectorAll(".mz-brand-mark")].filter(mark => mark.checkVisibility());
+        return marks.length === 1 && marks.every(mark => mark.complete && mark.naturalWidth > 0);
+      })()`);
+      assert.ok(await evaluate(`(() => {
+        const mark = [...document.querySelectorAll(".mz-brand-mark")].find(mark => mark.checkVisibility());
+        const { width, height } = mark.getBoundingClientRect();
+        const home = mark.closest("a")?.getBoundingClientRect();
+        return mark.alt === "MZT" && new URL(mark.currentSrc).origin === location.origin
+          && mark.naturalWidth === mark.naturalHeight && width === height
+          && (!home || (home.width >= 44 && home.height >= 44));
+      })()`), `${site} ${screen.id} local square logo and usable home target`);
+    }
   }
 
   for (const screen of screens) {

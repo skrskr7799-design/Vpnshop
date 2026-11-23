@@ -1,6 +1,6 @@
 import type { OwnerSubscription } from "@vpn/shared";
 import { useQuery } from "@tanstack/react-query";
-import { Button, Drawer, ErrorState, Icon, IconButton, LabyrinthBackground, MobileNavigation, Skeleton, type IconName } from "@vpn/ui";
+import { BrandMark, Button, Drawer, ErrorState, Icon, IconButton, LabyrinthBackground, MobileNavigation, Skeleton, type IconName } from "@vpn/ui";
 import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router";
 import { request } from "../../api/client";
@@ -87,11 +87,11 @@ export function AccountShell() {
   return <div className={`mzt-account${pathname === "/account" ? " mzt-account--overview" : ""}`}>
     <LabyrinthBackground />
     <a className="mz-skip" href="#account-main">Перейти к содержимому</a>
-    <aside className="mzt-rail"><div className="mzt-rail__brand"><Link to="/account" className="mz-wordmark">MZT</Link><p>Личный кабинет</p></div>{links()}</aside>
+    <aside className="mzt-rail"><div className="mzt-rail__brand"><Link to="/account" className="mz-brand-home"><BrandMark /></Link><p>Личный кабинет</p></div>{links()}</aside>
     <div className="mzt-workspace">
       <header className="mzt-top">
         <div className="mzt-top__mobile"><IconButton icon="menu" label="Открыть меню" aria-expanded={menu} onClick={() => setMenu(true)} />
-          <Link to="/account" className="mz-wordmark">MZT</Link></div>
+          <Link to="/account" className="mz-brand-home"><BrandMark /></Link></div>
         <span className="mzt-top__context">{data?.email}</span>
         <Button variant="quiet" className="mzt-top__exit" onClick={() => logout.mutate()}><Icon name="out" size={17} />Выйти</Button>
       </header>

@@ -3,6 +3,12 @@ import { useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type HTM
 import { Icon, LabyrinthBackground, type IconName } from "./icons";
 export { Icon, Labyrinth, LabyrinthBackground, type IconName } from "./icons";
 
+const brandMarkUrl = new URL("./assets/mzt-logo.svg", import.meta.url).href;
+
+export function BrandMark() {
+  return <img className="mz-brand-mark" src={brandMarkUrl} width={804} height={804} alt="MZT" />;
+}
+
 type Tone = "neutral" | "success" | "warning" | "danger" | "info" | "accent";
 export function buttonClass(kind = "primary", block = false) {
   return ["mz-button", "mz-button--" + kind, block && "mz-button--block"].filter(Boolean).join(" ");

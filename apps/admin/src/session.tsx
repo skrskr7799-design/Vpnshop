@@ -1,4 +1,4 @@
-import { Button, CodeDisplay, Icon, SignatureScene } from "@vpn/ui";
+import { BrandMark, Button, CodeDisplay, Icon, SignatureScene } from "@vpn/ui";
 import { createContext, useContext, useState, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router";
@@ -51,7 +51,7 @@ export function Login({ invitation = false }: { invitation?: boolean }) {
     } catch (error) { setIssue(errorText(error)); }
     finally { setPending(false); }
   }
-  return <SignatureScene brand={<span className="mz-wordmark">MZT</span>}>
+  return <SignatureScene brand={<BrandMark />}>
     <section className="admin-signin">
     <h1>{invitation ? "Приглашение" : stage ? "Подтвердите вход" : "Вход для сотрудников"}</h1>
     {!stage && !recoveryCodes.length && <p className="login__context">{invitation ?

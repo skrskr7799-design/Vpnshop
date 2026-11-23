@@ -4,7 +4,6 @@
 .mzt-top { display: flex; align-items: center; justify-content: space-between; min-height: 64px; padding: .45rem clamp(1rem, 4vw, 2.75rem); gap: .5rem; background: var(--mz-rail); border-block-end: 1px solid var(--mz-line); }
 .mzt-top .mzt-top__mobile { display: flex; gap: .65rem; align-items: center; }
 .mzt-top__context { display: none; }
-.mzt-top .mz-wordmark { font-size: 1.1rem; }
 .mzt-top__exit { display: inline-flex; }
 .mzt-nav { display: grid; gap: .25rem; }
 .mzt-nav a { display: flex; gap: .72rem; align-items: center; border: 1px solid transparent; padding: .6rem .75rem; min-height: 44px; color: var(--mz-secondary); text-decoration: none; border-radius: var(--mz-radius); font-size: .91rem; }
@@ -57,7 +56,6 @@
 @media (min-width: 820px) {
   .mzt-account { display: grid; grid-template-columns: 14rem minmax(0, 1fr); }
   .mzt-rail { display: flex; flex-direction: column; gap: 1.75rem; align-self: start; position: sticky; top: 0; min-height: 100dvh; max-height: 100dvh; overflow: auto; border-inline-end: 1px solid var(--mz-line); background: var(--mz-rail); padding: 1.35rem .85rem; }
-  .mzt-rail .mz-wordmark { margin: .3rem .7rem .15rem; display: inline-flex; min-height: 40px; align-items: center; }
   .mzt-top .mzt-top__mobile { display: none; }
   .mzt-top__context { display: inline-flex; color: var(--mz-secondary); font-size: .9rem; }
   .mzt-top__exit { margin-inline-start: auto; }
@@ -71,8 +69,10 @@
 .mzt-account { position: relative; isolation: isolate; font-size: .875rem; }
 .mzt-workspace { position: relative; }
 .mzt-top { min-height: 58px; background: #0a090fe0; }
-.mzt-rail__brand { text-align: center; padding-block: 6px 14px; color: var(--mz-muted); font-size: .76rem; }
-.mzt-top .mz-wordmark, .mzt-rail__brand .mz-wordmark { color: #d3c4eb; }
+.mzt-rail__brand {
+  --mz-brand-size: 56px; display: grid; justify-items: center; gap: 6px;
+  text-align: center; padding-block: 2px 12px; color: var(--mz-muted); font-size: .76rem;
+}
 .mzt-top__context { overflow-wrap: anywhere; }
 .mzt-dashboard { display: grid; gap: 16px; }
 .mzt-dashboard .mz-page-header { margin-block-end: 3px; }
@@ -82,21 +82,27 @@
 .mzt-subscription-summary {
   display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px 20px;
   --mz-fill: linear-gradient(113deg, #14101b, #0e0e15 47%);
+  --mz-outline: linear-gradient(130deg, #8769ac, #523e68 54%, #71568c);
 }
-.mzt-subscription-summary__detail { min-width: 0; display: grid; gap: 6px; }
-.mzt-subscription-summary__detail h2 { font-size: clamp(1.15rem, 1rem + .5vw, 1.6rem); }
+.mzt-subscription-summary__detail { min-width: 0; display: grid; gap: 4px; }
+.mzt-subscription-summary__detail h2 { font-size: clamp(1.25rem, 1.05rem + .6vw, 1.65rem); font-weight: 670; letter-spacing: -.024em; }
+.mzt-subscription-summary__detail p { color: var(--mz-secondary); }
 .mzt-subscription-summary__detail .mz-badge, .mzt-connection .mz-badge {
   padding-inline: 0; border: 0; background: transparent; color: var(--mz-tone); font-weight: 515;
 }
-.mzt-subscription-summary__actions { align-items: flex-end; justify-content: flex-end; }
-.mzt-subscription-summary__actions .mz-button { min-inline-size: 138px; }
+.mzt-subscription-summary__actions { align-items: center; justify-content: flex-end; gap: .72rem; }
+.mzt-subscription-summary__actions .mz-button { min-inline-size: 150px; }
 .mzt-inline-link { display: inline-flex; align-items: center; min-height: 44px; gap: 5px; font-size: .81rem; }
 .mzt-inline-link svg { flex: none; }
 .mzt-account-facts { display: grid; grid-template-columns: minmax(0, 1.1fr) repeat(2,minmax(0,1fr)); gap: 12px; }
-.mzt-account-facts .mz-card { display: flex; gap: 12px; align-items: flex-start; min-width: 0; }
+.mzt-account-facts .mz-card {
+  display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 10px; align-items: center;
+  --mz-outline: linear-gradient(130deg, #715891, #4b3b60 72%, #59456f);
+}
+.mzt-account-facts .mz-card > svg { margin-inline: auto; }
 .mzt-account-facts .mz-card > svg, .mzt-panel-heading h2 svg { flex: none; color: var(--mz-violet-hover); }
-.mzt-content .mzt-account-facts h2 { color: var(--mz-secondary); font-size: .81rem; font-weight: 510; margin-block-end: 4px; }
-.mzt-account-facts p { font-size: 1rem; font-weight: 610; }
+.mzt-content .mzt-account-facts h2 { color: var(--mz-secondary); font-size: .84rem; font-weight: 530; margin-block-end: 4px; }
+.mzt-account-facts p { font-size: 1.02rem; font-weight: 640; }
 .mzt-panel-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; }
 .mzt-content .mzt-panel-heading h2 { display: flex; gap: 8px; align-items: center; font-size: .97rem; }
 .mzt-connection__row {
@@ -137,6 +143,8 @@
 }
 @media (max-width: 550px) {
   .mzt-account-facts, .mzt-account-overview-bottom { grid-template-columns: minmax(0,1fr); gap: 10px; }
+  .mzt-account-facts { gap: 8px; }
+  .mzt-dashboard .mzt-account-facts .mz-card { padding-block: 9px; }
   .mzt-subscription-summary__detail, .mzt-subscription-summary__actions { width: 100%; }
   .mzt-subscription-summary__actions { flex-direction: column; gap: 2px; align-items: center; }
   .mzt-subscription-summary__actions .mz-button { width: 100%; }
