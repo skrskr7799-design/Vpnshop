@@ -329,8 +329,16 @@ try {
   assert.equal(accessRequests, 2);
   console.log("Chromium 360 px: checkout retry and UNKNOWN, support, local QR/copy/hide/logout, account states, auth validation/OAuth/registration/verify/reset passed");
   if (process.env.MZT_VISUAL_DIR) {
+    history = [{ id: "staff-response", author: "STAFF", text: "Уточните, пожалуйста, время оплаты.", createdAt: now },
+      ...history.filter(entry => entry.text !== payload)];
+    ticket.status = "WAITING_CUSTOMER";
     await visualQa({ site: "web", dist, send, evaluate, until, origin,
-      prepare: screen => { signedIn = !screen.guest; oauthEnabled = Boolean(screen.oauth); mailEnabled = !screen.noMail; },
+      prepare: screen => {
+        signedIn = !screen.guest;
+        oauthEnabled = Boolean(screen.oauth);
+        mailEnabled = !screen.noMail;
+        if (screen.id === "support") ticket.unread = 1;
+      },
       afterLoad: async screen => {
         if (screen.id === "initial-password") {
           await click("У меня временный пароль");

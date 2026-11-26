@@ -33,7 +33,7 @@ const labels: Record<string, string> = {
   code: "Код", name: "Название", deviceLimit: "Устройства", attempts: "Попытки", revision: "Ревизия",
   createdAt: "Создано", updatedAt: "Обновлено", providerTime: "Время провайдера", reasonCode: "Причина",
   receivedAt: "Получено", action: "Действие", actorId: "Сотрудник", permission: "Разрешение",
-  version: "Версия", category: "Тема", kind: "Тип", role: "Роль", enrollmentState: "Второй фактор",
+  version: "Версия", category: "Категория", kind: "Тип", role: "Роль", enrollmentState: "Второй фактор",
   errors: "Ошибки", overdue: "Просрочено", stuck: "Требует сверки", awaiting: "Ожидает оплаты",
   durationMonths: "Месяцы", publishedAt: "Публикация", withdrawnAt: "Снятие", currentRevision: "Текущая ревизия",
   leaseUntil: "Аренда до", nextAttemptAt: "Следующая попытка", expiresAt: "Истекает", observedAt: "Проверено",

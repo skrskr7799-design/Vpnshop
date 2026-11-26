@@ -15,6 +15,7 @@ const profile = await mkdtemp(join(tmpdir(), "mzt-admin-smoke-"));
 const now = new Date().toISOString();
 let signedIn = false;
 let role = "OWNER";
+let capturingScreens = false;
 let commandCalls = 0;
 let commandKey;
 let commandBody;
@@ -24,7 +25,8 @@ const fixtureReplacement = ["fixture", "replacement", "2026"].join("-");
 const visitedStaffOperations = [];
 const customer = { activation: "PENDING", emailVerified: false, id: "id-customer", email: "p•••@example.invalid", status: "ACTIVE", createdAt: now };
 const plan = { id: "fixture-plan", name: "MZT Standard", code: "standard", revision: 1, deviceLimit: 5, isActive: true };
-const ticket = { id: "case-1", category: "DELIVERY", orderId: "order-1", status: "OPEN", updatedAt: now };
+const ticket = { id: "case-1", subject: "Уточнение по выдаче доступа", category: "DELIVERY", orderId: "order-1", status: "OPEN",
+  priority: "HIGH", assignee: "team-operator", assigneeId: "staff-001", unread: 2, updatedAt: now };
 const html = '<img src=x onerror="window.adminUnsafe=true">';
 const order = { id: "order-1", userId: customer.id, status: "PAID", delivery: "VERIFY_PENDING", version: 2,
   createdAt: now, revision: 3, allocated: true, entitlement: "ACTIVE",
@@ -124,7 +126,7 @@ const server = createServer(async (req, res) => {
   ] : []) });
   if (path === "/api/support/assignees") return json({ items: [{ id: staff.id, username: staff.username }] });
   if (path === "/api/support/cases") return json(pages([ticket]));
-  if (path === "/api/support/cases/case-1") return json({ case: ticket, messages: pages([{ id: "msg", author: "CUSTOMER", text: html, createdAt: now }]),
+  if (path === "/api/support/cases/case-1") return json({ case: ticket, messages: pages([{ id: "msg", author: "CUSTOMER", text: capturingScreens ? "Платёж подтверждён. Когда появится доступ?" : html, createdAt: now }]),
     history: pages([]) });
   if (path === "/api/auth/sessions/revoke-others" && req.method === "POST") {
     visitedStaffOperations.push("revoke-others");
@@ -329,6 +331,7 @@ try {
   await until(text("Админ-панель MZT"));
   console.log("Chromium 360 px: rejected TOTP, mobile filters, dialog Escape/focus, freshness, command retry, OWNER operations, initial password stage and SUPPORT isolation passed");
   if (process.env.MZT_VISUAL_DIR) {
+    capturingScreens = true;
     await visualQa({ site: "admin", dist, send, evaluate, until, origin,
       prepare: screen => { signedIn = !screen.guest; role = "OWNER"; },
       afterLoad: async () => {
