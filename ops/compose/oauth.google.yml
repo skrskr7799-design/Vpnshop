@@ -1,0 +1,9 @@
+services:
+  public-api:
+    environment:
+      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:?Set the provider client ID}"
+      GOOGLE_CLIENT_SECRET_FILE: /run/secrets/google_client_secret
+    secrets: [google_client_secret]
+
+secrets:
+  google_client_secret: {file: "${SECRETS_DIR}/google_client_secret"}

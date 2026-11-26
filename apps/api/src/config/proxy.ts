@@ -8,6 +8,10 @@ export function isRestrictedPeer(value: string) {
   } catch { return false; }
 }
 
+export function explicitPublicAdminAccess(mode: string, cidrs: readonly string[]) {
+  return mode === "public" && cidrs.length === 1 && cidrs[0] === "internet";
+}
+
 export function exactHttpsOrigin(value: string) {
   const origin = new URL(value);
   return origin.protocol === "https:" && value === origin.origin;

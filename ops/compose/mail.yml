@@ -1,0 +1,14 @@
+services:
+  notifications:
+    profiles: !reset []
+    environment:
+      SMTP_URL_FILE: /run/secrets/smtp_url
+      MAIL_FROM: "${MAIL_FROM:?Set the verified sender}"
+    secrets: [smtp_url]
+    networks: {smtp-egress: {}}
+
+networks:
+  smtp-egress:
+
+secrets:
+  smtp_url: {file: "${SECRETS_DIR}/smtp_url"}

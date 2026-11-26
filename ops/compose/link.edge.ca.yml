@@ -1,0 +1,7 @@
+services:
+  public-edge:
+    environment: {EDGE_PRIVATE_CA: "1"}
+    secrets: [core_gw_ca]
+
+secrets:
+  core_gw_ca: {file: "${SECRETS_DIR}/core_gw_ca"}

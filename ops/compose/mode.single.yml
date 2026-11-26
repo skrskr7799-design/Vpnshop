@@ -1,0 +1,9 @@
+services:
+  public-edge:
+    networks:
+      public-api-edge: {ipv4_address: 172.30.72.2}
+  exporter:
+    secrets: [{source: monitor_public_cert, target: public_cert}]
+
+secrets:
+  monitor_public_cert: {file: "${SECRETS_DIR}/monitor_public_cert"}

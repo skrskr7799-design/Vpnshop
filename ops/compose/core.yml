@@ -1,0 +1,73 @@
+# Shared service definitions come from the installed-stack Compose contract.
+services:
+  db:
+    extends: {file: compose.yml, service: db}
+  migrator:
+    extends: {file: compose.yml, service: migrator}
+  public-api:
+    extends: {file: compose.yml, service: public-api}
+    environment:
+      CHECKOUT_TTL_MINUTES: ${CHECKOUT_TTL_MINUTES:-30}
+  worker:
+    extends: {file: compose.yml, service: worker}
+  billing:
+    extends: {file: compose.yml, service: billing}
+  notifications:
+    extends: {file: compose.yml, service: notifications}
+    profiles: [mail]
+    environment: {SMTP_URL_FILE: ""}
+    secrets: !override [notifications_url, mail_key]
+  exporter:
+    extends: {file: compose.yml, service: exporter}
+    secrets: !override [monitor_url, {source: monitor_admin_cert, target: admin_cert}]
+  prometheus:
+    extends: {file: compose.yml, service: prometheus}
+  alertmanager:
+    extends: {file: compose.yml, service: alertmanager}
+  alert-sink:
+    extends: {file: compose.yml, service: alert-sink}
+
+networks:
+  public-api-edge:
+    internal: true
+    ipam: {config: [{subnet: 172.30.72.0/28, ip_range: 172.30.72.8/29}]}
+  public-db: {internal: true}
+  tasks-db: {internal: true}
+  finance-db: {internal: true}
+  notifications-db: {internal: true}
+  monitoring-db: {internal: true}
+  monitoring:
+    internal: true
+    ipam: {config: [{subnet: 172.30.75.0/27, ip_range: 172.30.75.16/28}]}
+  public-metrics:
+    internal: true
+    ipam: {config: [{subnet: 172.30.76.0/27, ip_range: 172.30.76.16/28}]}
+  alerting: {internal: true}
+  backup-db: {internal: true}
+  migration-db: {internal: true}
+
+volumes:
+  pgdata:
+  proofs:
+  prometheus:
+  alertmanager:
+
+secrets:
+  db_superuser: {file: "${SECRETS_DIR:?Set secrets directory}/db_superuser"}
+  db_migrator: {file: "${SECRETS_DIR}/db_migrator"}
+  db_public: {file: "${SECRETS_DIR}/db_public"}
+  db_admin: {file: "${SECRETS_DIR}/db_admin"}
+  db_worker: {file: "${SECRETS_DIR}/db_worker"}
+  db_billing: {file: "${SECRETS_DIR}/db_billing"}
+  db_notifications: {file: "${SECRETS_DIR}/db_notifications"}
+  db_backup: {file: "${SECRETS_DIR}/db_backup"}
+  db_monitor: {file: "${SECRETS_DIR}/db_monitor"}
+  migrator_url: {file: "${SECRETS_DIR}/migrator_url"}
+  public_url: {file: "${SECRETS_DIR}/public_url"}
+  worker_url: {file: "${SECRETS_DIR}/worker_url"}
+  billing_url: {file: "${SECRETS_DIR}/billing_url"}
+  notifications_url: {file: "${SECRETS_DIR}/notifications_url"}
+  web_jwt: {file: "${SECRETS_DIR}/web_jwt"}
+  web_cookie: {file: "${SECRETS_DIR}/web_cookie"}
+  mail_key: {file: "${SECRETS_DIR}/mail_key"}
+  monitor_url: {file: "${SECRETS_DIR}/monitor_url"}

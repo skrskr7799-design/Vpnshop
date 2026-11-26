@@ -6,7 +6,7 @@ services:
     volumes: [proofs:/state/proofs]
     networks: {archive-egress: {}}
   exporter:
-    environment: {BACKUP_MONITOR: "true"}
+    environment: {BACKUP_MONITOR: "${BACKUP_MONITOR:-true}"}
   logical:
     image: ${BACKUP_IMAGE:?Set logical backup digest}
     profiles: [backup]

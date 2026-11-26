@@ -57,6 +57,6 @@ COPY ops/nginx/static.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/apps/admin/dist/ /usr/share/nginx/html/
 
 FROM nginx-runtime AS edge
-COPY ops/nginx/edge.conf /etc/nginx/edge.conf
+COPY ops/nginx/edge.conf ops/nginx/gateway.conf ops/nginx/public-routes.conf /etc/nginx/
 COPY --chmod=0555 ops/nginx/start.sh /usr/local/bin/mzt-edge
 ENTRYPOINT ["mzt-edge"]

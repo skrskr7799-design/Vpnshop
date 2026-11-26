@@ -1,0 +1,4 @@
+# Keep the Public API on its internal segment. The link overlay selects the sole listener.
+services:
+  public-api:
+    environment: {WEB_TRUSTED_PROXIES: "${V2_WEB_PROXY:?Select a Core transport}"}

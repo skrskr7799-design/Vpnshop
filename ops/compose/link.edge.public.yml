@@ -1,0 +1,10 @@
+services:
+  public-edge:
+    environment:
+      EDGE_UPSTREAM_SCHEME: https
+      EDGE_CORE_HOST: "${CORE_API_HOST:?Set the Core TLS hostname}"
+    secrets: [edge_client_cert, edge_client_key]
+
+secrets:
+  edge_client_cert: {file: "${SECRETS_DIR}/edge_client_cert"}
+  edge_client_key: {file: "${SECRETS_DIR}/edge_client_key"}

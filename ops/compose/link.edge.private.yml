@@ -1,0 +1,3 @@
+services:
+  public-edge:
+    environment: {EDGE_UPSTREAM_SCHEME: http}

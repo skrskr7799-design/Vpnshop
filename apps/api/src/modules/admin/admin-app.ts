@@ -13,6 +13,7 @@ import { registerErrorHandler } from "../../lib/error-handler";
 import { registerCommandProtocol } from "./commands";
 import { staffCommands, staffRoutes } from "./staff";
 import { createIpGuard } from "./admin.ip-guard";
+import { explicitPublicAdminAccess } from "../../config/proxy";
 import { adminAuditRoutes } from "./routes/audit.routes";
 import { adminAuthRoutes } from "./routes/auth.routes";
 import { adminDashboardRoutes, type DashboardDeps } from "./routes/dashboard.routes";
@@ -63,7 +64,8 @@ export async function buildAdminApp(options: AdminAppOptions) {
   await app.register(rateLimit, { global: true, max: 300, timeWindow: "1 minute" });
   app.decorateRequest("admin", null);
 
-  const ipAllowed = createIpGuard(cidrs);
+  const publicInternet = options.allowedCidrs === undefined && explicitPublicAdminAccess(env.ADMIN_ACCESS_MODE, cidrs);
+  const ipAllowed = createIpGuard(publicInternet ? [] : cidrs);
 
   await app.register(healthRoutes);
 

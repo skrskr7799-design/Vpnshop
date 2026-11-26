@@ -1,0 +1,26 @@
+# The host firewall must restrict this bridge to the approved panel endpoint.
+services:
+  worker:
+    networks: {panel-egress: {}}
+    environment: &panel
+      REMNAWAVE_REVISION_MODE: staging
+      REMNAWAVE_STAGING_ORIGIN: "${REMNAWAVE_STAGING_ORIGIN:?Set the isolated panel origin}"
+      REMNAWAVE_STAGING_LINK_ORIGIN: "${REMNAWAVE_STAGING_LINK_ORIGIN:?Set the isolated link origin}"
+      REMNAWAVE_STAGING_INSTANCE: "${REMNAWAVE_STAGING_INSTANCE:?Set the staging instance}"
+      REMNAWAVE_STAGING_SQUADS: "${REMNAWAVE_STAGING_SQUADS:?Set staging squad UUIDs}"
+      REMNAWAVE_STAGING_TOKEN_FILE: /run/secrets/remnawave_staging_token
+    secrets: [remnawave_staging_token]
+  public-api:
+    networks: {panel-egress: {}}
+    environment: *panel
+    secrets: [remnawave_staging_token]
+  admin-api:
+    networks: {panel-egress: {}}
+    environment: *panel
+    secrets: [remnawave_staging_token]
+
+networks:
+  panel-egress:
+
+secrets:
+  remnawave_staging_token: {file: "${SECRETS_DIR}/remnawave_staging_token"}

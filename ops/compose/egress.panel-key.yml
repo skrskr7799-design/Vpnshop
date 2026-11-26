@@ -1,0 +1,13 @@
+services:
+  worker:
+    environment: &key {REMNAWAVE_STAGING_API_KEY_FILE: /run/secrets/remnawave_staging_api_key}
+    secrets: [remnawave_staging_api_key]
+  public-api:
+    environment: *key
+    secrets: [remnawave_staging_api_key]
+  admin-api:
+    environment: *key
+    secrets: [remnawave_staging_api_key]
+
+secrets:
+  remnawave_staging_api_key: {file: "${SECRETS_DIR}/remnawave_staging_api_key"}

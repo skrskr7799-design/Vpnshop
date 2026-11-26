@@ -1,5 +1,5 @@
 import { readSecret } from "./secrets";
-import { exactHttpsOrigin, isRestrictedPeer } from "./proxy";
+import { exactHttpsOrigin, explicitPublicAdminAccess, isRestrictedPeer } from "./proxy";
 import { z } from "zod";
 
 // Пустая строка в .env (VAR=) считается «не задано»
@@ -42,6 +42,7 @@ const schema = z
     ADMIN_PORT: z.coerce.number().int().positive().default(3001),
     // Origin фронта админки (проверка Origin, CORS)
     ADMIN_ORIGIN: z.url().default("http://localhost:5174"),
+    ADMIN_ACCESS_MODE: z.enum(["private", "public", "local"]).default("private"),
     ADMIN_TRUSTED_PROXIES: z.string().default("").transform(value => value.split(",").map(part => part.trim()).filter(Boolean)),
     // Разрешённые адреса/сети (CIDR) через запятую. Пусто = без ограничения по IP
     ADMIN_ALLOWED_CIDRS: z
@@ -63,8 +64,11 @@ const schema = z
     { path: ["MAIL_QUEUE_KEY"], message: "Mail queue key must be 32 bytes in base64" })
   .refine(v => v.MZT_PROCESS !== "admin" || !!v.ADMIN_ENCRYPTION_KEY,
     { path: ["ADMIN_ENCRYPTION_KEY"], message: "Admin role requires its encryption key" })
-  .refine(v => [...v.WEB_TRUSTED_PROXIES, ...v.ADMIN_TRUSTED_PROXIES, ...v.ADMIN_ALLOWED_CIDRS].every(isRestrictedPeer),
+  .refine(v => [...v.WEB_TRUSTED_PROXIES, ...v.ADMIN_TRUSTED_PROXIES].every(isRestrictedPeer),
     { path: ["WEB_TRUSTED_PROXIES"], message: "Invalid or unrestricted network selector" })
+  .refine(v => v.ADMIN_ALLOWED_CIDRS.every(isRestrictedPeer) ||
+    explicitPublicAdminAccess(v.ADMIN_ACCESS_MODE, v.ADMIN_ALLOWED_CIDRS),
+    { path: ["ADMIN_ALLOWED_CIDRS"], message: "Invalid administrative network policy" })
   .refine((v) => !v.ADMIN_ENCRYPTION_KEY || Buffer.from(v.ADMIN_ENCRYPTION_KEY, "base64").length === 32, {
     path: ["ADMIN_ENCRYPTION_KEY"],
     message: "ADMIN_ENCRYPTION_KEY must be 32 bytes in base64",

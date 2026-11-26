@@ -1,0 +1,26 @@
+services:
+  core-gateway:
+    user: "101:101"
+    extends: {file: compose.yml, service: public-edge}
+    environment: !override
+      EDGE_SCOPE: gateway
+      EDGE_HOST: "${CORE_API_HOST:?Set the Core TLS hostname}"
+      EDGE_APP: public-api:3000
+      EDGE_PUBLIC_HOST: "${V2_PUBLIC_AUTHORITY:?Set the public HTTPS origin}"
+      EDGE_GATEWAY_PEER: "${CORE_API_ALLOWED_IP:?Set the Edge source IP}"
+    ports: !override [{target: 8443, published: "${CORE_API_PORT:-8443}", host_ip: "${CORE_LISTEN_IP:?Set the gateway interface}"}]
+    secrets: !override
+      - {source: core_gw_cert, target: edge_cert}
+      - {source: core_gw_key, target: edge_key}
+      - core_gw_client_ca
+    networks: !override
+      gateway-ingress:
+      public-api-edge: {ipv4_address: 172.30.72.2}
+
+networks:
+  gateway-ingress:
+
+secrets:
+  core_gw_cert: {file: "${SECRETS_DIR}/core_gw_cert"}
+  core_gw_key: {file: "${SECRETS_DIR}/core_gw_key"}
+  core_gw_client_ca: {file: "${SECRETS_DIR}/core_gw_client_ca"}

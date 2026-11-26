@@ -1,0 +1,9 @@
+services:
+  public-api:
+    networks: {core-link: {}}
+    ports: [{target: 3000, published: "${CORE_API_PORT:-3000}", host_ip: "${CORE_LISTEN_IP:?Set the private interface}"}]
+
+networks:
+  core-link:
+    driver: bridge
+    driver_opts: {com.docker.network.bridge.enable_ip_masquerade: "false"}

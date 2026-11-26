@@ -1,0 +1,9 @@
+# Does not grant an egress route to the admin or edge processes.
+services:
+  public-api:
+    networks: {oauth-egress: {}}
+    environment:
+      TELEGRAM_OIDC_VERIFIED: "${TELEGRAM_OIDC_VERIFIED:-false}"
+
+networks:
+  oauth-egress:
