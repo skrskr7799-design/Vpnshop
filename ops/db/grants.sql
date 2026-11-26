@@ -40,6 +40,8 @@ GRANT SELECT, INSERT ON "SupportMessage","SupportEvent" TO mzt_public;
 GRANT INSERT ON "NotificationOutbox" TO mzt_public;
 GRANT SELECT (id) ON "NotificationOutbox" TO mzt_public;
 
+GRANT SELECT, DELETE ON "PendingRegistration" TO mzt_admin;
+GRANT INSERT ON "AuthIdentity" TO mzt_admin;
 GRANT SELECT ON "AuthIdentity","Order","MerchantAccount","PaymentTransaction","OrderAllocation","PanelBinding","PanelObservation",
   "WorkerHeartbeat","DesiredAssignment","FulfillmentLease" TO mzt_admin;
 GRANT SELECT,INSERT,UPDATE ON "User","StaffCredential","StaffChallenge","StaffInvite","StaffReset","AdminConfirmation","AdminSession",

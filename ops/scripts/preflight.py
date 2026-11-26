@@ -28,10 +28,10 @@ PANEL = {"REMNAWAVE_STAGING_ORIGIN", "REMNAWAVE_STAGING_LINK_ORIGIN", "REMNAWAVE
 OFFSITE = {"LOGICAL_S3_ENDPOINT", "LOGICAL_S3_BUCKET", "LOGICAL_S3_REGION", "LOGICAL_KEY_VERSION"}
 FLAGS = {"MZT_ENABLE_LOCAL_BACKUP", "MZT_ENABLE_OFFSITE", "MZT_ENABLE_SMTP_EGRESS", "MZT_ENABLE_OAUTH_EGRESS", "MZT_ENABLE_PANEL_EGRESS"}
 APPS = {"PUBLIC_ORIGIN", "ADMIN_HOSTNAME", "ADMIN_ORIGIN", "ADMIN_BIND_IP", "ADMIN_CLIENT_CIDRS", "ADMIN_TLS_PORT",
-        "ADMIN_ACCESS_MODE", "ADMIN_SESSION_HOURS", "ADMIN_IDLE_MINUTES", "CHECKOUT_TTL_MINUTES", "MAIL_FROM",
+        "ADMIN_ACCESS_MODE", "ADMIN_2FA_POLICY", "ADMIN_SESSION_HOURS", "ADMIN_IDLE_MINUTES", "CHECKOUT_TTL_MINUTES", "MAIL_FROM",
         "GOOGLE_CLIENT_ID", "TELEGRAM_CLIENT_ID", "TELEGRAM_OIDC_VERIFIED", "REMNAWAVE_REVISION_MODE",
         "BACKUP_MONITOR", "PANEL_MONITOR", "ALERTMANAGER_CONFIG"} | PANEL | OFFSITE | FLAGS
-DEFAULT = {"MZT_DEPLOY_ENV": "production", "ADMIN_ACCESS_MODE": "private", "LINK_MODE": "private",
+DEFAULT = {"MZT_DEPLOY_ENV": "production", "ADMIN_ACCESS_MODE": "private", "ADMIN_2FA_POLICY": "required", "LINK_MODE": "private",
            "PUBLIC_TLS_PORT": "443", "ADMIN_TLS_PORT": "443", "PUBLIC_BIND_IP": "127.0.0.1",
            "ADMIN_SESSION_HOURS": "12", "ADMIN_IDLE_MINUTES": "30", "CHECKOUT_TTL_MINUTES": "30",
            "BACKUP_MONITOR": "false", "PANEL_MONITOR": "false"}
@@ -172,6 +172,9 @@ def design(role, raw, secrets):
         port(v["ADMIN_TLS_PORT"], "ADMIN_TLS_PORT")
         bind = address(v.get("ADMIN_BIND_IP", ""), "ADMIN_BIND_IP")
         mode = v["ADMIN_ACCESS_MODE"]
+        require(v["ADMIN_2FA_POLICY"] in {"required", "optional", "disabled"}, "Invalid ADMIN_2FA_POLICY")
+        if mode == "public" and v["ADMIN_2FA_POLICY"] == "disabled":
+            print("WARNING: public administrative access with 2FA disabled", file=sys.stderr)
         require(mode in {"private", "public", "local"}, "Invalid ADMIN_ACCESS_MODE")
         require((mode == "local" and bind.is_loopback) or (mode == "private" and private(bind)) or
                 (mode == "public" and not bind.is_loopback), "Admin listener conflicts with ADMIN_ACCESS_MODE")
@@ -411,7 +414,8 @@ def validate_topology(conf, role, v, flags, files):
         require(web["WEB_ORIGIN"] == v["PUBLIC_ORIGIN"] and web["WEB_TRUSTED_PROXIES"] == v.get("V2_WEB_PROXY", "172.30.72.2"),
                 "Public API origin or trusted proxy is incorrect")
         require(admin["ADMIN_ORIGIN"] == v["ADMIN_ORIGIN"] and admin["ADMIN_ALLOWED_CIDRS"] == v["ADMIN_CLIENT_CIDRS"] and
-                admin["ADMIN_TRUSTED_PROXIES"] == "172.30.73.2" and admin["ADMIN_ACCESS_MODE"] == v["ADMIN_ACCESS_MODE"],
+                admin["ADMIN_TRUSTED_PROXIES"] == "172.30.73.2" and admin["ADMIN_ACCESS_MODE"] == v["ADMIN_ACCESS_MODE"]
+                and admin["ADMIN_2FA_POLICY"] == v["ADMIN_2FA_POLICY"],
                 "Administrative API access policy is incorrect")
         require(services["admin-edge"]["networks"]["admin-api-edge"]["ipv4_address"] == admin["ADMIN_TRUSTED_PROXIES"] and
                 services["admin-edge"]["environment"]["EDGE_APP"] == "admin-api:3001" and

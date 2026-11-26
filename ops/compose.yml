@@ -94,6 +94,7 @@ services:
       MZT_PROCESS: admin
       WEB_ORIGIN: ${PUBLIC_ORIGIN}
       ADMIN_ENABLED: "true"
+      ADMIN_2FA_POLICY: ${ADMIN_2FA_POLICY:-required}
       ADMIN_HOST: 0.0.0.0
       ADMIN_ORIGIN: ${ADMIN_ORIGIN:?Set administrative HTTPS origin}
       ADMIN_TRUSTED_PROXIES: 172.30.73.2

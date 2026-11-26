@@ -1,4 +1,5 @@
 import {
+  emailField,
   forgotPasswordSchema,
   loginSchema,
   registerSchema,
@@ -11,6 +12,7 @@ import { z } from "zod";
 import { verifyAccessToken } from "./jwt";
 import { ACCESS_COOKIE, REFRESH_COOKIE } from "./auth.constants";
 import {
+  changeTemporaryUserPassword,
   forgotPassword,
   getCurrentUser,
   login,
@@ -51,6 +53,13 @@ export async function authRoutes(app: FastifyInstance) {
     const { user, ...tokens } = await login(loginSchema.parse(req.body), ctxOf(req));
     setAuthCookies(reply, tokens);
     return { user, sessionId: (await verifyAccessToken(tokens.accessToken))!.sid };
+  });
+
+  app.post("/password/change-temporary", limit(10, "15 minutes"), async (req, reply) => {
+    const input = z.strictObject({ email: emailField, temporaryPassword: z.string().min(12).max(128),
+      password: z.string().min(12).max(128) }).parse(req.body);
+    await changeTemporaryUserPassword(input.email, input.temporaryPassword, input.password);
+    return reply.code(204).send();
   });
 
   app.post("/refresh", limit(30, "1 minute"), async (req, reply) => {

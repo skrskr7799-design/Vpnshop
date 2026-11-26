@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { prisma } from "../../lib/prisma";
 
-export const schemaFloor = "20261123000000_notification_outbox";
+export const schemaFloor = "20261126000100_staff_username_policy";
 
 export async function databaseReady() {
   try {

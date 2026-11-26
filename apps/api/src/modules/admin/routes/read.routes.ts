@@ -17,9 +17,11 @@ const jobStatus = z.enum(["PENDING", "RUNNING", "DONE", "FAILED", "CONFIRMED", "
 const pageScope = (name: string, filter: object) => JSON.stringify([name, filter]);
 const missing = () => new AppError(404, "NOT_FOUND");
 const mask = (email: string | null) => email ? email.slice(0, 1) + "•••@" + email.split("@").at(-1) : null;
-const userSelect = { id: true, email: true, status: true, createdAt: true, updatedAt: true } as const;
-const publicUser = (row: { id: string; email: string | null; status: string; createdAt: Date; updatedAt: Date }, contact: boolean) => ({
-  id: row.id, email: contact ? row.email : mask(row.email), status: row.status, createdAt: row.createdAt, version: row.updatedAt,
+const userSelect = { id: true, email: true, displayName: true, status: true, emailVerifiedAt: true,
+  activationRequired: true, manualActivatedAt: true, createdAt: true, updatedAt: true } as const;
+const publicUser = (row: Prisma.UserGetPayload<{ select: typeof userSelect }>, contact: boolean) => ({
+  id: row.id, email: contact ? row.email : mask(row.email), status: row.status, displayName: row.displayName, emailVerified: !!row.emailVerifiedAt,
+  activation: row.activationRequired ? "PENDING" : row.manualActivatedAt ? "MANUAL" : "ACTIVE", createdAt: row.createdAt, version: row.updatedAt,
 });
 const jobSelect = {
   id: true, orderId: true, status: true, attempts: true, verificationEpoch: true, writes: true,
@@ -89,6 +91,13 @@ export const adminReadRoutes: FastifyPluginAsync = async app => {
     const rows = await prisma.user.findMany({ where: { role: "USER", status, ...keysetWhere(scope, cursor) },
       select: userSelect, orderBy: newestFirst, take: limit + 1 });
     return keysetPage(scope, rows, limit, row => publicUser(row, false));
+  });
+  app.get("/users/registrations", { preHandler: requireAdmin("users:write") }, async req => {
+    const { cursor, limit } = keysetQuery.parse(req.query);
+    const scope = "admin-pending-registration";
+    const rows = await prisma.pendingRegistration.findMany({ where: { expiresAt: { gt: new Date() }, ...keysetWhere(scope, cursor) },
+      orderBy: newestFirst, take: limit + 1, select: { id: true, email: true, createdAt: true, expiresAt: true } });
+    return keysetPage(scope, rows, limit, row => ({ ...row, version: row.createdAt }));
   });
   app.post("/users/search", { preHandler: requireAdmin("users:read") }, async req => {
     const { userId, verifiedEmail } = z.strictObject({ userId: id.optional(),

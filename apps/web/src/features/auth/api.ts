@@ -41,6 +41,8 @@ export const authApi = {
   register: (body: RegisterInput) => request<{ ok: true }>("/auth/register", { ...auth, body }),
   verifyEmail: (body: VerifyEmailInput) => request<void>("/auth/verify-email", { ...auth, body }),
   login: (body: LoginInput) => request<{ user: PublicUser; sessionId: string }>("/auth/login", { ...auth, body }),
+  changeTemporaryPassword: (body: { email: string; temporaryPassword: string; password: string }) =>
+    request<void>("/auth/password/change-temporary", { ...auth, body }),
   logout: () => request<void>("/auth/logout", auth),
   forgotPassword: (body: ForgotPasswordInput) => request<{ ok: true }>("/auth/forgot-password", { ...auth, body }),
   resetPassword: (body: ResetPasswordInput) => request<void>("/auth/reset-password", { ...auth, body }),

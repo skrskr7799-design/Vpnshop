@@ -11,8 +11,9 @@ datasource db {
 
 enum UserRole {
   USER
-  ADMIN // полный доступ к админке
-  SUPPORT // только просмотр (права см. admin.permissions.ts)
+  ADMIN // операционный доступ
+  SUPPORT // ограниченный просмотр
+  OWNER // управление персоналом и операционный доступ
 }
 
 enum UserStatus {
@@ -115,6 +116,9 @@ model User {
   email           String?    @unique // lowercase, только подтверждённый
   emailVerifiedAt DateTime?
   emailLoginDisabled Boolean @default(false)
+  activationRequired Boolean @default(false)
+  manualActivatedAt DateTime?
+  displayName String?
   role            UserRole   @default(USER)
   status          UserStatus @default(ACTIVE)
 
@@ -150,6 +154,7 @@ model AuthIdentity {
   provider     AuthProvider
   providerId   String // email (lowercase) / Google sub / Telegram user id
   passwordHash String? // только для EMAIL, argon2id
+  temporaryPasswordExpiresAt DateTime?
   verifiedAt   DateTime?
   createdAt    DateTime     @default(now())
 
@@ -259,6 +264,9 @@ model AdminSession {
   revokedAt     DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  policy String @default("required")
+  factorVerified Boolean @default(false)
 
   confirmations AdminConfirmation[]
 
@@ -829,6 +837,12 @@ model SupportEvent {
 
 model StaffCredential {
   userId       String @id
+  username     String @unique
+  displayName  String?
+  contactEmail String?
+  temporaryUntil DateTime?
+  lastLoginAt DateTime?
+  deactivatedAt DateTime?
   passwordHash String
   version      Int @default(1)
   user         User @relation(fields: [userId], references: [id], onDelete: Restrict)
@@ -839,6 +853,7 @@ model StaffChallenge {
   userId       String
   version      Int
   stage        String
+  policy       String @default("required")
   expiresAt    DateTime
   consumedAt   DateTime?
   user         User @relation(fields: [userId], references: [id], onDelete: Restrict)
@@ -923,6 +938,7 @@ model RefundIntent {
 }
 
 model AdminOperationalSettings {
+  twoFactorPolicy String?
   id                       String @id
   version                  Int @default(0)
   fulfillmentLagWarnSeconds Int @default(900)

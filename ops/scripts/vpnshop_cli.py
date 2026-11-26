@@ -3,6 +3,8 @@ import argparse
 import base64
 from contextlib import contextmanager
 from datetime import datetime, timezone
+import getpass
+from uuid import uuid4
 import fcntl
 import importlib.util
 import ipaddress
@@ -917,7 +919,13 @@ class Deployment:
         safe_line("Config/TLS/secret modes", "OK")
         safe_line("UID availability", "NOT CHECKED" if not doctor else runtime.check_owners_read_only())
         safe_line("Link", runtime.settings.get("LINK_MODE", "internal"))
-        safe_line("Admin access", runtime.settings.get("ADMIN_ACCESS_MODE", "NOT CONFIGURED"))
+        access = runtime.settings.get("ADMIN_ACCESS_MODE", "NOT CONFIGURED")
+        safe_line("Admin access", access)
+        if self.role != "edge":
+            policy = runtime.settings["ADMIN_2FA_POLICY"]
+            safe_line("Admin 2FA policy", policy)
+            if access == "public" and policy == "disabled":
+                safe_line("Admin 2FA", "WARNING: public administration with 2FA disabled")
         listed = runtime.containers()
         good = not pending
         for service in runtime.active():
@@ -964,6 +972,68 @@ class Deployment:
         safe_line("Status", "healthy" if good else "WARNING: incomplete or degraded")
         return 0 if good else 1
 
+    def local_admin(self, args):
+        demand(self.role != "edge", "Administrative identity commands are available on Single and Core only")
+        release = self.pointer("current")
+        runtime = Runtime(self, release)
+        demand(runtime.inventory()[0] == runtime.history, "Run vpnshop up and verify PostgreSQL migrations first")
+        operation = args.admin_action
+        data = {}
+        if operation != "list":
+            username = args.username
+            if not username:
+                with open("/dev/tty", "r+", encoding="utf-8") as terminal:
+                    terminal.write("Staff username: ")
+                    terminal.flush()
+                    username = terminal.readline().rstrip("\r\n")
+            demand(matches(r"[a-zA-Z0-9][a-zA-Z0-9._-]{2,47}", username), "Invalid staff username")
+            username = username.lower()
+            data = {"username": username, "correlationId": str(uuid4())}
+            if operation == "bootstrap":
+                fields = {"displayName": args.display_name, "contactEmail": args.contact_email}
+                data.update({key: value for key, value in fields.items() if value})
+            else:
+                demand(matches(r"[A-Za-z0-9][A-Za-z0-9._-]{4,79}", args.incident), "Provide a nonsecret incident ID")
+                demand(not args.adopt_legacy_owner or not (args.password_stdin or args.password_file or args.reset_totp or args.restore_status),
+                       "Legacy promotion preserves credentials and status. Omit password and reset flags.")
+                confirmation = args.confirm_username
+                if confirmation is None:
+                    ask(f"This action changes administrative access for {username}. Type the username to confirm.", phrase=username)
+                else:
+                    demand(confirmation == username, "Recovery confirmation must match the username")
+                data["incident"] = args.incident
+                if args.adopt_legacy_owner:
+                    operation = "adopt-legacy-owner"
+                else:
+                    data.update(resetTotp=args.reset_totp, restoreStatus=args.restore_status)
+            if operation != "adopt-legacy-owner":
+                if args.password_file:
+                    password = private_regular(args.password_file)
+                elif args.password_stdin:
+                    password = sys.stdin.readline(4097).removesuffix("\n").removesuffix("\r")
+                    demand(not sys.stdin.read(1), "Provide a single password line")
+                else:
+                    with open("/dev/tty", "r+", encoding="utf-8") as terminal:
+                        password = getpass.getpass("New password (12–128 characters): ", stream=terminal)
+                        demand(password == getpass.getpass("Confirm password: ", stream=terminal), "Passwords differ")
+                demand(12 <= len(password) <= 128 and not any(ord(ch) < 32 for ch in password), "Invalid password length or format")
+                data["password"] = password
+        response = runtime.compose("run", "-T", "--rm", "--no-deps", "--pull", "never", "--entrypoint", "node",
+                                   "admin-api", "dist/admin-local.js", operation, input=json.dumps(data).encode(), check=False)
+        codes = {"STAFF_ALREADY_INITIALIZED", "OWNER_NOT_FOUND", "OWNER_ALREADY_EXISTS", "LEGACY_ADMIN_NOT_ELIGIBLE",
+                 "STAFF_USERNAME_IN_USE", "INVALID_LOCAL_INPUT"}
+        if response.returncode:
+            reason = next((line for line in response.stderr.decode(errors="replace").splitlines() if line in codes), "LOCAL_ADMIN_FAILED")
+            raise ReleaseError(reason)
+        result = json.loads(response.stdout)
+        if operation == "list":
+            for row in result:
+                safe_line(row["username"], f"{row['role']} · {row['status']} · {row['id']} · {row['contactEmail'] or '—'}")
+        else:
+            self.log("admin-" + operation, release.name, release.name, "ok", reason=data["correlationId"])
+            safe_line("Staff account", result["username"])
+            notify("Administrative command committed. Existing sessions are revoked where applicable.")
+
     def service_operation(self, operation, service=None):
         runtime = Runtime(self, self.pointer("current"))
         if service:
@@ -1006,7 +1076,23 @@ def parser():
     add("restart").add_argument("service", nargs="?")
     add("restore").add_argument("backup")
     add("compose").add_argument("compose_args", nargs=argparse.REMAINDER)
-    add("admin").add_argument("admin_action", choices=["bootstrap", "recover"])
+    admin = add("admin").add_subparsers(dest="admin_action", required=True)
+    admin.add_parser("list")
+    for name in ("bootstrap", "recover"):
+        command = admin.add_parser(name)
+        command.add_argument("--username")
+        credentials = command.add_mutually_exclusive_group()
+        credentials.add_argument("--password-stdin", action="store_true")
+        credentials.add_argument("--password-file", type=Path)
+        if name == "bootstrap":
+            command.add_argument("--display-name")
+            command.add_argument("--contact-email")
+        else:
+            command.add_argument("--incident", required=True)
+            command.add_argument("--confirm-username")
+            command.add_argument("--reset-totp", action="store_true")
+            command.add_argument("--restore-status", action="store_true")
+            command.add_argument("--adopt-legacy-owner", action="store_true")
     return result
 
 
@@ -1015,14 +1101,15 @@ def execute(args, deployment, source_factory=ReleaseSource):
         current = deployment.pointer("current", required=False)
         print(f"vpnshop CLI 2 (PASS 02) · {current.name if current else 'not installed'}")
         return 0
-    if args.command == "admin":
-        raise ReleaseError("Admin bootstrap and recovery are reserved for the new identity model in PASS 03")
     if args.command == "install":
         if args.selection != "latest":
             version(args.selection)
         deployment.install(args.selection, args.role, source_factory(args.github_token_file), pinned=args.sha256, attest=args.attest)
         return 0
     deployment.verify_layout()
+    if args.command == "admin" and args.admin_action == "list":
+        deployment.local_admin(args)
+        return 0
     if args.command in {"status", "doctor"}:
         notify("MZT / VPNSHOP", "35")
         return deployment.status(doctor=args.command == "doctor")
@@ -1046,7 +1133,9 @@ def mutate(args, deployment, source_factory):
         return 0
     demand(not deployment.read_pending(), "An operation is interrupted. Run vpnshop status and vpnshop recover.")
     current = deployment.pointer("current")
-    if args.command == "up":
+    if args.command == "admin":
+        deployment.local_admin(args)
+    elif args.command == "up":
         deployment.up()
     elif args.command in {"down", "restart"}:
         deployment.service_operation(args.command, getattr(args, "service", None))

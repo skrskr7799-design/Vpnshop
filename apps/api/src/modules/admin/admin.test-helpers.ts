@@ -7,7 +7,9 @@ import { staffCommands } from "./staff";
 import { storeCommands } from "./store-commands";
 import type { FastifyInstance } from "fastify";
 import { env } from "../../config/env";
-import { adminLogin, confirmEnrollment, createAdminUser, startEnrollment } from "./auth/admin-auth.service";
+import { adminLogin, confirmEnrollment, createStaffAccount, startEnrollment } from "./auth/admin-auth.service";
+import type { AdminRole } from "./admin.permissions";
+import { hashPassword } from "../auth/password";
 import { currentCode } from "./auth/totp";
 import { buildAdminApp } from "./admin-app";
 
@@ -18,15 +20,24 @@ export const ctx = { ip: "10.0.0.5", userAgent: "vitest" };
 export const buildTestAdminApp = (opts: { allowedCidrs?: string[] } = {}) =>
   buildAdminApp({ panel: { getMetadata: async () => ({ version: "3.4.9" }) }, logger: false, ...opts });
 
-export type EnrolledAdmin = { userId: string; email: string; secret: string; recoveryCodes: string[]; sessionToken: string };
+export type EnrolledAdmin = { userId: string; email: string; username: string; secret: string; recoveryCodes: string[]; sessionToken: string };
 
-// Создаёт админа и проводит его через первый вход с подключением 2FA (на уровне сервисов)
-export async function createEnrolledAdmin(email: string, role: "ADMIN" | "SUPPORT" = "ADMIN"): Promise<EnrolledAdmin> {
-  const { userId } = await createAdminUser({ email, password: PASSWORD, role });
-  const { stageToken } = await adminLogin({ email, password: PASSWORD }, ctx);
-  const { secret } = await startEnrollment(stageToken);
-  const confirmed = await confirmEnrollment(stageToken, currentCode(secret), ctx);
-  return { userId, email, secret, recoveryCodes: confirmed.recoveryCodes, sessionToken: confirmed.sessionToken };
+// Fixture identities have the same shape as deployed accounts.
+export const fixtureUsername = (email: string) => "fixture-" + email.toLowerCase().split("@", 1)[0];
+export async function createAdminUser({ email, password, role }: { email: string; password: string; role: AdminRole }) {
+  if (password.length < 12) throw new Error("Staff passwords require 12 characters");
+  const user = await createStaffAccount(prisma, { username: fixtureUsername(email), contactEmail: email,
+    passwordHash: await hashPassword(password), role });
+  return { userId: user.id, username: fixtureUsername(email) };
+}
+
+export async function createEnrolledAdmin(email: string, role: AdminRole = "ADMIN"): Promise<EnrolledAdmin> {
+  const { userId, username } = await createAdminUser({ email, password: PASSWORD, role });
+  const started = await adminLogin({ username, password: PASSWORD }, ctx);
+  if (started.step !== "enroll_2fa") throw new Error("Expected enrollment fixture");
+  const { secret } = await startEnrollment(started.stageToken);
+  const confirmed = await confirmEnrollment(started.stageToken, currentCode(secret), ctx);
+  return { userId, email, username, secret, recoveryCodes: confirmed.recoveryCodes, sessionToken: confirmed.sessionToken };
 }
 
 // HTTP-запрос от имени админа: кука сессии и Origin, как у настоящего фронта

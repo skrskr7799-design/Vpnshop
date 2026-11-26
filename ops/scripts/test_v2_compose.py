@@ -199,6 +199,22 @@ class Deployment(unittest.TestCase):
                         "ADMIN_ACCESS_MODE": mode, "ADMIN_BIND_IP": bind, "ADMIN_CLIENT_CIDRS": acl})
                     self.assertEqual(conf["services"]["admin-api"]["environment"]["ADMIN_ALLOWED_CIDRS"], acl)
 
+    def test_admin_factor_policy_matrix(self):
+        for mode, bind, acl in (("local", "127.0.0.1", "127.0.0.1/32"),
+                                ("public", "192.0.2.4", "internet"),
+                                ("private", "10.90.0.4", "10.90.0.0/24")):
+            for policy in ("required", "optional", "disabled"):
+                with self.subTest(mode=mode, policy=policy):
+                    result = self.invoke("core", CONFIG["core", "private"] | {
+                        "ADMIN_ACCESS_MODE": mode, "ADMIN_BIND_IP": bind, "ADMIN_CLIENT_CIDRS": acl,
+                        "ADMIN_2FA_POLICY": policy,
+                    })
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(json.loads(result.stdout)["services"]["admin-api"]["environment"]["ADMIN_2FA_POLICY"], policy)
+                    self.assertEqual("WARNING" in result.stderr, mode == "public" and policy == "disabled")
+        self.rejects("edge", CONFIG["edge", "private"] | {"ADMIN_2FA_POLICY": "disabled"}, "Unknown or inapplicable")
+        self.rejects("core", CONFIG["core", "private"] | {"ADMIN_2FA_POLICY": "off"}, "Invalid ADMIN_2FA_POLICY")
+
     def test_tls_uses_system_ca_when_private_ca_is_absent(self):
         (self.secrets / "core_gw_ca").unlink()
         data = self.render("edge", CONFIG["edge", "public"])

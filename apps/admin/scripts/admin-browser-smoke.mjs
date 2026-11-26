@@ -14,7 +14,7 @@ const dist = resolve(import.meta.dirname, "../dist");
 const profile = await mkdtemp(join(tmpdir(), "mzt-admin-smoke-"));
 const now = new Date().toISOString();
 let signedIn = false;
-let role = "ADMIN";
+let role = "OWNER";
 let commandCalls = 0;
 let commandKey;
 let commandBody;
@@ -32,7 +32,7 @@ const job = { id: "job-pending", status: "VERIFY_PENDING", revision: 3, currentR
 const movement = { id: "capture-001", kind: "CAPTURE", currency: "RUB", amountMinor: 27000, providerTime: now, allocation: order.id };
 const unsettledMovement = { ...movement, id: "movement-002", currency: "USD", allocation: null };
 const paymentCase = { id: "case-payment-001", kind: "UNKNOWN", status: "OPEN", priority: 2, nextCheckAt: now, updatedAt: now, version: 1 };
-const staff = { id: "staff-001", email: "team@example.invalid", role: "ADMIN", version: 3, status: "ACTIVE", enrollmentState: "CONFIRMED" };
+const staff = { username: "team-operator", id: "staff-001", email: "team@example.invalid", role: "ADMIN", version: 3, status: "ACTIVE", enrollmentState: "CONFIRMED" };
 const session = { id: "session-fixture-001", userAgent: "Chromium Smoke", current: true, lastSeenAt: now, expiresAt: now, revokedAt: null };
 const historical = { id: "audit-fixture-001", action: "plan.publish", actorId: staff.id, permission: "plans:write",
   entityId: plan.id, commandId: "local-audit-command", reason: "Локальная проверка", createdAt: now };
@@ -59,7 +59,7 @@ const server = createServer(async (req, res) => {
   const json = (body, status = 200) => res.writeHead(status).end(JSON.stringify(body));
   if (path === "/api/auth/login") {
     if (input.password !== "local-test-password") return json({ error: { code: "INVALID_CREDENTIALS" } }, 401);
-    role = input.email.startsWith("support") ? "SUPPORT" : "ADMIN";
+    role = input.username.startsWith("support") ? "SUPPORT" : "OWNER";
     return json({ step: "verify_2fa", stageToken: "synthetic-only" });
   }
   if (path === "/api/auth/2fa/verify") {
@@ -69,10 +69,11 @@ const server = createServer(async (req, res) => {
   }
   if (!signedIn) return json({ error: { code: "UNAUTHENTICATED" } }, 401);
   if (path === "/api/auth/logout") { signedIn = false; return res.writeHead(204).end(); }
-  const admin = role === "ADMIN";
+  const admin = role === "OWNER";
   const permissions = ["dashboard:read", "users:read", "orders:read", "plans:read", "support:read", "ops:read", "jobs:read",
-    ...(admin ? ["plans:write", "finance:read", "audit:read", "staff:read", "support:write"] : [])];
-  if (path === "/api/me") return json({ user: { id: role, email: role.toLowerCase() + "@example.invalid", role }, permissions });
+    ...(admin ? ["plans:write", "finance:read", "audit:read", "staff:read", "staff:write", "users:create", "users:write", "security:self", "support:write"] : [])];
+  if (path === "/api/me") return json({ user: { id: role, username: role.toLowerCase(), email: role.toLowerCase() + "@example.invalid", role },
+    security: { policy: "required", enrolled: true, requiresTotp: true, version: 3 }, permissions });
   if (path === "/api/dashboard") return json({ asOf: now, users: block({ total: 1010, new: 18 }), subscriptions: block({ active: 82 }), orders: block({ paid: 56 }),
     jobs: block({ overdue: 3, errors: 1 }), payments: block({ stuck: 1, awaiting: 2 }), support: block({ open: 2 }), panel: block(null, "UNAVAILABLE"),
     worker: block(null, "STALE"), alerts: [{ kind: "jobs", reasonCode: "JOBS_OVERDUE" }], ...(admin ? { finance: block([{ currency: "RUB", captured: "100" }]) } : {}) });
@@ -178,9 +179,9 @@ try {
     await click(value);
   };
   const fit = () => until("Boolean(document.documentElement && document.documentElement.scrollWidth <= innerWidth)");
-  async function login(email) {
+  async function login(username) {
     await until(text("Вход для сотрудников"));
-    await fill("email", email);
+    await fill("username", username.split("@")[0]);
     await fill("password", "local-test-password");
     await click("Продолжить");
     await until(text("Код приложения"));
@@ -254,7 +255,7 @@ try {
   console.log("Chromium 360 px: rejected TOTP, mobile filters, dialog Escape/focus, freshness, ADMIN command retry and SUPPORT isolation passed");
   if (process.env.MZT_VISUAL_DIR) {
     await visualQa({ site: "admin", dist, send, evaluate, until, origin,
-      prepare: screen => { signedIn = !screen.guest; role = "ADMIN"; },
+      prepare: screen => { signedIn = !screen.guest; role = "OWNER"; },
       afterLoad: async () => {
         await click("Опубликовать предложение");
         await fill("amountMinor", "10000");
@@ -283,7 +284,7 @@ try {
         { id: "offer-confirmation", path: "/plans/fixture-plan", ready: "offer-002", afterLoad: true },
         { id: "support", path: "/support", ready: ticket.id },
         { id: "support-thread", path: "/support/case-1", ready: "Переписка" },
-        { id: "staff", path: "/staff", ready: staff.email },
+        { id: "staff", path: "/staff", ready: staff.username },
         { id: "staff-details", path: "/staff/staff-001", ready: staff.email },
         { id: "staff-sessions", path: "/staff/staff-001/sessions", ready: session.id },
         { id: "security", path: "/security", ready: session.id },

@@ -3,6 +3,8 @@ import { ApiError } from "../../api/ApiError";
 const BY_CODE: Record<string, string> = {
   INVALID_CREDENTIALS: "Неверный email или пароль.",
   ACCOUNT_BLOCKED: "Аккаунт заблокирован. Напишите в поддержку.",
+  TEMPORARY_PASSWORD: "Перед входом задайте свой пароль.",
+  PASSWORD_MUST_CHANGE: "Выберите пароль, отличный от временного.",
   INVALID_TOKEN: "Ссылка недействительна или устарела.",
   BAD_ORIGIN: "Запрос отклонён. Обновите страницу и повторите.",
   VALIDATION_ERROR: "Проверьте введённые данные.",

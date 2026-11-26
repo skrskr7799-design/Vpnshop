@@ -42,6 +42,7 @@ const schema = z
     ADMIN_PORT: z.coerce.number().int().positive().default(3001),
     // Origin фронта админки (проверка Origin, CORS)
     ADMIN_ORIGIN: z.url().default("http://localhost:5174"),
+    ADMIN_2FA_POLICY: z.enum(["required", "optional", "disabled"]).default("required"),
     ADMIN_ACCESS_MODE: z.enum(["private", "public", "local"]).default("private"),
     ADMIN_TRUSTED_PROXIES: z.string().default("").transform(value => value.split(",").map(part => part.trim()).filter(Boolean)),
     // Разрешённые адреса/сети (CIDR) через запятую. Пусто = без ограничения по IP

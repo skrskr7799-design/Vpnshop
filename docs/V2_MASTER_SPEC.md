@@ -22,6 +22,8 @@ The operator settings file is `/opt/vpnshop/config/.env`; templates are role-spe
 
 ### Administration and identity (PASS 03)
 
+See the implemented [administration runbook](V2_ADMINISTRATION.md) for identity backfill, local OWNER operations, account activation, policy changes and rollback boundaries.
+
 Admin sign-in uses username with safe migration of existing staff accounts. Add local bootstrap and recovery for the first OWNER and prevent removal of the last active OWNER. Only OWNER can create staff or ordinary users in the admin panel and assign or change staff roles. User creation supports email plus a temporary password or a one-time password setup link. Preserve existing RBAC and immutable administrative audit. Support staff session management and 2FA reset. Implement independent `required`, `optional` and `disabled` 2FA policies for all admin placements. Warn about a publicly exposed admin UI with 2FA disabled and allow deliberate use. Preserve step-up for critical actions, using a secure alternative when TOTP is disabled.
 
 ### Authentication and support (PASS 04)
@@ -34,7 +36,7 @@ Support settings without image rebuilds for registration, payments, auth provide
 
 Reserved settings and initial values, to be introduced only when consumed by the corresponding implementation:
 
-- Feature switches `PAYMENTS_ENABLED=false`, `REGISTRATION_ENABLED=true`, `MAINTENANCE_MODE=false`, `GOOGLE_AUTH_ENABLED=false`, `TELEGRAM_AUTH_ENABLED=false`, `SUPPORT_ENABLED=true`, `REMNAWAVE_ENABLED=false`, `ADMIN_2FA_POLICY=required`.
+- Feature switches `PAYMENTS_ENABLED=false`, `REGISTRATION_ENABLED=true`, `MAINTENANCE_MODE=false`, `GOOGLE_AUTH_ENABLED=false`, `TELEGRAM_AUTH_ENABLED=false`, `SUPPORT_ENABLED=true`, `REMNAWAVE_ENABLED=false`.
 - Product metadata `BRAND_NAME`, `SUPPORT_EMAIL`, `SUPPORT_URL`, `LEGAL_TERMS_URL`, `LEGAL_PRIVACY_URL`, `LEGAL_REFUND_URL`.
 - Runtime settings `LOG_LEVEL=info`, `SENTRY_DSN`, `TELEGRAM_BOT_TOKEN`, `RATE_LIMIT_*`, `DB_POOL_MAX`. Secret-valued settings are backed by files.
 - Integration settings `PLATEGA_*` depend on the provider contract. Reserved live Remnawave settings include `REMNAWAVE_URL`, `REMNAWAVE_INTERNAL_SQUAD_UUIDS` and `REMNAWAVE_TRUSTED_PROXY_HEADERS=false` with operator tokens and API keys. PASS 01 only wires the existing, pinned isolated staging mode.
@@ -43,7 +45,7 @@ Reserved settings and initial values, to be introduced only when consumed by the
 
 One Bash script named `vpnshop` is installed at `/usr/local/bin/vpnshop`. The installation uses `/opt/vpnshop/releases/`, `current`, `previous`, `config/.env`, `secrets/`, `backups/` and `state/`. State includes `role`, `history.log`, `update.lock`, `applied-migration-tree`, `last-successful-release` and `pending-update`. Compose project `vpnshop-<role>` and data volume paths are stable across releases. Keep an absolute, stable Compose project directory. The installed role is immutable in the normal workflow.
 
-PASS 02 delivers `install`, `up`, `down`, `restart`, `update`, `rollback`, `recover`, `status`, `doctor`, `backup`, `restore`, `compose`, `version` and `help`. `admin bootstrap` and `admin recover` are explicit pending PASS 03 interfaces. Root/sudo, `flock`, `umask 077` and safe failures are required. Install prepares without starting services. Update preserves the settings and secrets and requires a verified backup before schema changes. Recover interrupted updates using durable state. Rollback checks schema compatibility. Clean older releases after success while retaining `current` and `previous`.
+PASS 02 delivers `install`, `up`, `down`, `restart`, `update`, `rollback`, `recover`, `status`, `doctor`, `backup`, `restore`, `compose`, `version` and `help`. `admin bootstrap`, `admin recover` and `admin list` are implemented in PASS 03 on Single/Core. Root/sudo, `flock`, `umask 077` and safe failures are required. Install prepares without starting services. Update preserves the settings and secrets and requires a verified backup before schema changes. Recover interrupted updates using durable state. Rollback checks schema compatibility. Clean older releases after success while retaining `current` and `previous`.
 
 CI publishes digest-pinned GHCR images with provenance. Reuse verified digests when image-specific build inputs are unchanged. Hash common dependencies, lockfiles, Dockerfiles, base images and all relevant sources. Git ancestry supplements input verification. A frontend-only change cannot trigger a database rebuild by itself. Support future private GitHub and GHCR access. Keep current API compatibility with the preceding frontend, or document a coordinated upgrade.
 

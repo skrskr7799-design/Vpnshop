@@ -8,7 +8,7 @@ import type {
   RegisterInput,
   ResetPasswordInput,
 } from "@vpn/shared";
-import type { User } from "@prisma/client";
+import type { Prisma, User } from "@prisma/client";
 import { generateToken, sha256 } from "../../lib/crypto";
 import { isUniqueViolation } from "../../lib/db-errors";
 import { AppError } from "../../lib/errors";
@@ -88,20 +88,7 @@ export async function verifyEmail(token: string): Promise<void> {
       const taken = await tx.pendingRegistration.deleteMany({ where: { id: pending.id } });
       if (taken.count !== 1) throw new AppError(400, "INVALID_TOKEN");
 
-      await tx.user.create({
-        data: {
-          email: pending.email,
-          emailVerifiedAt: now,
-          identities: {
-            create: {
-              provider: "EMAIL",
-              providerId: pending.email,
-              passwordHash: pending.passwordHash,
-              verifiedAt: now,
-            },
-          },
-        },
-      });
+      await createEmailAccount(tx, { email: pending.email, passwordHash: pending.passwordHash, emailVerifiedAt: now });
       // остальные заявки на этот адрес больше не нужны
       await tx.pendingRegistration.deleteMany({ where: { email: pending.email } });
     });
@@ -110,6 +97,37 @@ export async function verifyEmail(token: string): Promise<void> {
     if (isUniqueViolation(err)) throw new AppError(400, "INVALID_TOKEN");
     throw err;
   }
+}
+
+export function createEmailAccount(db: Prisma.TransactionClient, input: {
+  email: string; passwordHash: string; emailVerifiedAt?: Date; displayName?: string;
+  activationRequired?: boolean; manualActivatedAt?: Date; temporaryPasswordExpiresAt?: Date;
+}) {
+  const { passwordHash, temporaryPasswordExpiresAt, ...user } = input;
+  return db.user.create({ data: { ...user, identities: { create: {
+    provider: "EMAIL", providerId: user.email, passwordHash, verifiedAt: user.emailVerifiedAt, temporaryPasswordExpiresAt,
+  } } }, select: { id: true } });
+}
+
+export async function changeTemporaryUserPassword(email: string, temporaryPassword: string, password: string) {
+  const identity = await prisma.authIdentity.findUnique({ where: { provider_providerId: { provider: "EMAIL", providerId: email } } });
+  const valid = identity?.passwordHash ? await verifyPassword(identity.passwordHash, temporaryPassword)
+    : (await verifyAgainstDummy(temporaryPassword), false);
+  if (!identity || !valid || !identity.temporaryPasswordExpiresAt || identity.temporaryPasswordExpiresAt <= new Date())
+    throw new AppError(401, "INVALID_CREDENTIALS");
+  if (temporaryPassword === password) throw new AppError(400, "PASSWORD_MUST_CHANGE");
+  const passwordHash = await hashPassword(password);
+  await prisma.$transaction(async db => {
+    const owner = await lockIdentityOwner(db, identity.userId);
+    if (!owner || owner.role !== "USER" || owner.status !== "ACTIVE" || owner.activationRequired || owner.emailLoginDisabled)
+      throw new AppError(403, "ACCOUNT_BLOCKED");
+    const consumed = await db.authIdentity.updateMany({
+      where: { id: identity.id, passwordHash: identity.passwordHash, temporaryPasswordExpiresAt: { gt: new Date() } },
+      data: { passwordHash, temporaryPasswordExpiresAt: null },
+    });
+    if (consumed.count !== 1) throw new AppError(401, "INVALID_CREDENTIALS");
+    await revokeAllUserSessions(identity.userId, db);
+  });
 }
 
 // ───────────── Вход ─────────────
@@ -133,9 +151,13 @@ export async function login(
 
   return prisma.$transaction(async db => {
     const owner = await lockIdentityOwner(db, identity.userId);
-    if (owner?.status !== "ACTIVE" || owner.role !== "USER") throw new AppError(403, "ACCOUNT_BLOCKED");
+    if (owner?.status !== "ACTIVE" || owner.role !== "USER" || owner.activationRequired || owner.emailLoginDisabled) throw new AppError(403, "ACCOUNT_BLOCKED");
     const current = await db.authIdentity.findUnique({ where: { id: identity.id } });
     if (!current || current.passwordHash !== identity.passwordHash) throw new AppError(401, "INVALID_CREDENTIALS");
+    if (current.temporaryPasswordExpiresAt) {
+      if (current.temporaryPasswordExpiresAt <= new Date()) throw new AppError(401, "INVALID_CREDENTIALS");
+      throw new AppError(403, "TEMPORARY_PASSWORD");
+    }
     const tokens = await createSession(owner, { ip: ctx.ip, userAgent: ctx.userAgent }, db);
     return { user: toPublicUser(owner), ...tokens };
   });
@@ -193,7 +215,7 @@ export async function resetPassword({ token, password }: ResetPasswordInput): Pr
     await tx.authIdentity.upsert({
       where: { userId_provider: { userId: user.id, provider: "EMAIL" } },
       create: { userId: user.id, provider: "EMAIL", providerId: user.email, passwordHash, verifiedAt: now },
-      update: { passwordHash },
+      update: { passwordHash, temporaryPasswordExpiresAt: null },
     });
     // после смены пароля все устройства должны войти заново
     await revokeAllUserSessions(user.id, tx);

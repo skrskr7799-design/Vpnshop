@@ -55,7 +55,7 @@ export async function releaseStoredHold(db: Db, subscription: Subscription, now:
 async function authorizeStaff(db: Db, actorId: string, reason: string) {
   if (reason.trim().length === 0 || reason.length > 500) throw new AppError(400, "HOLD_REASON_REQUIRED");
   const actor = await db.user.findUnique({ where: { id: actorId }, select: { role: true, status: true } });
-  if (actor?.role !== "ADMIN" || actor.status !== "ACTIVE") throw new AppError(403, "FORBIDDEN");
+  if (!actor || (actor.role !== "ADMIN" && actor.role !== "OWNER") || actor.status !== "ACTIVE") throw new AppError(403, "FORBIDDEN");
 }
 
 // Internal use by a future staff command after its session and step-up are verified.

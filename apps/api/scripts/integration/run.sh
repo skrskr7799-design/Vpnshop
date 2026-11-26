@@ -124,6 +124,21 @@ for pass in 1 2; do
   cmp "$tmp/before" "$tmp/after"
   echo "Legacy pass $pass: 15 fixture rows preserved, sha256 $(sha256sum "$tmp/after" | cut -d' ' -f1)" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
 done
+phase=staff-v2-legacy-cutover
+sql postgres <<< 'CREATE DATABASE vpnshop_staff_legacy OWNER vpnshop_migrator'
+mkdir -p "$tmp/staff-base/migrations"
+git show db4624ad6d9899bb4cde0f07801309165d8f215b:apps/api/prisma/schema.prisma > "$tmp/staff-base/schema.prisma"
+cp prisma/migrations/migration_lock.toml "$tmp/staff-base/migrations/"
+for migration in prisma/migrations/2026112[1-3]*; do
+  cp -R "$migration" "$tmp/staff-base/migrations/"
+done
+export DATABASE_URL="$base/vpnshop_staff_legacy"
+pnpm exec prisma migrate deploy --schema "$tmp/staff-base/schema.prisma"
+sql vpnshop_staff_legacy < scripts/integration/staff-v2.sql
+pnpm exec prisma migrate deploy
+pnpm exec prisma migrate deploy
+sql vpnshop_staff_legacy < scripts/integration/staff-v2-check.sql
+
 phase=suite-grants
 # Only the runtime schema is writable, with DML privileges on application tables.
 sql vpnshop_suite <<SQL

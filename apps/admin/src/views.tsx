@@ -19,7 +19,10 @@ export function RequestState({ state }: { state: { isPending: boolean; error: un
   return state.error ? <ErrorState message={errorText(state.error)} retry={state.refetch} /> : null;
 }
 const labels: Record<string, string> = {
-  state: "Свежесть", isActive: "В продаже", subscription: "Подписка", ready: "Готов к обработке", author: "Автор",
+  username: "Имя пользователя", displayName: "Отображаемое имя", contactEmail: "Контакт",
+  activation: "Активация", emailVerified: "Почта подтверждена", lastLoginAt: "Последний вход",
+  activeSessions: "Активные сессии", temporaryUntil: "Временный пароль до",
+  state: "Состояние", isActive: "В продаже", subscription: "Подписка", ready: "Готов к обработке", author: "Автор",
   id: "ID", status: "Статус", email: "Контакт", userId: "Пользователь", orderId: "Заказ", amountMinor: "Сумма (мин. ед.)",
   amount: "Сумма (мин. ед.)", currency: "Валюта", captured: "Поступления", allocated: "Зачтено",
   unallocated: "Не распределено", refunded: "Возвраты", chargebackDebits: "Списания по спорам",
@@ -39,6 +42,7 @@ const labels: Record<string, string> = {
   comparison: "Сверка", lastSeenAt: "Активность", userAgent: "Устройство", revokedAt: "Отозвана", current: "Текущая",
 };
 export const states: Record<string, string> = {
+  DEACTIVATED: "Деактивирован", MANUAL: "Ручная", REVOKED: "Отозвана", ENROLLED: "Подключён",
   FRESH: "Актуально", STALE: "Данные устарели", UNAVAILABLE: "Источник недоступен", CONFIRMED: "Подтверждено",
   VERIFY_PENDING: "Требуется сверка", NEEDS_REVIEW: "Требует решения", SUPERSEDED: "Заменено ревизией",
   SUCCEEDED: "Платёж подтверждён", CREATED: "Создана", SUBMITTING: "Запрос отправляется", REVIEW: "Требуется проверка",
@@ -52,7 +56,7 @@ export const states: Record<string, string> = {
 const domainLabels: Record<string, string> = {
   PAYMENT: "Оплата", DELIVERY: "Выдача доступа", ACCESS: "Подключение", OTHER: "Другой вопрос",
   CAPTURE: "Поступление", REFUND: "Возврат", CHARGEBACK_DEBIT: "Списание по спору", CHARGEBACK_REVERSAL: "Возврат списания",
-  ADMIN: "Администратор", SUPPORT: "Поддержка", CUSTOMER: "Клиент", STAFF: "Сотрудник",
+  OWNER: "Владелец", ADMIN: "Администратор", SUPPORT: "Поддержка", CUSTOMER: "Клиент", STAFF: "Сотрудник",
 };
 const label = (key: string) => labels[key] ?? key;
 const isDate = (value: string) => /^\d{4}-\d\d-\d\dT/.test(value);

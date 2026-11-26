@@ -340,6 +340,12 @@ class CLITests(ReleaseFixtures):
         with self.assertRaisesRegex(bundle.ReleaseError, "incompatible"):
             self.deploy.rollback(cli.parser().parse_args(["rollback", "--yes"]))
 
+    def test_admin_local_command_refuses_edge(self):
+        self.install("edge")
+        args = cli.parser().parse_args(["admin", "bootstrap", "--username", "example", "--password-stdin"])
+        with self.assertRaisesRegex(bundle.ReleaseError, "Single and Core"):
+            cli.execute(args, self.deploy)
+
     def test_lock_and_cleanup_protect_recovery_paths(self):
         self.install("edge")
         with self.deploy.lock(), self.assertRaisesRegex(bundle.ReleaseError, "holds"):
