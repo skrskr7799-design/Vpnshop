@@ -19,6 +19,7 @@ RUN --mount=type=secret,id=proxy_ca \
 FROM postgres-base AS database
 ARG REVISION=unknown
 LABEL org.opencontainers.image.revision=${REVISION} org.opencontainers.image.source=https://github.com/skrskr7799-design/Vpnshop
+COPY --from=backrest-build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 RUN mzt-apt-install libxml2 liblz4-1 libzstd1 libbz2-1.0 libyaml-0-2 liblzma5 && \
     rm -f /usr/local/bin/gosu && \
     install -d -o 999 -g 999 /state/db /state/repo /state/proofs && \
