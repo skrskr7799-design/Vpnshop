@@ -922,7 +922,7 @@ class Deployment:
         access = runtime.settings.get("ADMIN_ACCESS_MODE", "NOT CONFIGURED")
         safe_line("Admin access", access)
         if self.role != "edge":
-            policy = runtime.settings["ADMIN_2FA_POLICY"]
+            policy = runtime.settings.get("ADMIN_2FA_POLICY", "required")
             safe_line("Admin 2FA policy", policy)
             if access == "public" and policy == "disabled":
                 safe_line("Admin 2FA", "WARNING: public administration with 2FA disabled")

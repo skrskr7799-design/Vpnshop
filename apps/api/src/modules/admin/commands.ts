@@ -96,6 +96,7 @@ export function registerCommandProtocol(app: FastifyInstance, commands: Commands
       throw new AppError(401, "INVALID_CREDENTIALS");
     }
     const proof = await prisma.$transaction(async db => {
+      await lockStaffWrites(db);
       const current = await lockActor(db, actor, entry.permission);
       if (current.credential.version !== known.version) throw new AppError(403, "STEP_UP_REQUIRED");
       const factor = await db.adminTotp.findUnique({ where: { userId: actor.userId } });

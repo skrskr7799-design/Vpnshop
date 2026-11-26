@@ -7,7 +7,7 @@ import { AccessActions, Invite, OrderActions, PlanActions, PlanCreate, Settings,
 import { api, ApiError, errorText } from "./api";
 import { Session, useCan, useSession, type Principal } from "./session";
 import { Dashboard, Detail, Facts, jobColumns, jobFilters, List, orderColumns, orderFilters, PlanDetail,
-  RequestState, SupportDetail, ticketColumns, ticketFilters, states, useAdmin, valueText, type Row } from "./views";
+  RequestState, SupportDetail, ticketColumns, ticketFilters, states, useAdmin, valueText } from "./views";
 
 const groups: { title: string; links: [path: string, title: string, permission: string, icon: IconName][] }[] = [
   { title: "Рабочая область", links: [["/", "Обзор", "dashboard:read", "grid"], ["/users", "Пользователи", "users:read", "users"],

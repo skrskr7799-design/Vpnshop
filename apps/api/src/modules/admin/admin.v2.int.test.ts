@@ -7,6 +7,7 @@ import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { resetDatabase } from "../../test/db";
 import { createUser } from "../../test/factories";
+import { hashPassword } from "../auth/password";
 import { isUniqueViolation } from "../../lib/db-errors";
 import { adminLogin, changeTemporaryStaffPassword, confirmEnrollment, startEnrollment } from "./auth/admin-auth.service";
 import { adoptLegacyOwner, bootstrapOwner, recoverOwner } from "./auth/local-admin";
@@ -129,6 +130,27 @@ it("activates only eligible customers, without proving email, charging or provis
   expect(await prisma.paymentTransaction.count()).toBe(0);
   expect(await prisma.subscription.count()).toBe(0);
   expect(await prisma.panelBinding.count()).toBe(0);
+});
+
+it("finishes a pending registration with a new temporary credential instead of the unverified submitted password", async () => {
+  const admin = await createEnrolledAdmin("operator@example.invalid");
+  const request = await prisma.pendingRegistration.create({ data: {
+    email: "pending-registration@example.invalid", tokenHash: randomUUID(), passwordHash: await hashPassword(PASSWORD),
+    expiresAt: new Date(Date.now() + 60_000),
+  } });
+  const api = as(adminApp, admin.sessionToken);
+  const rows = (await api.get("/api/users/registrations")).json();
+  expect(rows.items).toEqual([expect.objectContaining({ id: request.id, email: request.email })]);
+  expect(JSON.stringify(rows)).not.toContain(request.passwordHash);
+  const reply = await api.command("user.registration.activate", request.id, request.createdAt.toISOString(), { temporaryPassword: temp });
+  expect(reply.statusCode).toBe(200);
+  expect(await prisma.pendingRegistration.count()).toBe(0);
+  expect((await publicPost("login", { email: request.email, password: PASSWORD })).statusCode).toBe(401);
+  expect((await publicPost("login", { email: request.email, password: temp })).json().error.code).toBe("TEMPORARY_PASSWORD");
+  expect(await prisma.user.findUniqueOrThrow({ where: { email: request.email } })).toMatchObject({
+    emailVerifiedAt: null, manualActivatedAt: expect.any(Date),
+  });
+  expect(await prisma.notificationOutbox.count()).toBe(0);
 });
 
 it("distinguishes all policies and requires current factors for session and step-up", async () => {

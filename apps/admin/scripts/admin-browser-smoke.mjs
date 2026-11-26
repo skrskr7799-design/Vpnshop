@@ -60,8 +60,15 @@ const server = createServer(async (req, res) => {
   const json = (body, status = 200) => res.writeHead(status).end(JSON.stringify(body));
   if (path === "/api/auth/login") {
     if (input.password !== "local-test-password") return json({ error: { code: "INVALID_CREDENTIALS" } }, 401);
+    if (input.username === "initial-owner") { role = "OWNER"; return json({ step: "change_password", stageToken: "initial-only" }); }
     role = input.username.startsWith("support") ? "SUPPORT" : "OWNER";
     return json({ step: "verify_2fa", stageToken: "synthetic-only" });
+  }
+  if (path === "/api/auth/password/change-temporary") {
+    assert.equal(input.stageToken, "initial-only");
+    assert.equal(input.password, "fixture-replacement-2026");
+    signedIn = true;
+    return json({ step: "authenticated" });
   }
   if (path === "/api/auth/2fa/verify") {
     if (input.code !== "123456") return json({ error: { code: "INVALID_CODE" } }, 401);
@@ -302,7 +309,18 @@ try {
   assert.equal(await evaluate("Boolean(window.adminUnsafe || document.querySelector('.messages img'))"), false);
   assert.equal(await evaluate(text("Ответить или изменить статус")), false);
   assert.ok(requests.every(value => value.startsWith(origin) || value.startsWith("data:")));
-  console.log("Chromium 360 px: rejected TOTP, mobile filters, dialog Escape/focus, freshness, ADMIN command retry and SUPPORT isolation passed");
+  await click("Выйти");
+  await until(text("Вход для сотрудников"));
+  await fill("username", "initial-owner");
+  await fill("password", "local-test-password");
+  await click("Продолжить");
+  await until(text("Задайте новый пароль"));
+  assert.equal(await evaluate(text("Админ-панель MZT")), false);
+  await fill("password", "fixture-replacement-2026");
+  await fill("confirm", "fixture-replacement-2026");
+  await click("Сменить пароль");
+  await until(text("Админ-панель MZT"));
+  console.log("Chromium 360 px: rejected TOTP, mobile filters, dialog Escape/focus, freshness, command retry, OWNER operations, initial password stage and SUPPORT isolation passed");
   if (process.env.MZT_VISUAL_DIR) {
     await visualQa({ site: "admin", dist, send, evaluate, until, origin,
       prepare: screen => { signedIn = !screen.guest; role = "OWNER"; },
