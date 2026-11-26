@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 import fcntl
 import importlib.util
+import ipaddress
 import secrets as random
 import shutil
 import subprocess
@@ -274,6 +275,71 @@ class Runtime:
             entries = [json.loads(line) for line in raw.splitlines() if line]
         return {entry["Service"]: entry for entry in entries if "-run-" not in entry["Name"]}
 
+    def doctor_network(self, containers):
+        ok = True
+        for service in self.active():
+            item = containers.get(service, {})
+            wanted = {self.config["networks"][network]["name"] for network in self.services[service].get("networks", {})}
+            if not item.get("ID") or item.get("State") != "running":
+                continue
+            demand(matches(r"[0-9a-f]{12,64}", item["ID"]), "Invalid container ID in Compose state")
+            inspected = call(["docker", "inspect", "--type", "container", "--format",
+                              "{{json .NetworkSettings.Networks}}", item["ID"]], check=False)
+            actual = set(json.loads(inspected.stdout)) if inspected.returncode == 0 else set()
+            if actual != wanted:
+                safe_line(f"{service} networks", "ERROR: active attachments differ from Compose")
+                ok = False
+        safe_line("Docker networks", "OK" if ok and containers else "NOT CHECKED" if ok else "ERROR")
+        listeners = self.local_listeners()
+        if listeners is None:
+            safe_line("Listener conflicts", "NOT CHECKED: ss is unavailable")
+            return ok
+        collisions = set()
+        for service, definition in self.services.items():
+            if containers.get(service, {}).get("State") == "running":
+                continue
+            for mapping in definition.get("ports", []):
+                wanted_ip = ipaddress.ip_address(mapping["host_ip"])
+                expected_port = int(mapping["published"])
+                if any(port == expected_port and addr.version == wanted_ip.version and (
+                        addr.is_unspecified or wanted_ip.is_unspecified or addr == wanted_ip) for addr, port in listeners):
+                    collisions.add(service)
+        safe_line("Listener conflicts", "ERROR: " + ", ".join(sorted(collisions)) if collisions else "OK")
+        return ok and not collisions
+
+    @staticmethod
+    def local_listeners():
+        if not shutil.which("ss"):
+            return None
+        output = call(["ss", "-H", "-ltn"], check=False)
+        if output.returncode:
+            return None
+        listeners = []
+        for row in output.stdout.decode().splitlines():
+            words = row.split()
+            if len(words) < 5:
+                continue
+            host, delimiter, port = words[3].rpartition(":")
+            if delimiter and port.isdecimal():
+                if host == "*":
+                    listeners.extend((ipaddress.ip_address(addr), int(port)) for addr in ("0.0.0.0", "::"))
+                else:
+                    listeners.append((ipaddress.ip_address(host.strip("[]").split("%", 1)[0]), int(port)))
+        return listeners
+
+    def doctor_certificates(self):
+        ok = True
+        known = {"public_cert", "admin_cert", "core_gw_cert", "edge_client_cert", "core_gw_ca", "core_gw_client_ca"}
+        for name in sorted(known.intersection(self.config["secrets"])):
+            cert = self.config["secrets"][name]["file"]
+            valid = call(["openssl", "x509", "-in", cert, "-noout", "-checkend", "0"], check=False)
+            fresh = call(["openssl", "x509", "-in", cert, "-noout", "-checkend", str(14 * 86400)], check=False)
+            state = "ERROR: expired or inaccessible" if valid.returncode else (
+                "WARNING: expires within 14 days" if fresh.returncode else "OK")
+            safe_line(name, state)
+            ok &= not bool(valid.returncode)
+        return ok
+
     def logical_service(self):
         demand("logical-local" in self.services, "Enable MZT_ENABLE_LOCAL_BACKUP and provision its required secrets")
         return "logical-local"
@@ -477,9 +543,9 @@ class Deployment:
             atomic(self.state / "applied-migration-tree", (manifest(release)[0]["MIGRATION_TREE"] + "\n").encode())
         self.log(operation, former.name if former else release.name, release.name, "ok", backup, changed)
 
-    def log(self, operation, source, target, result, backup=None, changed=()):
+    def log(self, operation, source, target, result, backup=None, changed=(), reason=None):
         entry = {"at": clock().isoformat(), "operation": operation, "from": source, "to": target,
-                 "result": result, "backup": backup, "changed": list(changed)}
+                 "result": result, "backup": backup, "changed": list(changed), "reason": reason}
         fd = os.open(self.state / "history.log", os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, "a") as output:
             output.write(json.dumps(entry, sort_keys=True) + "\n")
@@ -882,6 +948,10 @@ class Deployment:
                 except ReleaseError:
                     safe_line("Backup compatibility", "WARNING: last backup is incompatible or damaged")
         if doctor:
+            network_ok = runtime.doctor_network(listed)
+            good = runtime.doctor_certificates() and network_ok and good
+            if self.role == "core" and runtime.settings.get("LINK_MODE") == "public":
+                safe_line("Remote mTLS peer", "NOT CHECKED: run doctor on the configured Edge")
             for service in ("public-edge", "admin-edge"):
                 if service not in runtime.services:
                     continue
@@ -957,31 +1027,46 @@ def execute(args, deployment, source_factory=ReleaseSource):
         notify("MZT / VPNSHOP", "35")
         return deployment.status(doctor=args.command == "doctor")
     with deployment.lock():
-        if args.command == "recover":
-            deployment.recover(args)
-            return 0
-        demand(not deployment.read_pending(), "An operation is interrupted. Run vpnshop status and vpnshop recover.")
-        current = deployment.pointer("current")
-        if args.command == "up":
-            deployment.up()
-        elif args.command in {"down", "restart"}:
-            deployment.service_operation(args.command, getattr(args, "service", None))
-        elif args.command == "update":
-            deployment.update(args, source_factory(args.github_token_file))
-        elif args.command == "rollback":
-            deployment.rollback(args)
-        elif args.command == "backup":
-            demand(deployment.role != "edge", "This Edge has no local PostgreSQL database")
-            deployment.backup(Runtime(deployment, current, allow_pull=True))
-        elif args.command == "restore":
-            deployment.restore(args.backup)
-        elif args.command == "compose":
-            command = args.compose_args
-            # Expose a bounded operator view. Workload mutations go through the recovery-aware commands.
-            demand(command and command[0] in {"ps", "top", "images", "port"} and
-                   not any(arg.startswith(("--env", "--file", "--project")) or arg in ("-f", "-p") for arg in command[1:]),
-                   "Use compose ps, top, images or port. Workload changes use the VPNShop lifecycle commands.")
-            Runtime(deployment, current, read_only=True).compose(*command, stdout=None)
+        try:
+            return mutate(args, deployment, source_factory)
+        except (ReleaseError, OSError, ValueError, subprocess.TimeoutExpired) as problem:
+            if args.command != "compose" and not getattr(args, "dry_run", False):
+                pending = deployment.read_pending()
+                source = deployment.pointer("current", required=False)
+                deployment.log(args.command, pending["source"] if pending else source.name if source else None,
+                               pending["target"] if pending else None, "failed",
+                               pending.get("backup") if pending else None,
+                               pending.get("changed", ()) if pending else (), reason=type(problem).__name__)
+            raise
+
+
+def mutate(args, deployment, source_factory):
+    if args.command == "recover":
+        deployment.recover(args)
+        return 0
+    demand(not deployment.read_pending(), "An operation is interrupted. Run vpnshop status and vpnshop recover.")
+    current = deployment.pointer("current")
+    if args.command == "up":
+        deployment.up()
+    elif args.command in {"down", "restart"}:
+        deployment.service_operation(args.command, getattr(args, "service", None))
+    elif args.command == "update":
+        deployment.update(args, source_factory(args.github_token_file))
+    elif args.command == "rollback":
+        deployment.rollback(args)
+    elif args.command == "backup":
+        demand(deployment.role != "edge", "This Edge has no local PostgreSQL database")
+        deployment.backup(Runtime(deployment, current, allow_pull=True))
+    elif args.command == "restore":
+        deployment.restore(args.backup)
+    elif args.command == "compose":
+        command = args.compose_args
+        # Expose a bounded operator view. Workload mutations go through the recovery-aware commands.
+        read_commands = {"ps", "top", "images", "port"}
+        demand(command and (command[0] in read_commands or command == ["config", "--services"]) and
+               not any(arg.startswith(("--env", "--file", "--project")) or arg in ("-f", "-p") for arg in command[1:]),
+               "Use compose ps, top, images, port or config --services. Workload changes use the VPNShop lifecycle commands.")
+        Runtime(deployment, current, read_only=True).compose(*command, stdout=None)
     return 0
 
 

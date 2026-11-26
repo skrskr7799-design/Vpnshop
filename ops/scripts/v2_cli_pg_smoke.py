@@ -35,7 +35,7 @@ def main(arguments):
         def __init__(self, installed, path, **kwargs):
             self.command, self.env = ["docker", "compose", *arguments[1:]], os.environ.copy()
             self.release, self.role, self.secrets = path, installed.role, installed.secrets
-            config = self.compose("config", "--format", "json")
+            config = self.compose("--profile", "*", "config", "--format", "json")
             self.config = cli.json.loads(config.stdout)
             self.services = self.config["services"]
             self.values, self.history, self.metadata = cli.manifest(path)
@@ -52,9 +52,11 @@ def main(arguments):
                     VALUES ('cli-backup-baseline','cli-backup-baseline','CLI backup baseline',3);""")
         original_oid = runtime.sql("SELECT oid FROM pg_database WHERE datname='vpnshop';", "postgres")
         volume = runtime.compose("ps", "-q", "db").stdout
+        print("Verify and export the synthetic backup.", flush=True)
         backup = deployment.backup(runtime)
         runtime.sql("""INSERT INTO "Plan"(id,code,name,"deviceLimit")
                     VALUES ('cli-after-backup','cli-after-backup','CLI after backup',3);""")
+        print("Restore into a scratch database and interrupt after the swap.", flush=True)
         with patch.object(FixtureRuntime, "start", side_effect=cli.ReleaseError("Injected interruption after database swap")):
             try:
                 deployment.restore(backup)

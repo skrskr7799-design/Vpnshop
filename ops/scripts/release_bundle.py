@@ -1,5 +1,7 @@
 """Shared release artifact format and a bounded archive reader for the installer."""
+import gzip
 import hashlib
+import io
 import json
 import os
 import re
@@ -110,10 +112,13 @@ def unpack(archive, destination):
     demand(archive.stat().st_size <= MAX_BUNDLE, "Release archive is too large")
     seen = set()
     total = 0
-    with tarfile.open(archive, "r|gz") as tar:
+    with gzip.open(archive, "rb") as compressed:
+        expanded = compressed.read(MAX_BUNDLE + 1)
+    demand(len(expanded) <= MAX_BUNDLE, "Release archive expands beyond the configured size limit")
+    with tarfile.open(fileobj=io.BytesIO(expanded), mode="r:") as tar:
         for member in tar:
             total += member.size
-            demand(total <= MAX_BUNDLE and len(seen) < 128 and member.isfile() and not member.pax_headers
+            demand(total <= MAX_BUNDLE and len(seen) < 128 and member.type == tarfile.REGTYPE and not member.pax_headers
                    and allowed_member(member.name) and member.name not in seen, "Unexpected or unsafe archive member")
             seen.add(member.name)
             output = destination / member.name
