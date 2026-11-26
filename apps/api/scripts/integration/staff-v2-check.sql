@@ -9,6 +9,7 @@ BEGIN
      OR NOT EXISTS (SELECT 1 FROM "AdminTotp" WHERE id='legacy-factor' AND "secretEnc"='fixture-encrypted-factor' AND "lastUsedStep"=17)
      OR NOT EXISTS (SELECT 1 FROM "AdminRecoveryCode" WHERE id='legacy-code' AND "codeHash"='fixture-recovery-hash')
      OR NOT EXISTS (SELECT 1 FROM "AuditLog" WHERE id='legacy-audit' AND "actorId"='legacy-staff-a' AND "entityId"='legacy-staff-b')
+     OR NOT EXISTS (SELECT 1 FROM "StaffInvite" WHERE id='legacy-invite' AND "issuedBy" IS NULL AND "expiresAt" <= CURRENT_TIMESTAMP)
      OR NOT EXISTS (SELECT 1 FROM "AdminSession" WHERE id='legacy-session' AND "revokedAt" IS NOT NULL)
      OR NOT EXISTS (SELECT 1 FROM "User" WHERE id='legacy-customer' AND NOT "activationRequired" AND email='customer@example.invalid')
      OR EXISTS (SELECT 1 FROM "User" WHERE role='OWNER') THEN

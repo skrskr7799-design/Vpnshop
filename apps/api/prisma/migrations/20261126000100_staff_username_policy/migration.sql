@@ -16,6 +16,9 @@ ALTER TABLE "StaffCredential" ALTER COLUMN "username" SET NOT NULL;
 ALTER TABLE "StaffCredential" ADD CONSTRAINT "StaffCredential_username_shape"
   CHECK ("username" COLLATE "C" ~ '^[a-z0-9][a-z0-9._-]{2,47}$');
 CREATE UNIQUE INDEX "StaffCredential_username_key" ON "StaffCredential" ("username");
+ALTER TABLE "StaffInvite" ADD COLUMN "issuedBy" TEXT;
+UPDATE "StaffInvite" SET "expiresAt" = LEAST("expiresAt", CURRENT_TIMESTAMP) WHERE "consumedAt" IS NULL;
+UPDATE "StaffReset" SET "expiresAt" = LEAST("expiresAt", CURRENT_TIMESTAMP) WHERE "approvedBy" IS NULL;
 ALTER TABLE "StaffChallenge" ADD COLUMN "policy" TEXT NOT NULL DEFAULT 'required';
 ALTER TABLE "AdminSession" ADD COLUMN "policy" TEXT NOT NULL DEFAULT 'required',
   ADD COLUMN "factorVerified" BOOLEAN NOT NULL DEFAULT false;

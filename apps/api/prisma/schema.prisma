@@ -862,6 +862,7 @@ model StaffChallenge {
 }
 
 model StaffInvite {
+  issuedBy   String?
   id         String @id @default(uuid())
   email      String
   role       UserRole

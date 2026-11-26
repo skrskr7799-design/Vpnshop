@@ -319,14 +319,16 @@ fi
 if [[ "${MZT_V2_CLI_SMOKE:-0}" == 1 ]]; then
   # Synthetic credentials go only through stdin, never Docker argv or service logs.
   correlation=$(cat /proc/sys/kernel/random/uuid)
+  local_admin=(docker compose --env-file "$tmp/settings" --profile monitoring "${stack[@]}"
+    run -T --rm --no-deps --entrypoint node admin-api dist/admin-local.js)
   jq -n --arg id "$correlation" '{username:"isolated-owner",password:("synthetic-"+$id),correlationId:$id}' |
-    dc run -T --rm --no-deps --entrypoint node admin-api dist/admin-local.js bootstrap |
+    "${local_admin[@]}" bootstrap |
     jq -e '.username == "isolated-owner" and .role == "OWNER"'
-  dc run -T --rm --no-deps --entrypoint node admin-api dist/admin-local.js list |
+  "${local_admin[@]}" list |
     jq -e 'any(.[]; .username == "isolated-owner" and .role == "OWNER")'
   jq -n --arg id "$correlation" '{username:"isolated-owner",password:("different-"+$id),incident:"SMOKE-RECOVERY",
     correlationId:$id,resetTotp:true,restoreStatus:false}' |
-    dc run -T --rm --no-deps --entrypoint node admin-api dist/admin-local.js recover |
+    "${local_admin[@]}" recover |
     jq -e '.username == "isolated-owner" and .active == true'
 fi
 echo "Compose, TLS, origins, schema failure, Prisma/Argon2, DB grants, secret scopes and SIGTERM verified"

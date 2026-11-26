@@ -137,7 +137,7 @@ export const staffCommands = {
     });
     const token = generateToken();
     const invite = await ctx.db.staffInvite.create({ data: {
-      ...input, tokenHash: sha256(token), expiresAt: new Date(+ctx.now + 86_400_000),
+      ...input, issuedBy: ctx.actor.userId, tokenHash: sha256(token), expiresAt: new Date(+ctx.now + 86_400_000),
     }, select: { id: true, role: true, expiresAt: true } });
     ctx.transient.invitationToken = token;
     return { id: invite.id, role: invite.role, expiresAt: invite.expiresAt.toISOString() };
@@ -187,7 +187,7 @@ const staffSummary = (now: Date) => ({
 
 function staffDto(row: Prisma.UserGetPayload<{ select: ReturnType<typeof staffSummary> }>) {
   const credential = row.staffCredential;
-  return { id: row.id, email: credential?.contactEmail ?? row.email, username: credential?.username ?? null,
+  return { id: row.id, email: credential ? credential.contactEmail : row.email, username: credential?.username ?? null,
     displayName: credential?.displayName ?? null, role: row.role,
     status: credential?.deactivatedAt ? "DEACTIVATED" : row.status, createdAt: row.createdAt,
     version: credential?.version ?? null, lastLoginAt: credential?.lastLoginAt ?? null,
@@ -205,6 +205,9 @@ export const staffRoutes: FastifyPluginAsync = async app => {
     await prisma.$transaction(async db => {
       await lockStaffWrites(db);
       const now = await dbNow(db);
+      const issuer = known.issuedBy && await db.user.findFirst({ where: { id: known.issuedBy, role: "OWNER", status: "ACTIVE",
+        staffCredential: { is: { temporaryUntil: null, deactivatedAt: null } } }, select: { id: true } });
+      if (!issuer) throw new AppError(400, "INVITE_INVALID");
       const consumed = await db.staffInvite.updateMany({
         where: { id: known.id, consumedAt: null, expiresAt: { gt: now } }, data: { consumedAt: now },
       });

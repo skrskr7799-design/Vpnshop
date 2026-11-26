@@ -41,7 +41,7 @@ export async function createAdminSession(
 export async function resolveAdminSession(token: string, now: Date = new Date(), touch = true): Promise<AdminContext | null> {
   const session = await prisma.adminSession.findUnique({
     where: { tokenHash: sha256(token) },
-    include: { user: { select: { id: true, email: true, role: true, status: true, totp: { select: { confirmedAt: true } }, staffCredential: {
+    include: { user: { select: { id: true, role: true, status: true, totp: { select: { confirmedAt: true } }, staffCredential: {
       select: { username: true, version: true, contactEmail: true, temporaryUntil: true, deactivatedAt: true },
     } } } },
   });
@@ -61,7 +61,7 @@ export async function resolveAdminSession(token: string, now: Date = new Date(),
       data: { lastSeenAt: now, idleExpiresAt: new Date(idle) },
     });
   }
-  return { userId: session.user.id, email: credential.contactEmail ?? session.user.email, username: credential.username, requiresTotp, enrolled: !!session.user.totp?.confirmedAt,
+  return { userId: session.user.id, email: credential.contactEmail, username: credential.username, requiresTotp, enrolled: !!session.user.totp?.confirmedAt,
     credentialVersion: credential.version, role: session.user.role, sessionId: session.id };
 }
 

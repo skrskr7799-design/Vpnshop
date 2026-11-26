@@ -11,3 +11,5 @@ INSERT INTO "AuditLog"(id,"actorId",action,entity,"entityId")
 VALUES ('legacy-audit','legacy-staff-a','fixture-action','staff','legacy-staff-b');
 INSERT INTO "AdminSession"(id,"userId","tokenHash","idleExpiresAt","expiresAt")
 VALUES ('legacy-session','legacy-staff-a','fixture-session',now()+interval '1 hour',now()+interval '2 hours');
+INSERT INTO "StaffInvite"(id,email,role,"tokenHash","expiresAt")
+VALUES ('legacy-invite','unclaimed@example.invalid','SUPPORT','fixture-invite',now()+interval '1 day');

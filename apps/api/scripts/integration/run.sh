@@ -85,13 +85,14 @@ snapshot() {
   # Project Order onto its legacy columns. The new nullable fields are checked separately.
   {
     docker exec "$container" pg_dump -U postgres -d vpnshop_legacy --data-only --schema=public \
-      --exclude-table=public._prisma_migrations --exclude-table='public."Subscription"' --exclude-table='public."FulfillmentJob"' --exclude-table='public."AdminSession"' --exclude-table='public."Plan"' --exclude-table='public."AuditLog"' --exclude-table='public."User"' --exclude-table='public."Session"' --exclude-table='public."Order"' --exclude-table='public."Payment"' --exclude-table='public."WebhookEvent"' --inserts --no-owner --no-privileges |
+      --exclude-table=public._prisma_migrations --exclude-table='public."Subscription"' --exclude-table='public."FulfillmentJob"' --exclude-table='public."AdminSession"' --exclude-table='public."Plan"' --exclude-table='public."AuditLog"' --exclude-table='public."User"' --exclude-table='public."AuthIdentity"' --exclude-table='public."Session"' --exclude-table='public."Order"' --exclude-table='public."Payment"' --exclude-table='public."WebhookEvent"' --inserts --no-owner --no-privileges |
       sed -n '/^INSERT INTO /p'
     sql vpnshop_legacy <<'SQL'
 COPY (SELECT id, "userId", "tokenHash", ip, "userAgent", "createdAt", "lastSeenAt", "idleExpiresAt", "expiresAt" FROM "AdminSession") TO STDOUT;
 COPY (SELECT id, code, name, "deviceLimit", "isActive", "sortOrder" FROM "Plan") TO STDOUT;
 COPY (SELECT id, "actorId", action, entity, "entityId", data, ip, "createdAt" FROM "AuditLog") TO STDOUT;
 COPY (SELECT id, email, "emailVerifiedAt", role, status, "remnawaveUserId", "createdAt", "updatedAt" FROM "User") TO STDOUT;
+COPY (SELECT id, "userId", provider, "providerId", "passwordHash", "verifiedAt", "createdAt" FROM "AuthIdentity") TO STDOUT;
 COPY (SELECT id, "userId", "familyId", "tokenHash", "userAgent", ip, "expiresAt", "revokedAt", "rotatedAt", "createdAt" FROM "Session") TO STDOUT;
 COPY (SELECT id, "userId", "planId", "durationMonths", "deviceLimit", currency, amount,
   status, "expiresAt", "paidAt", "fulfilledAt", "createdAt", "updatedAt" FROM "Order") TO STDOUT;
