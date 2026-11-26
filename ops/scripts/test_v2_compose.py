@@ -175,8 +175,14 @@ class Deployment(unittest.TestCase):
         legacy = json.loads(output)
         self.assertEqual(legacy["volumes"]["pgdata"], conf["volumes"]["pgdata"])
         self.assertEqual(legacy["networks"], conf["networks"])
-        self.assertEqual(legacy["services"].keys(), conf["services"].keys())
-        for service, current in conf["services"].items():
+        self.assertEqual(set(legacy["services"]) | {"admin-local"}, set(conf["services"]))
+        local = conf["services"]["admin-local"]
+        self.assertEqual(local["profiles"], ["admin-cli"])
+        self.assertEqual(set(local["networks"]), {"admin-db"})
+        self.assertEqual(local["entrypoint"], ["node", "dist/admin-local.js"])
+        self.assertNotIn("ports", local)
+        for service in legacy["services"]:
+            current = conf["services"][service]
             for key in ("cap_drop", "security_opt", "read_only", "init", "user", "ports", "networks"):
                 old = legacy["services"][service].get(key)
                 self.assertTrue(current.get(key) == old or (key == "user" and service.endswith("-edge") and

@@ -1,11 +1,24 @@
 # Shared service definitions come from the installed-stack Compose contract.
+x-admin-settings: &admin-settings
+  ADMIN_ACCESS_MODE: ${ADMIN_ACCESS_MODE:-private}
+  ADMIN_IDLE_MINUTES: ${ADMIN_IDLE_MINUTES:-30}
+  ADMIN_SESSION_HOURS: ${ADMIN_SESSION_HOURS:-12}
+
 services:
   admin-api:
     extends: {file: "${V2_LEGACY_COMPOSE:-compose.yml}", service: admin-api}
-    environment:
-      ADMIN_ACCESS_MODE: ${ADMIN_ACCESS_MODE:-private}
-      ADMIN_IDLE_MINUTES: ${ADMIN_IDLE_MINUTES:-30}
-      ADMIN_SESSION_HOURS: ${ADMIN_SESSION_HOURS:-12}
+    environment: *admin-settings
+  admin-local:
+    extends: {file: "${V2_LEGACY_COMPOSE:-compose.yml}", service: admin-api}
+    profiles: [admin-cli]
+    entrypoint: [node, dist/admin-local.js]
+    command: []
+    depends_on: !reset {}
+    healthcheck: !override {disable: true}
+    restart: "no"
+    environment: *admin-settings
+    networks: !override
+      admin-db: {}
   admin:
     extends: {file: "${V2_LEGACY_COMPOSE:-compose.yml}", service: admin}
   admin-edge:

@@ -320,7 +320,7 @@ if [[ "${MZT_V2_CLI_SMOKE:-0}" == 1 ]]; then
   # Synthetic credentials go only through stdin, never Docker argv or service logs.
   correlation=$(cat /proc/sys/kernel/random/uuid)
   local_admin=(docker compose --env-file "$tmp/settings" --profile monitoring "${stack[@]}"
-    run -T --rm --no-deps --entrypoint node admin-api dist/admin-local.js)
+    run -T --rm --no-deps admin-local)
   local_identity() {
     local operation=$1
     if ! "${local_admin[@]}" "$operation" 2>"$tmp/local-admin.stderr"; then
@@ -335,6 +335,7 @@ if [[ "${MZT_V2_CLI_SMOKE:-0}" == 1 ]]; then
     jq -e '.username == "isolated-owner" and .role == "OWNER"'
   local_identity list |
     jq -e 'any(.[]; .username == "isolated-owner" and .role == "OWNER")'
+  dc stop -t 25 admin-api
   jq -n --arg id "$correlation" '{username:"isolated-owner",password:("different-"+$id),incident:"SMOKE-RECOVERY",
     correlationId:$id,resetTotp:true,restoreStatus:false}' |
     local_identity recover |

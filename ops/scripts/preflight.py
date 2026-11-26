@@ -38,7 +38,7 @@ DEFAULT = {"MZT_DEPLOY_ENV": "production", "ADMIN_ACCESS_MODE": "private", "ADMI
 for flag in FLAGS:
     DEFAULT[flag] = "0"
 NAME = r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
-APP_SERVICES = {"db", "migrator", "public-api", "admin-api", "worker", "billing", "notifications",
+APP_SERVICES = {"db", "migrator", "public-api", "admin-api", "admin-local", "worker", "billing", "notifications",
                 "admin", "admin-edge", "exporter", "prometheus", "alertmanager", "alert-sink"}
 
 
@@ -341,7 +341,7 @@ def expected_networks(role, v, flags, files):
         services |= {
             "db": {"public-db", "admin-db", "tasks-db", "finance-db", "notifications-db", "monitoring-db", "backup-db", "migration-db"},
             "migrator": {"migration-db"}, "public-api": {"public-api-edge", "public-db", "public-metrics"},
-            "admin-api": {"admin-api-edge", "admin-db", "admin-metrics"}, "worker": {"tasks-db"},
+            "admin-api": {"admin-api-edge", "admin-db", "admin-metrics"}, "admin-local": {"admin-db"}, "worker": {"tasks-db"},
             "billing": {"finance-db"}, "notifications": {"notifications-db"},
             "admin": {"admin-assets"}, "admin-edge": {"admin-ingress", "admin-assets", "admin-api-edge"},
             "exporter": {"monitoring-db", "monitoring"}, "prometheus": {"monitoring", "public-metrics", "admin-metrics"},
@@ -411,6 +411,12 @@ def validate_topology(conf, role, v, flags, files):
     if role != "edge":
         web = services["public-api"]["environment"]
         admin = services["admin-api"]["environment"]
+        local_admin = services["admin-local"]
+        require(local_admin.get("profiles") == ["admin-cli"] and local_admin.get("entrypoint") == ["node", "dist/admin-local.js"]
+                and not local_admin.get("command") and local_admin.get("healthcheck") == {"disable": True}
+                and not local_admin.get("depends_on") and "ipv4_address" not in local_admin["networks"]["admin-db"]
+                and "ipv6_address" not in local_admin["networks"]["admin-db"] and local_admin["image"] == services["admin-api"]["image"],
+                "Local administrative commands must use a one-shot isolated application container")
         require(web["WEB_ORIGIN"] == v["PUBLIC_ORIGIN"] and web["WEB_TRUSTED_PROXIES"] == v.get("V2_WEB_PROXY", "172.30.72.2"),
                 "Public API origin or trusted proxy is incorrect")
         require(admin["ADMIN_ORIGIN"] == v["ADMIN_ORIGIN"] and admin["ADMIN_ALLOWED_CIDRS"] == v["ADMIN_CLIENT_CIDRS"] and

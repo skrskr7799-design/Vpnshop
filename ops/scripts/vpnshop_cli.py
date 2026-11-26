@@ -1025,8 +1025,8 @@ class Deployment:
                         demand(password == getpass.getpass("Confirm password: ", stream=terminal), "Passwords differ")
                 demand(12 <= len(password) <= 128 and not any(ord(ch) < 32 for ch in password), "Invalid password length or format")
                 data["password"] = password
-        response = runtime.compose("run", "-T", "--rm", "--no-deps", "--pull", "never", "--entrypoint", "node",
-                                   "admin-api", "dist/admin-local.js", operation, input=json.dumps(data).encode(), check=False)
+        response = runtime.compose("run", "-T", "--rm", "--no-deps", "--pull", "never",
+                                   "admin-local", operation, input=json.dumps(data).encode(), check=False)
         codes = {"STAFF_ALREADY_INITIALIZED", "OWNER_NOT_FOUND", "OWNER_ALREADY_EXISTS", "LEGACY_ADMIN_NOT_ELIGIBLE",
                  "STAFF_USERNAME_IN_USE", "INVALID_LOCAL_INPUT"}
         if response.returncode:
