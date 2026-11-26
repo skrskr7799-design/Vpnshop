@@ -1,10 +1,9 @@
 import { z } from "zod";
 
 export const brandName = z.string().trim().min(1).refine(value => [...value].length <= 80 && !/[\p{Cc}\p{Cf}]/u.test(value));
-export const productLink = z.url().max(2048).refine(value => {
-  const url = new URL(value);
-  return value.startsWith("https://") && url.protocol === "https:" && !url.username && !url.password && !!url.hostname &&
-    !/[\p{Cc}\p{Cf}\\]/u.test(value);
+export const productLink = z.url({ protocol: /^https$/ }).max(2048).refine(value => {
+  const authority = /^https:\/\/([^/?#]+)/.exec(value)?.[1];
+  return !!authority && !authority.includes("@") && !/[\s\p{Cc}\p{Cf}\\]/u.test(value);
 });
 export const productContactEmail = z.email().max(254);
 export const productMetadata = z.strictObject({

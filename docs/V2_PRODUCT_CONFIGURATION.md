@@ -1,6 +1,6 @@
 # VPNShop V2 · Product configuration
 
-Apply these settings to Single or Core in `/opt/vpnshop/config/.env`. Use normal CLI preflight and recreate affected application containers with `vpnshop up`. Container recreation reads the new environment. No frontend image rebuild is needed. Upgrades preserve operator files. Edge receives configuration over its established TLS or private Core link, using the same public authority as Single.
+Apply these settings to Single or Core in `/opt/vpnshop/config/.env`. Use normal CLI preflight and recreate affected application containers with `vpnshop up`. Container recreation reads the new environment. No frontend image rebuild is needed. Upgrades preserve operator files. If a previous storefront build used `VITE_APP_NAME`, copy its chosen public name into `BRAND_NAME` on Core or Single. Edge receives configuration over its established TLS or private Core link, using the same public authority as Single.
 
 | Setting | Default / type | Use and validation |
 | --- | --- | --- |
