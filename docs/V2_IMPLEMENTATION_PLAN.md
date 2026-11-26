@@ -8,7 +8,7 @@ See [Master Specification](V2_MASTER_SPEC.md) and [Development Rules](V2_DEVELOP
 | 02 · Release Engineering & CLI | Digest reuse by complete image inputs, reproducible release archive, local CLI, bootstrap/recover commands, lock and recovery state, verified backup prerequisite and schema-safe rollback. | Verified PASS 01, GHCR write access, role bootstrap integration from PASS 03. | IMPLEMENTED · synthetic and CI evidence below |
 | 03 · Administration & Identity | Username migration, protected OWNER, staff/user creation, explicit 2FA policy and equivalent protected step-up, sessions and audit. | PASS 01 access modes, local command contract PASS 02, existing staff identity and RBAC. | IMPLEMENTED · verification below |
 | 04 · Authentication & Support | Email/manual activation, verified Google and Telegram paths, safe linking, support assignment/unread/notifications and isolation. | PASS 03 owner capabilities. SMTP is optional. Live SMTP and OIDC acceptance require approved test credentials. | IMPLEMENTED · live verification pending |
-| 05 · Product Configuration & Integrations | Runtime flags and metadata, gates for new payments only, optional panel and verified provider integration. | PASS 01 overlays, PASS 03–04 roles/auth; confirmed Platega test contract and isolated Remnawave panel. | PLANNED |
+| 05 · Product Configuration & Integrations | Runtime flags and metadata, gates for new payments only, optional panel and verified provider integration. | PASS 01 overlays, PASS 03–04 roles/auth; confirmed Platega test contract and isolated Remnawave panel. | IMPLEMENTED · provider acceptance pending |
 | 06 · Integration & Release Preparation | Cross-pass end-to-end acceptance, versioned artifacts, backup/restore, upgrade/rollback, safe legacy cutover rehearsal, external readiness evidence. | PASS 01–05, approved isolated staging and legacy fixture. | PLANNED |
 | 07 · Astra Final Audit | Independent assessment of application, integrations, financial integrity, auth, infrastructure and release evidence. Commercial decision by owner. | Accepted PASS 06 candidate and the external gates. | PLANNED |
 
@@ -32,3 +32,8 @@ The [administration runbook](V2_ADMINISTRATION.md) covers migration, OWNER boots
 ## PASS 04 implementation
 
 The [authentication and support runbook](V2_AUTHENTICATION_SUPPORT.md) records SMTP optionality, OAuth configuration, account linking, read positions, case triage and the additive database migration. Branch CI exercises existing workflows with synthetic identity providers, a disposable PostgreSQL instance, the three deployment roles and Chromium evidence. Live Google and Telegram claims, fresh Telegram reauthentication and mail relay delivery still require isolated credentials and operator acceptance. The existing-server upgrade and compatibility rehearsal remain in PASS 06.
+
+
+## PASS 05 implementation
+
+[Product configuration](V2_PRODUCT_CONFIGURATION.md) records runtime metadata, Core-owned admission gates, optional integrations and the staged cutover contract. Platega contract and sandbox remain externally blocked. Live Remnawave, SMTP, Google and Telegram acceptance remains with PASS 06.

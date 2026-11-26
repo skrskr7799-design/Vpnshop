@@ -32,11 +32,12 @@ if (staging) {
     throw new Error("Unknown staging internal squad");
   }
 }
-const legacy = process.env.NODE_ENV === "test" && !staging ? z.object(panelSettings).parse(process.env) : undefined;
+const legacy = process.env.NODE_ENV === "test" && process.env.REMNAWAVE_ENABLED !== "false" && !staging ? z.object(panelSettings).parse(process.env) : undefined;
 const worker = createFulfillmentWorker({
   // Staging is explicit. Default runtime processes local period boundaries only.
   panel: staging?.panel,
-  maintenance: legacy ? undefined : async () => { if (!await databaseReady()) throw new Error("SCHEMA_NOT_READY"); return refreshDueAssignments(); },
+  waitForSquadProfile: !!staging,
+  maintenance: legacy ? undefined : async () => { if (!await databaseReady()) throw new Error("SCHEMA_NOT_READY"); return refreshDueAssignments(20, !!staging); },
   api: legacy && new RemnawaveClient({
     baseUrl: legacy.REMNAWAVE_URL, token: legacy.REMNAWAVE_TOKEN, apiKey: legacy.REMNAWAVE_API_KEY,
     trustedProxyHeaders: legacy.REMNAWAVE_TRUSTED_PROXY_HEADERS, timeoutMs: config.WORKER_HTTP_TIMEOUT_MS,

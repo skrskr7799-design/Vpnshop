@@ -7,6 +7,7 @@ import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import ipaddr from "ipaddr.js";
 import Fastify from "fastify";
+import { runtimeMetadata } from "../../config/product";
 import { env, isProd } from "../../config/env";
 import { AppError } from "../../lib/errors";
 import { registerErrorHandler } from "../../lib/error-handler";
@@ -86,6 +87,7 @@ export async function buildAdminApp(options: AdminAppOptions) {
 
   await app.register(
     async (api) => {
+      api.get("/config", (_req, reply) => reply.header("Cache-Control", "no-store").send(runtimeMetadata(env)));
       const execute = registerCommandProtocol(api, { ...staffCommands, ...storeCommands, ...supportCommands });
       registerStoreRoutes(api, execute);
       await api.register(staffRoutes);

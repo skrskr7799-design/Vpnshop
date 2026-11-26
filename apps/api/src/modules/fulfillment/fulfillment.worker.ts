@@ -7,7 +7,7 @@ import type { AssignmentPanel } from "../remnawave/remnawave.assignment";
 import { processRevision } from "./revision.processor";
 import { claimRevision } from "./revision.queue";
 
-export type WorkerOptions = Omit<ProcessorDeps, "api"> & { api?: ProcessorDeps["api"] } & { pollIntervalMs?: number; leaseMs?: number; maintenance?: () => Promise<number>; panel?: AssignmentPanel };
+export type WorkerOptions = Omit<ProcessorDeps, "api"> & { api?: ProcessorDeps["api"] } & { pollIntervalMs?: number; leaseMs?: number; maintenance?: () => Promise<number>; panel?: AssignmentPanel; waitForSquadProfile?: boolean };
 export type FulfillmentWorker = ReturnType<typeof createFulfillmentWorker>;
 
 export function createFulfillmentWorker(options: WorkerOptions) {
@@ -61,7 +61,7 @@ export function createFulfillmentWorker(options: WorkerOptions) {
     if (panel) {
       let processed = 0;
       while (!stopping && processed < MAX_JOBS_PER_TICK) {
-        const job = await claimRevision(owner, leaseMs);
+        const job = await claimRevision(owner, leaseMs, options.waitForSquadProfile);
         alive();
         if (!job) break;
         if (stopping) break; // Lease expires and verify-first resumes in the next process.

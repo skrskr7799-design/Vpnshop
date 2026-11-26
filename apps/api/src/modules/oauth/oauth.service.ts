@@ -1,3 +1,5 @@
+import { env } from "../../config/env";
+import { requireAdmission } from "../../config/product";
 import type { AuthProvider, Prisma, User } from "@prisma/client";
 import { isUniqueViolation } from "../../lib/db-errors";
 import { AppError } from "../../lib/errors";
@@ -25,6 +27,7 @@ export async function loginWithProfile(provider: AuthProvider, profile: Provider
     const user = await prisma.$transaction(async (tx) => {
       const byEmail = email ? await tx.user.findUnique({ where: { email } }) : null;
       if (byEmail) throw new AppError(409, "EXPLICIT_LINK_REQUIRED");
+      requireAdmission(env, "registration");
       return tx.user.create({
         data: {
           email,

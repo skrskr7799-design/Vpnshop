@@ -112,7 +112,9 @@ const server = createServer(async (req, res) => {
   if (path === "/api/audit/audit-fixture-001") return json(historical);
   if (path === "/api/subscriptions") return json(pages([{ id: "subscription-fixture-001", userId: customer.id, revision: 3,
     panelBinding: null, _count: { periods: 1 }, nextBoundaryAt: now }]));
-  if (path === "/api/operations/status") return json({ asOf: now, services: [
+  if (path === "/api/config") return json({ version: 1, product: { brandName: "Компания «Магазин связи»" } });
+  if (path === "/api/operations/status") return json({ asOf: now,
+    product: { registration: true, payments: false, maintenance: false, remnawave: "DISABLED", platega: "CONTRACT_BLOCKED" }, services: [
     { key: "worker", state: "STALE", observedAt: now, data: null, reasonCode: "WORKER_STALE" },
     { key: "panel", state: "UNAVAILABLE", observedAt: null, data: null, reasonCode: "PANEL_UNAVAILABLE" },
   ], alerts: [{ id: "panel", kind: "panel", reasonCode: "PANEL_UNAVAILABLE" }] });

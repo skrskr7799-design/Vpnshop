@@ -1,3 +1,5 @@
+import { useProductConfig } from "../../config";
+import { ProductLinks } from "../../components/ProductLinks";
 import { Badge, Breadcrumbs, Button, Card, Dialog, EmptyState, Icon, PageHeader, Pagination, StatusIndicator,
   Timeline, buttonClass } from "@vpn/ui";
 import type { Offer, OwnerOrderDetail, OwnerOrderSummary, OwnerPayment, OwnerPeriod, OwnerSubscription, Page, PaymentChannel } from "@vpn/shared";
@@ -92,6 +94,7 @@ export function DashboardPage() {
 }
 
 export function PlansPage() {
+  const salesClosed = useProductConfig().data?.availability.payments === false;
   const catalog = useOwner<{ offers: Offer[] }>("/plans");
   const navigate = useNavigate();
   const [pending, setPending] = useState<string | null>(null);
@@ -127,7 +130,8 @@ export function PlansPage() {
       <header><Badge tone="accent">{offer.durationMonths} мес.</Badge><h2>{offer.name}</h2></header>
       <p className="mzt-price">{amount(offer.price.amountMinor, offer.price.currency)}</p>
       <dl className="mzt-detail"><dt>Устройства</dt><dd>До {offer.deviceLimit}</dd></dl>
-      <Button variant="secondary" block onClick={() => { setError(""); setChoice(offer); }}>Выбрать</Button>
+      {salesClosed ? <p className="mz-muted">Покупка временно недоступна</p> :
+        <Button variant="secondary" block onClick={() => { setError(""); setChoice(offer); }}>Выбрать</Button>}
     </Panel>)}</div>
     <Dialog open={!!choice} title="Проверьте условия" busy={pending !== null} onClose={() => setChoice(undefined)}>
       {choice && <><h3>{choice.name}</h3><dl className="mzt-detail">
@@ -135,9 +139,11 @@ export function PlansPage() {
         <dt>Срок</dt><dd>{choice.durationMonths} мес.</dd>
         <dt>Устройства</dt><dd>До {choice.deviceLimit}</dd>
       </dl><p className="mz-muted">После создания заказ появится в истории. Сейчас списания не будет.</p>
+        <ProductLinks kind="legal" />
+        {salesClosed && <p role="status">Покупка временно недоступна.</p>}
         {error && <p role="alert">{error}</p>}
         <div className="mz-actions"><Button variant="secondary" disabled={!!pending} onClick={() => setChoice(undefined)}>Отмена</Button>
-          <Button loading={!!pending} onClick={() => void buy(choice)}>Создать заказ</Button></div></>}
+          <Button loading={!!pending} disabled={salesClosed} onClick={() => void buy(choice)}>Создать заказ</Button></div></>}
     </Dialog>
   </>;
 }

@@ -15,13 +15,13 @@ export function paymentFixture(adapter?: PaymentProviderAdapter) {
   return adapter;
 }
 
-export function paymentOwnerRoutes(app: FastifyInstance, adapter?: PaymentProviderAdapter) {
+export function paymentOwnerRoutes(app: FastifyInstance, adapter?: PaymentProviderAdapter, restriction?: () => string | undefined) {
   app.post("/orders/:id/payments", { config: { rateLimit: { max: 12, timeWindow: "1 minute" } } }, async (req, reply) => {
     const { id } = orderParamsSchema.parse(req.params);
     const { channel } = createPaymentSchema.parse(req.body);
     const key = checkoutKeySchema.parse(req.headers["idempotency-key"]);
     if (!adapter) throw new AppError(503, "PAYMENTS_DISABLED");
-    const attempt = await createAttempt(await merchantAccount(adapter), adapter, req.auth!.userId, id, channel, key);
+    const attempt = await createAttempt(await merchantAccount(adapter), adapter, req.auth!.userId, id, channel, key, restriction);
     const pending = ["SUBMITTING", "UNKNOWN"].includes(attempt.status);
     return reply.code(pending ? 202 : 201).send(await attemptResult(attempt, true));
   });

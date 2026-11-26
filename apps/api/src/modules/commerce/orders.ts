@@ -9,7 +9,7 @@ import { dbNow } from "./offers";
 const orderWithVersion = { offerVersion: true } as const;
 const CHECKOUT_POLICY_VERSION = 1;
 
-export async function checkout(userId: string, key: string, offerVersionId: string) {
+export async function checkout(userId: string, key: string, offerVersionId: string, restriction?: () => string | undefined) {
   const checkoutKeyHash = sha256(key);
   return prisma.$transaction(async db => {
     // The lock is scoped to this checkout key; the unique index is the durable guarantee.
@@ -26,6 +26,9 @@ export async function checkout(userId: string, key: string, offerVersionId: stri
       if (existing.offerVersionId !== offerVersionId) throw new AppError(409, "IDEMPOTENCY_CONFLICT");
       return existing;
     }
+
+    const denied = restriction?.();
+    if (denied) throw new AppError(503, denied);
 
     // Lock the same plan row as all staff publication and retirement commands.
     // Concurrent buyers can hold this lock together.

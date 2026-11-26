@@ -1,6 +1,8 @@
 import { ApiError } from "../../api/ApiError";
 
 const BY_CODE: Record<string, string> = {
+  REGISTRATION_CLOSED: "Новая регистрация временно закрыта. Вход в существующий аккаунт доступен.",
+  MAINTENANCE_MODE: "Магазин на техническом обслуживании. Попробуйте позднее.",
   INVALID_CREDENTIALS: "Неверный email или пароль.",
   ACTIVATION_PENDING: "Аккаунт ожидает активации. Подтвердите адрес или обратитесь к оператору магазина.",
   EXPLICIT_LINK_REQUIRED: "Войдите существующим способом и подключите Google в разделе «Безопасность».",

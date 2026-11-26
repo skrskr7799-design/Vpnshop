@@ -1,7 +1,8 @@
 import { Prisma, type SupportCase, type SupportMessage } from "@prisma/client";
 import { supportChange, supportText, type CaseSummary, type supportCreate } from "@vpn/shared";
 import { z } from "zod";
-import { emailAvailable } from "../../config/env";
+import { requireAdmission } from "../../config/product";
+import { emailAvailable, env } from "../../config/env";
 import { sha256 } from "../../lib/crypto";
 import { AppError } from "../../lib/errors";
 import { keysetPage, keysetWhere, newestFirst } from "../../lib/keyset";
@@ -149,6 +150,7 @@ export async function openCase(userId: string, key: string, input: Create) {
     })) throw new AppError(404, "NOT_FOUND");
 
     const now = await dbNow(db);
+    requireAdmission(env, "support");
     const row = await db.supportCase.create({
       data: {
         userId, orderId: input.orderId, requestKeyHash, fingerprint, category: input.category, subject: input.subject, createdAt: now, updatedAt: now,

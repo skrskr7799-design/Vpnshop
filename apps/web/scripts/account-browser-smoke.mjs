@@ -29,6 +29,7 @@ let accessRequests = 0;
 let slowOverview = false;
 let oauthEnabled = false;
 let mailEnabled = true;
+let productState;
 let verifiedReads = 0;
 
 const price = { amountMinor: 10000, currency: "RUB" };
@@ -54,6 +55,14 @@ const server = createServer(async (req, res) => {
   res.setHeader("Content-Type", "application/json");
   res.setHeader("Cache-Control", "no-store");
   const json = (body, status = 200) => res.writeHead(status).end(JSON.stringify(body));
+  if (path === "/api/config") {
+    if (!productState) return json({}, 404);
+    return json({ version: 1, product: { brandName: "Компания «Магазин связи» · Длинное название для проверки интерфейса",
+      supportEmail: "support-team-with-long-address@example.invalid", legalTermsUrl: "https://example.invalid/terms",
+      legalRefundUrl: "https://example.invalid/refunds", legalPrivacyUrl: "https://example.invalid/privacy" },
+    availability: { registration: false, payments: false, support: false, maintenance: productState === "maintenance",
+      google: false, telegram: false } });
+  }
   if (path === "/api/auth/me") return signedIn ? json({ user, sessionId }) : json({ error: { code: "UNAUTHENTICATED" } }, 401);
   if (path === "/api/auth/login") {
     req.resume();
@@ -337,6 +346,7 @@ try {
         signedIn = !screen.guest;
         oauthEnabled = Boolean(screen.oauth);
         mailEnabled = !screen.noMail;
+        productState = screen.product;
         if (screen.id === "support") ticket.unread = 1;
       },
       afterLoad: async screen => {
@@ -351,6 +361,10 @@ try {
       screens: [
         { id: "login", path: "/login", ready: "Войти", guest: true, measure: true },
         { id: "initial-password", path: "/login", ready: "Войти", guest: true, afterLoad: true },
+        { id: "maintenance", path: "/maintenance", ready: "Техническое обслуживание", guest: true, product: "maintenance" },
+        { id: "registration-closed", path: "/register", ready: "Регистрация закрыта", guest: true, product: "closed" },
+        { id: "payments-closed", path: "/account/plans", ready: "Покупка временно недоступна", product: "closed" },
+        { id: "support-closed", path: "/account/support", ready: "Приём новых обращений временно прекращён", product: "closed" },
         { id: "register", path: "/register", ready: "Пароль", guest: true },
         { id: "forgot-password", path: "/forgot-password", ready: "Отправить ссылку", guest: true },
         { id: "activation-pending", path: "/activation", ready: "ручной активации", guest: true, noMail: true },

@@ -14,7 +14,7 @@ import type { AssignmentPanel } from "../remnawave/remnawave.assignment";
 import { dbNow, toOffer } from "./offers";
 import { checkout, ownerOrder, snapshot } from "./orders";
 
-export const commerceRoutes: FastifyPluginAsync<{ payments?: PaymentProviderAdapter; panel?: AssignmentPanel }> = async (app, { payments, panel }) => {
+export const commerceRoutes: FastifyPluginAsync<{ payments?: PaymentProviderAdapter; panel?: AssignmentPanel; restriction: () => string | undefined }> = async (app, { payments, panel, restriction }) => {
   app.get("/plans", async (req, reply) => {
     const { currency } = catalogQuerySchema.parse(req.query);
     const [versions, asOf] = await prisma.$transaction(async db => [
@@ -37,7 +37,7 @@ export const commerceRoutes: FastifyPluginAsync<{ payments?: PaymentProviderAdap
       await getCurrentUser(req.auth!.userId);
     });
 
-    paymentOwnerRoutes(orders, payments);
+    paymentOwnerRoutes(orders, payments, restriction);
 
     orders.post("/me/subscription/access", {
       bodyLimit: 1024, config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
@@ -53,7 +53,7 @@ export const commerceRoutes: FastifyPluginAsync<{ payments?: PaymentProviderAdap
     orders.post("/orders", async (req, reply) => {
       const { offerVersionId } = checkoutBodySchema.parse(req.body);
       const key = checkoutKeySchema.parse(req.headers["idempotency-key"]);
-      const order = await checkout(req.auth!.userId, key, offerVersionId);
+      const order = await checkout(req.auth!.userId, key, offerVersionId, restriction);
       return reply.code(201).send({ orderId: order.id, snapshot: snapshot(order), expiresAt: order.expiresAt.toISOString() });
     });
 
@@ -77,7 +77,7 @@ export const commerceRoutes: FastifyPluginAsync<{ payments?: PaymentProviderAdap
       const order = await ownerOrder(req.auth!.userId, id);
       if (!order) throw new AppError(404, "NOT_FOUND");
       const now = await dbNow(prisma);
-      const open = !!payments && order.status === "PENDING" && order.expiresAt > now &&
+      const open = !!payments && !restriction() && order.status === "PENDING" && order.expiresAt > now &&
         order.currency === "RUB" && order.offerVersionId !== null;
       const activeAttempt = open && await prisma.payment.findFirst({
         where: { orderId: id, OR: [

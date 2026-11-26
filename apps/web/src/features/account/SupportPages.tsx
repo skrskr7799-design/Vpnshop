@@ -1,3 +1,5 @@
+import { useProductConfig } from "../../config";
+import { ProductLinks } from "../../components/ProductLinks";
 import { Badge, Breadcrumbs, Button, ConfirmDialog, Icon, PageHeader, StatusIndicator, Timeline } from "@vpn/ui";
 import type { CaseSummary, OwnerOrderSummary, Page, SupportDetail } from "@vpn/shared";
 import { supportCategory } from "@vpn/shared";
@@ -42,6 +44,7 @@ function useSend() {
 
 export function SupportPage() {
   const navigate = useNavigate();
+  const closed = useProductConfig().data?.availability.support === false;
   const [params] = useSearchParams();
   const orderId = params.get("orderId");
   const orders = useOwner<Page<OwnerOrderSummary>>("/orders?limit=25");
@@ -58,7 +61,7 @@ export function SupportPage() {
   return <><PageHeader title="Поддержка" description="Вопросы об оплате, доступе и подключении." />
     <div className="mzt-help-grid"><section className="mz-card mzt-panel"><h2 className="mzt-section-title"><Icon name="support" size={20} />Новое обращение</h2>
       <p>Если оплата подтверждена, а доступ ещё готовится, приложите номер заказа. Пароли, платёжные данные и ссылки для подключения оставьте при себе.</p>
-      <form className="mzt-form" onSubmit={event => void submit(event)}>
+      {closed ? <p>Приём новых обращений временно прекращён. Текущие обращения доступны.</p> : <form className="mzt-form" onSubmit={event => void submit(event)}>
         <label>Тема<input name="subject" maxLength={120} required /></label>
         <label>Категория<select name="category">{Object.entries(categories).map(([key, value]) => <option key={key} value={key}>{value}</option>)}</select></label>
         <label>Заказ<select name="orderId" defaultValue={orderId ?? ""}>
@@ -71,7 +74,8 @@ export function SupportPage() {
         <label>Сообщение<textarea name="message" rows={4} maxLength={2000} required /></label>
         <div className="mzt-actions"><Button type="submit" loading={pending}>Создать обращение</Button></div>
         {error && <p role="alert">{error}</p>}
-      </form>
+      </form>}
+      <ProductLinks kind="support" />
     </section>
     <section className="mzt-help-list"><h2 className="mzt-section-title"><Icon name="receipt" size={19} />Мои обращения</h2>
     <PageList<CaseSummary> path={path} refetchInterval={30_000} empty="Обращений пока нет." render={ticket => <>

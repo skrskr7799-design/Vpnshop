@@ -8,7 +8,9 @@ const metricLabel = (value: string | undefined, fallback: string) => value && /^
 
 export function serviceLogger(service: string) {
   return {
-    level: process.env.NODE_ENV === "test" ? "silent" : "info",
+    level: process.env.NODE_ENV === "test" ? "silent" :
+      (["fatal", "error", "warn", "info", "debug", "trace", "silent"].includes(process.env.LOG_LEVEL ?? "")
+        ? process.env.LOG_LEVEL : "info"),
     base: { service, environment: metricLabel(process.env.NODE_ENV, "development"), release: metricLabel(process.env.RELEASE_ID, "local") },
     timestamp: () => ',"timestamp":' + JSON.stringify(new Date().toISOString()),
   } as const;

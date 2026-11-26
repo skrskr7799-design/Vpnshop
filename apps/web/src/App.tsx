@@ -5,6 +5,10 @@ import { AuthShell } from "./components/AuthShell/AuthShell";
 import { GuestOnly, RequireAuth } from "./features/auth/guards";
 import { LoginPage } from "./features/auth/pages/LoginPage";
 import { AccountShell } from "./features/account/account";
+import { useProductConfig } from "./config";
+import { AuthPage } from "./components/AuthPage/AuthPage";
+import { ButtonLink } from "./components/Button/ButtonLink";
+import { ProductLinks } from "./components/ProductLinks";
 import { NotFoundPage } from "./pages/NotFoundPage";
 
 const ActivationPage = lazy(() => import("./features/auth/pages/ActivationPage").then(m => ({ default: m.ActivationPage })));
@@ -24,12 +28,29 @@ const Support = () => import("./features/account/SupportPages");
 const SupportPage = lazy(() => Support().then(m => ({ default: m.SupportPage })));
 const SupportThreadPage = lazy(() => Support().then(m => ({ default: m.SupportThreadPage })));
 
+function Home() {
+  const { data, isPending } = useProductConfig();
+  if (isPending) return <Skeleton />;
+  return <Navigate to={data?.availability.maintenance ? "/maintenance" : "/account"} replace />;
+}
+
+function Maintenance() {
+  const { data, isPending } = useProductConfig();
+  if (isPending) return <Skeleton />;
+  if (data && !data.availability.maintenance) return <Navigate to="/account" replace />;
+  return <AuthPage title="Техническое обслуживание"
+    lead="Новые регистрации, покупки и обращения временно приостановлены. Действующие заказы и обращения доступны в кабинете.">
+    <ButtonLink to="/account">Открыть кабинет</ButtonLink><ProductLinks kind="support" />
+  </AuthPage>;
+}
+
 export function App() {
   return (
     <Suspense fallback={<Skeleton />}><Routes>
-      <Route path="/" element={<Navigate to="/account" replace />} />
+      <Route path="/" element={<Home />} />
 
       <Route element={<AuthShell />}>
+        <Route path="/maintenance" element={<Maintenance />} />
         {/* только для гостей: вошедшего перекинет дальше */}
         <Route element={<GuestOnly />}>
           <Route path="/login" element={<LoginPage />} />

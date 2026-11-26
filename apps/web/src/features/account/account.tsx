@@ -1,3 +1,5 @@
+import { useProductConfig } from "../../config";
+import { ProductLinks } from "../../components/ProductLinks";
 import type { OwnerSubscription } from "@vpn/shared";
 import { useQuery } from "@tanstack/react-query";
 import { BrandMark, Button, Drawer, ErrorState, Icon, IconButton, LabyrinthBackground, MobileNavigation, Skeleton, type IconName } from "@vpn/ui";
@@ -26,6 +28,9 @@ export function amount(minor: number | string, currency: string) {
 }
 
 const errors: Record<string, string> = {
+  MAINTENANCE_MODE: "Магазин на техническом обслуживании.",
+  PROVISIONING_UNAVAILABLE: "Подключение новых подписок временно недоступно.",
+  SUPPORT_DISABLED: "Приём новых обращений временно прекращён.",
   OFFER_CHANGED: "Предложение изменилось. Проверьте актуальную цену и выберите тариф снова.",
   OFFER_UNAVAILABLE: "Предложение больше недоступно. Выберите другой тариф.",
   PAYMENTS_DISABLED: "Оплата пока недоступна.", REAUTH_REQUIRED: "Подтвердите вход повторно.",
@@ -74,6 +79,8 @@ export function displayDelivery(subscription: NonNullable<OwnerSubscription["sub
 
 export function AccountShell() {
   const logout = useLogout();
+  const product = useProductConfig().data;
+  const brand = product?.product.brandName ?? "MZT";
   const { data } = useMe();
   const { pathname } = useLocation();
   const [menu, setMenu] = useState(false);
@@ -81,14 +88,14 @@ export function AccountShell() {
   const active = navigation.find(item => item.path !== "/account" && pathname.startsWith(item.path)) ?? navigation[0]!;
   useEffect(() => {
     main.current?.focus({ preventScroll: true });
-    document.title = active.title + " — MZT";
-  }, [pathname, active.title]);
+    document.title = active.title + " — " + brand;
+  }, [pathname, active.title, brand]);
   const links = (close?: () => void) => <nav className="mzt-nav" aria-label="Разделы кабинета">{navigation.map(({ path, title, icon }) =>
     <NavLink end={path === "/account"} key={path} to={path} className="mz-nav-link" onClick={close}><Icon name={icon} size={18} />{title}</NavLink>)}</nav>;
   return <div className={`mzt-account${pathname === "/account" ? " mzt-account--overview" : ""}`}>
     <LabyrinthBackground />
     <a className="mz-skip" href="#account-main">Перейти к содержимому</a>
-    <aside className="mzt-rail"><div className="mzt-rail__brand"><Link to="/account" className="mz-brand-home"><BrandMark /></Link><p>Личный кабинет</p></div>{links()}</aside>
+    <aside className="mzt-rail"><div className="mzt-rail__brand"><Link to="/account" className="mz-brand-home"><BrandMark /></Link><p className="mzt-product-brand">{brand === "MZT" ? "Личный кабинет" : brand}</p></div>{links()}</aside>
     <div className="mzt-workspace">
       <header className="mzt-top">
         <div className="mzt-top__mobile"><IconButton icon="menu" label="Открыть меню" aria-expanded={menu} onClick={() => setMenu(true)} />
@@ -100,7 +107,11 @@ export function AccountShell() {
         setMenu(false);
         requestAnimationFrame(() => main.current?.focus({ preventScroll: true }));
       })}</Drawer>
-      <main id="account-main" className="mzt-content" ref={main} tabIndex={-1}><Outlet key={data?.sessionId} /></main>
+      <main id="account-main" className="mzt-content" ref={main} tabIndex={-1}>
+        {product?.availability.maintenance && <p><Link to="/maintenance">Техническое обслуживание</Link></p>}
+        <Outlet key={data?.sessionId} />
+        <footer><ProductLinks kind="legal" /></footer>
+      </main>
     </div>
     <MobileNavigation label="Быстрые разделы кабинета" expanded={menu} onMore={() => setMenu(true)}>
       {quickLinks.map(({ path, title, icon }) => <NavLink key={path} end={path === "/account"} to={path}><Icon name={icon} size={19} />{title}</NavLink>)}

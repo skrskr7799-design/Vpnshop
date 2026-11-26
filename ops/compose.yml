@@ -17,6 +17,19 @@ x-node: &node
   mem_limit: 512m
   cpus: 0.75
   stop_grace_period: 30s
+x-product: &product
+    BRAND_NAME: "${BRAND_NAME:-MZT}"
+    SUPPORT_EMAIL: "${SUPPORT_EMAIL:-}"
+    SUPPORT_URL: "${SUPPORT_URL:-}"
+    LEGAL_TERMS_URL: "${LEGAL_TERMS_URL:-}"
+    LEGAL_PRIVACY_URL: "${LEGAL_PRIVACY_URL:-}"
+    LEGAL_REFUND_URL: "${LEGAL_REFUND_URL:-}"
+    REGISTRATION_ENABLED: "${REGISTRATION_ENABLED:-true}"
+    SUPPORT_ENABLED: "${SUPPORT_ENABLED:-true}"
+    MAINTENANCE_MODE: "${MAINTENANCE_MODE:-false}"
+    PAYMENTS_ENABLED: "${PAYMENTS_ENABLED:-false}"
+    REMNAWAVE_ENABLED: "${REMNAWAVE_ENABLED:-}"
+    LOG_LEVEL: "${LOG_LEVEL:-info}"
 x-edge-env: &edge-env
   EDGE_APP: public-api:3000
   EDGE_STATIC: web:8080
@@ -66,6 +79,7 @@ services:
     <<: *node
     depends_on: {db: {condition: service_healthy}}
     environment:
+      <<: *product
       METRICS_HOST: 172.30.76.10
       MZT_PROCESS: public
       WEB_ORIGIN: ${PUBLIC_ORIGIN:?Set public HTTPS origin}
@@ -90,6 +104,9 @@ services:
     command: [node, dist/admin.js]
     depends_on: {db: {condition: service_healthy}}
     environment:
+      <<: *product
+      V2_GOOGLE_CONFIGURED: "${V2_GOOGLE_CONFIGURED:-false}"
+      V2_TELEGRAM_CONFIGURED: "${V2_TELEGRAM_CONFIGURED:-false}"
       METRICS_HOST: 172.30.77.11
       MZT_PROCESS: admin
       WEB_ORIGIN: ${PUBLIC_ORIGIN}
@@ -117,7 +134,7 @@ services:
     command: [node, dist/worker.js]
     depends_on: {db: {condition: service_healthy}}
     stop_grace_period: 60s
-    environment: {MZT_PROCESS: worker, DATABASE_URL_FILE: /run/secrets/worker_url, RELEASE_ID: "${APPLICATION_IMAGE}"}
+    environment: {MZT_PROCESS: worker, LOG_LEVEL: "${LOG_LEVEL:-info}", REMNAWAVE_ENABLED: "${REMNAWAVE_ENABLED:-}", DATABASE_URL_FILE: /run/secrets/worker_url, RELEASE_ID: "${APPLICATION_IMAGE}"}
     secrets: [worker_url]
     networks: [tasks-db]
     healthcheck:
@@ -129,7 +146,7 @@ services:
     <<: *node
     command: [node, dist/billing.js]
     depends_on: {db: {condition: service_healthy}}
-    environment: {MZT_PROCESS: billing, BILLING_MODE: disabled, DATABASE_URL_FILE: /run/secrets/billing_url, RELEASE_ID: "${APPLICATION_IMAGE}"}
+    environment: {MZT_PROCESS: billing, LOG_LEVEL: "${LOG_LEVEL:-info}", BILLING_MODE: disabled, DATABASE_URL_FILE: /run/secrets/billing_url, RELEASE_ID: "${APPLICATION_IMAGE}"}
     secrets: [billing_url]
     networks: [finance-db]
     healthcheck:
@@ -141,7 +158,7 @@ services:
     <<: *node
     command: [node, dist/notifications.js]
     depends_on: {db: {condition: service_healthy}}
-    environment: {MZT_PROCESS: notifications, DATABASE_URL_FILE: /run/secrets/notifications_url, SMTP_URL_FILE: /run/secrets/smtp_url, MAIL_QUEUE_KEY_FILE: /run/secrets/mail_key, RELEASE_ID: "${APPLICATION_IMAGE}"}
+    environment: {MZT_PROCESS: notifications, LOG_LEVEL: "${LOG_LEVEL:-info}", DATABASE_URL_FILE: /run/secrets/notifications_url, SMTP_URL_FILE: /run/secrets/smtp_url, MAIL_QUEUE_KEY_FILE: /run/secrets/mail_key, RELEASE_ID: "${APPLICATION_IMAGE}"}
     secrets: [notifications_url, smtp_url, mail_key]
     networks: [notifications-db]
     healthcheck:

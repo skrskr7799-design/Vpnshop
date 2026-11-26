@@ -2,6 +2,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { loginSchema, type LoginInput } from "@vpn/shared";
 import { useForm } from "react-hook-form";
 import { Link, useLocation } from "react-router";
+import { useProductConfig } from "../../../config";
 import { Alert } from "../../../components/Alert/Alert";
 import { AuthPage } from "../../../components/AuthPage/AuthPage";
 import { Button } from "../../../components/Button/Button";
@@ -19,6 +20,7 @@ import { Icon } from "@vpn/ui";
 
 export function LoginPage() {
   const login = useLogin();
+  const availability = useProductConfig().data?.availability;
   const [temporary, setTemporary] = useState(false);
   const [changing, setChanging] = useState(false);
   const [message, setMessage] = useState<{ text: string; error: boolean }>();
@@ -103,7 +105,9 @@ export function LoginPage() {
       <Button type="button" variant="secondary" onClick={() => { setMessage(undefined); setTemporary(true); }}>У меня временный пароль</Button>
       </>}
       {!temporary && !logoutPending && <OAuthButtons returnTo={returnTo === "/account" ? undefined : returnTo} />}
-      <p className="auth-links auth-links--register">Нет аккаунта? <Link to="/register">Зарегистрироваться</Link></p>
+      {availability?.maintenance && <p><Link to="/maintenance">Техническое обслуживание</Link></p>}
+      {availability?.registration === false ? <p>Новая регистрация закрыта.</p> :
+        <p className="auth-links auth-links--register">Нет аккаунта? <Link to="/register">Зарегистрироваться</Link></p>}
     </AuthPage>
   );
 }

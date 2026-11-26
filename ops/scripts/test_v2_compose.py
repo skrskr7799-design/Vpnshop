@@ -299,6 +299,27 @@ class Deployment(unittest.TestCase):
         self.assertNotIn("MAIL_TRANSPORT_ENABLED", conf["services"]["public-api"]["environment"])
         self.assertNotIn("MAIL_TRANSPORT_ENABLED", conf["services"]["admin-api"]["environment"])
 
+    def test_product_config_has_one_authority_and_validates_dependencies(self):
+        base = CONFIG["single", "private"]
+        brand = 'Бренд "Север"'
+        cfg = self.render("single", base | {"BRAND_NAME": brand, "MAINTENANCE_MODE": "true",
+                                           "LEGAL_TERMS_URL": "https://example.test/terms?v=1&locale=ru"})
+        for app in ("public-api", "admin-api"):
+            values = cfg["services"][app]["environment"]
+            self.assertEqual(values["BRAND_NAME"], brand)
+            self.assertEqual(values["MAINTENANCE_MODE"], "true")
+            self.assertEqual(values["PAYMENTS_ENABLED"], "false")
+            self.assertEqual(values["REMNAWAVE_ENABLED"], "false")
+        self.assertNotIn("BRAND_NAME", cfg["services"]["web"].get("environment", {}))
+        self.rejects("edge", CONFIG["edge", "private"] | {"BRAND_NAME": brand}, "unsupported")
+        self.rejects("single", base | {"LEGAL_TERMS_URL": "javascript:alert(1)"}, "expected an HTTPS link")
+        self.rejects("single", base | {"PAYMENTS_ENABLED": "true"}, "verified Platega contract")
+        self.rejects("single", base | {"REMNAWAVE_ENABLED": "true"}, "requires staging panel egress")
+        paused = self.render("single", base | {"REMNAWAVE_ENABLED": "false", "MZT_ENABLE_PANEL_EGRESS": "1",
+                                              "REMNAWAVE_REVISION_MODE": "staging", "REMNAWAVE_STAGING_ORIGIN": "https://example.test"})
+        self.assertNotIn("panel-egress", paused["networks"])
+        self.assertNotIn("remnawave_staging_token", paused["secrets"])
+
     def test_rejects_missing_conditional_secrets_and_wrong_permissions(self):
         self.rejects("single", CONFIG["single", "private"] | {"MZT_ENABLE_OAUTH_EGRESS": "1", "GOOGLE_CLIENT_ID": "fixture"},
                      "google_client_secret")

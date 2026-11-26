@@ -13,6 +13,7 @@ import re
 import stat
 import subprocess
 import sys
+import unicodedata
 from urllib.parse import unquote, urlsplit
 from uuid import UUID
 
@@ -27,10 +28,13 @@ CORE = {"CORE_LISTEN_IP", "CORE_API_PORT", "EDGE_PEER_IP", "CORE_API_ALLOWED_IP"
 PANEL = {"REMNAWAVE_STAGING_ORIGIN", "REMNAWAVE_STAGING_LINK_ORIGIN", "REMNAWAVE_STAGING_INSTANCE", "REMNAWAVE_STAGING_SQUADS"}
 OFFSITE = {"LOGICAL_S3_ENDPOINT", "LOGICAL_S3_BUCKET", "LOGICAL_S3_REGION", "LOGICAL_KEY_VERSION"}
 FLAGS = {"MZT_ENABLE_LOCAL_BACKUP", "MZT_ENABLE_OFFSITE", "MZT_ENABLE_SMTP_EGRESS", "MZT_ENABLE_OAUTH_EGRESS", "MZT_ENABLE_PANEL_EGRESS"}
+PRODUCT_LINKS = {"SUPPORT_URL", "LEGAL_TERMS_URL", "LEGAL_PRIVACY_URL", "LEGAL_REFUND_URL"}
+PRODUCT_FLAGS = {"REGISTRATION_ENABLED", "SUPPORT_ENABLED", "MAINTENANCE_MODE", "PAYMENTS_ENABLED", "REMNAWAVE_ENABLED"}
+PRODUCT = PRODUCT_FLAGS | PRODUCT_LINKS | {"BRAND_NAME", "SUPPORT_EMAIL", "LOG_LEVEL"}
 APPS = {"PUBLIC_ORIGIN", "ADMIN_HOSTNAME", "ADMIN_ORIGIN", "ADMIN_BIND_IP", "ADMIN_CLIENT_CIDRS", "ADMIN_TLS_PORT",
         "ADMIN_ACCESS_MODE", "ADMIN_2FA_POLICY", "ADMIN_SESSION_HOURS", "ADMIN_IDLE_MINUTES", "CHECKOUT_TTL_MINUTES", "MAIL_FROM",
         "GOOGLE_AUTH_ENABLED", "TELEGRAM_AUTH_ENABLED", "GOOGLE_CLIENT_ID", "TELEGRAM_CLIENT_ID", "TELEGRAM_OIDC_VERIFIED", "REMNAWAVE_REVISION_MODE",
-        "BACKUP_MONITOR", "PANEL_MONITOR", "ALERTMANAGER_CONFIG"} | PANEL | OFFSITE | FLAGS
+        "BACKUP_MONITOR", "PANEL_MONITOR", "ALERTMANAGER_CONFIG"} | PANEL | OFFSITE | FLAGS | PRODUCT
 DEFAULT = {"MZT_DEPLOY_ENV": "production", "ADMIN_ACCESS_MODE": "private", "ADMIN_2FA_POLICY": "required", "LINK_MODE": "private",
            "PUBLIC_TLS_PORT": "443", "ADMIN_TLS_PORT": "443", "PUBLIC_BIND_IP": "127.0.0.1",
            "ADMIN_SESSION_HOURS": "12", "ADMIN_IDLE_MINUTES": "30", "CHECKOUT_TTL_MINUTES": "30",
@@ -228,6 +232,28 @@ def design(role, raw, secrets):
                 flags.add("public-link+file")
     if role == "edge":
         return v, files, flags
+    for flag in PRODUCT_FLAGS:
+        enabled(v, flag, "true", "false")
+    require(not enabled(v, "PAYMENTS_ENABLED", "true", "false"), "Payments require a verified Platega contract and admitted adapter")
+    brand = v.get("BRAND_NAME", "MZT")
+    require(bool(brand.strip()) and len(brand) <= 80 and not any(
+        unicodedata.category(ch) in {"Cc", "Cf"} for ch in brand), "Invalid BRAND_NAME")
+    email = v.get("SUPPORT_EMAIL")
+    require(not email or len(email) <= 254 and re.fullmatch(r"[A-Za-z0-9_+.-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", email)
+            and ".." not in email and not email.startswith("."), "Invalid SUPPORT_EMAIL")
+    for key in PRODUCT_LINKS:
+        value = v.get(key)
+        if not value:
+            continue
+        try:
+            url = urlsplit(value)
+            require(url.scheme == "https" and bool(url.hostname) and not url.netloc.count("@")
+                    and not any(ch.isspace() or ch == chr(92) or unicodedata.category(ch) in {"Cc", "Cf"} for ch in value)
+                    and len(value) <= 2048, f"Invalid {key}: expected an HTTPS link without credentials")
+            _ = url.port
+        except ValueError:
+            raise Invalid(f"Invalid {key}: expected an HTTPS link without credentials") from None
+    require(v.get("LOG_LEVEL", "info") in {"fatal", "error", "warn", "info", "debug", "trace", "silent"}, "Invalid LOG_LEVEL")
     if enabled(v, "MZT_ENABLE_SMTP_EGRESS"):
         require(bool(v.get("MAIL_FROM")), "SMTP requires MAIL_FROM")
         files += ["mail"]
@@ -252,7 +278,16 @@ def design(role, raw, secrets):
     for p in ("google", "telegram"):
         require(p in configured or not os.path.lexists(secrets / (p + "_client_secret")),
                 f"{p} client ID and secret must be configured together")
-    panel = enabled(v, "MZT_ENABLE_PANEL_EGRESS")
+    for provider in ("google", "telegram"):
+        v[f"V2_{provider.upper()}_CONFIGURED"] = str(provider in providers).lower()
+    egress = enabled(v, "MZT_ENABLE_PANEL_EGRESS")
+    explicit_panel = v.get("REMNAWAVE_ENABLED")
+    require(explicit_panel != "true" or egress, "REMNAWAVE_ENABLED requires staging panel egress")
+    panel = egress and explicit_panel != "false"
+    v["REMNAWAVE_ENABLED"] = str(panel).lower()
+    if explicit_panel == "false":
+        v["REMNAWAVE_REVISION_MODE"] = "off"
+        v["PANEL_MONITOR"] = "false"
     require(v.get("REMNAWAVE_REVISION_MODE", "off") == ("staging" if panel else "off"), "Panel egress requires explicit staging revision mode")
     if panel:
         require(v["MZT_DEPLOY_ENV"] == "staging", "Panel egress supports isolated staging only")
@@ -269,7 +304,7 @@ def design(role, raw, secrets):
         if os.path.lexists(secrets / "remnawave_staging_api_key"):
             files += ["egress.panel-key"]
             flags.add("panel+file")
-    else:
+    elif explicit_panel != "false":
         require(not any(v.get(k) for k in PANEL), "Staging panel settings require panel egress")
     offsite = enabled(v, "MZT_ENABLE_OFFSITE")
     if offsite:
@@ -311,7 +346,7 @@ def compose(settings, role, files, secrets, release, project, disposable, *, pro
     } | settings | {key: release[key] for key in keys} | {"SECRETS_DIR": str(secrets)}
     env = {key: value for key, value in os.environ.items() if not key.startswith("COMPOSE_")}
     # Drop irrelevant interpolation variables, including empty/default overrides from the caller.
-    for key in PUBLIC | LINK | CORE | APPS | IMAGES | {"V2_WEB_PROXY", "V2_PUBLIC_AUTHORITY", "CORE_API_ADDR", "MZT_DEPLOY_ENV"}:
+    for key in PUBLIC | LINK | CORE | APPS | IMAGES | {"V2_WEB_PROXY", "V2_PUBLIC_AUTHORITY", "CORE_API_ADDR", "MZT_DEPLOY_ENV", "V2_GOOGLE_CONFIGURED", "V2_TELEGRAM_CONFIGURED"}:
         env.pop(key, None)
     env.update(v)
     env["V2_LEGACY_COMPOSE"] = str(OPS / "compose.yml")

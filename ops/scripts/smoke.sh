@@ -265,17 +265,13 @@ SQL
   offer=$(request public 18443 -fsS "$origin/api/plans" | jq -er '.offers[0].id')
   key=$(cat /proc/sys/kernel/random/uuid)
   order_request=$(jq -nc --arg offer "$offer" '{offerVersionId:$offer}')
-  checkout_order() {
-    request public 18443 -fsS -b "$tmp/customer.cookies" -H "Origin: $origin" -H 'Content-Type: application/json' \
-      -H "Idempotency-Key: $key" --data-binary "$order_request" "$origin/api/orders" | jq -er '.orderId'
-  }
-  order=$(checkout_order)
-  [[ "$(checkout_order)" == "$order" ]]
-  [[ "$(request public 18443 -sS -w '%{http_code}' -o /dev/null -b "$tmp/customer.cookies" -H "Origin: $origin" \
-    -H 'Content-Type: application/json' -H "Idempotency-Key: $key" --data '{"channel":"SBP"}' "$origin/api/orders/$order/payments")" == 503 ]]
-  dc exec -T db psql -U postgres -d vpnshop -Atc 'SELECT count(*)=1 AND NOT EXISTS (SELECT 1 FROM "Payment") FROM "Order"' | grep -qx t
+  request public 18443 -fsS "$origin/api/config" | jq -e '.version == 1 and .availability.payments == false' >/dev/null
+  [[ "$(request public 18443 -sS -w '%{http_code}' -o "$tmp/checkout.json" -b "$tmp/customer.cookies" -H "Origin: $origin" \
+    -H 'Content-Type: application/json' -H "Idempotency-Key: $key" --data-binary "$order_request" "$origin/api/orders")" == 503 ]]
+  jq -e '.error.code == "PAYMENTS_DISABLED"' "$tmp/checkout.json" >/dev/null
+  dc exec -T db psql -U postgres -d vpnshop -Atc 'SELECT count(*)=0 AND NOT EXISTS (SELECT 1 FROM "Payment") FROM "Order"' | grep -qx t
   request public 18443 -fsS -b "$tmp/customer.cookies" -H "Origin: $origin" -X POST "$origin/api/auth/logout" >/dev/null
-  [[ "$(request public 18443 -sS -w '%{http_code}' -o /dev/null -b "$tmp/customer.cookies" "$origin/api/orders/$order")" == 401 ]]
+  [[ "$(request public 18443 -sS -w '%{http_code}' -o /dev/null -b "$tmp/customer.cookies" "$origin/api/orders")" == 401 ]]
   token=$(jq -er .token "$tmp/verify.json")
   if dc logs --no-color public-api admin-api public-edge admin-edge notifications | grep -F "$token" >/dev/null; then
     echo "Synthetic verification token appeared in logs"; exit 1

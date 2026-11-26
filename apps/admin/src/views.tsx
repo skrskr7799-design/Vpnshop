@@ -20,6 +20,9 @@ export function RequestState({ state }: { state: { isPending: boolean; error: un
   return state.error ? <ErrorState message={errorText(state.error)} retry={state.refetch} /> : null;
 }
 const labels: Record<string, string> = {
+  registration: "Новые регистрации", payments: "Новые платежи", support: "Новые обращения", maintenance: "Обслуживание",
+  runtimeConfigVersion: "Версия публичной конфигурации", remnawave: "Remnawave", smtp: "SMTP", google: "Google",
+  telegram: "Telegram", platega: "Platega",
   subject: "Тема", priority: "Приоритет", assignee: "Ответственный", unread: "Новые события",
   username: "Имя пользователя", displayName: "Отображаемое имя", contactEmail: "Контакт",
   activation: "Активация", emailVerified: "Почта подтверждена", lastLoginAt: "Последний вход",
@@ -56,6 +59,8 @@ export const states: Record<string, string> = {
   WAITING_CUSTOMER: "Ждём клиента", OPEN: "Ждём поддержки", RESOLVED: "Решено", CLOSED: "Закрыто", IN_PROGRESS: "В работе", NOT_REQUESTED: "Без заявки на выдачу",
 };
 const domainLabels: Record<string, string> = {
+  DISABLED: "Отключено", CONFIGURED_UNVERIFIED: "Настроено · проверка на стенде",
+  CONTRACT_BLOCKED: "Контракт не подтверждён", OBLIGATIONS_WITHOUT_PROVIDER: "Есть незавершённые операции · требуется проверка",
   PAYMENT: "Оплата", DELIVERY: "Выдача доступа", ACCESS: "Подключение", OTHER: "Другой вопрос",
   GENERAL: "Общий вопрос", SUBSCRIPTION: "Подписка", TECHNICAL: "Техническая проблема", ACCOUNT: "Аккаунт",
   LOW: "Низкий", NORMAL: "Обычный", HIGH: "Высокий", URGENT: "Срочный",

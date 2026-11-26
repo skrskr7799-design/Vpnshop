@@ -9,7 +9,7 @@ function link(path: string, token?: string): string {
 
 export const verifyEmailMail = (to: string, token: string): Mail => ({
   to,
-  subject: "Подтвердите регистрацию",
+  subject: "Подтвердите регистрацию · " + env.BRAND_NAME,
   text: [
     "Чтобы завершить регистрацию, перейдите по ссылке (действует 24 часа):",
     link("/verify-email", token),
@@ -20,7 +20,7 @@ export const verifyEmailMail = (to: string, token: string): Mail => ({
 
 export const accountExistsMail = (to: string): Mail => ({
   to,
-  subject: "У вас уже есть аккаунт",
+  subject: "У вас уже есть аккаунт · " + env.BRAND_NAME,
   text: [
     "Кто-то пытался зарегистрироваться с этим адресом, но аккаунт уже существует.",
     `Войти: ${link("/login")}`,
@@ -32,7 +32,7 @@ export const accountExistsMail = (to: string): Mail => ({
 
 export const resetPasswordMail = (to: string, token: string): Mail => ({
   to,
-  subject: "Сброс пароля",
+  subject: "Сброс пароля · " + env.BRAND_NAME,
   text: [
     "Чтобы задать новый пароль, перейдите по ссылке (действует 1 час):",
     link("/reset-password", token),
@@ -43,6 +43,6 @@ export const resetPasswordMail = (to: string, token: string): Mail => ({
 
 export const supportUpdateMail = (to: string, id: string): Mail => ({
   to,
-  subject: "Обновление обращения MZT",
+  subject: "Обновление обращения · " + env.BRAND_NAME,
   text: ["В вашем обращении есть обновление. Войдите в личный кабинет, чтобы его посмотреть.", link("/account/support/" + id)].join("\n"),
 });

@@ -247,7 +247,7 @@ class Runtime:
             if service in self.services:
                 self.https_health(service)
 
-    def https_health(self, service):
+    def https_health(self, service, *, product=False):
         definition = self.services[service]
         receiving = definition["ports"][0]
         address = receiving["host_ip"]
@@ -259,7 +259,7 @@ class Runtime:
         host = self.settings["PUBLIC_HOST" if public else "ADMIN_HOSTNAME"]
         mount = "public_cert" if public else "admin_cert"
         cert = self.config["secrets"][mount]["file"]
-        for route in ("/", "/api/ready"):
+        for route in (("/api/config",) if product else ("/", "/api/ready")):
             result = call(["curl", "--silent", "--show-error", "--noproxy", "*", "--max-time", "10",
                            "--output", "/dev/null", "--write-out", "%{http_code}",
                            "--cacert", cert, "--resolve", f"{host}:{published}:{address}",
@@ -933,6 +933,23 @@ class Deployment:
                 safe_line(provider + " sign-in", "configured" if active else "NOT CONFIGURED")
             if doctor:
                 safe_line("External identity", "NOT CHECKED: disabling a sole sign-in method can lock out users")
+                for flag in ("REGISTRATION_ENABLED", "SUPPORT_ENABLED", "MAINTENANCE_MODE"):
+                    safe_line(flag, public_env.get(flag, "NOT CONFIGURED"))
+                safe_line("Payments", "disabled")
+                safe_line("Platega", "contract blocked; sandbox not tested")
+                panel = runtime.settings.get("REMNAWAVE_ENABLED") == "true"
+                safe_line("Remnawave", "configured for staging; live compatibility not tested" if panel else "disabled")
+                safe_line("Runtime config", "Core /api/config (schema v1)")
+                try:
+                    outstanding = runtime.sql('''SELECT EXISTS (
+                        SELECT 1 FROM "Payment" p LEFT JOIN "MerchantAccount" a ON a.id = p."accountId"
+                        WHERE p.provider = 'PLATEGA' AND (a.environment <> 'MOCK' OR
+                          (a.id IS NULL AND p."externalId" IS NOT NULL))
+                        AND p.status IN ('PENDING','CREATED','SUBMITTING','AWAITING_CUSTOMER','PROCESSING','UNKNOWN'))''')
+                    if outstanding == "t":
+                        safe_line("Payment follow-up", "WARNING: unresolved payments without a verified adapter")
+                except ReleaseError:
+                    safe_line("Payment follow-up", "NOT CHECKED: database unavailable")
         listed = runtime.containers()
         good = not pending
         for service in runtime.active():
@@ -972,6 +989,12 @@ class Deployment:
                     continue
                 try:
                     routed = runtime.https_health(service)
+                    if service == "public-edge":
+                        try:
+                            runtime.https_health(service, product=True)
+                            safe_line("Runtime config", "HTTP endpoint reachable; Core controls availability")
+                        except ReleaseError:
+                            safe_line("Runtime config", "NOT CHECKED: Core endpoint unavailable or older release")
                     safe_line(f"{service} HTTPS", "OK" if routed else "OK: TLS; application blocked for this host by ACL")
                 except ReleaseError:
                     safe_line(f"{service} HTTPS", "ERROR or NOT CHECKED: endpoint unavailable from this host")

@@ -1,3 +1,4 @@
+import { useProductBrand } from "./config";
 import { Badge, BrandMark, Button, CodeDisplay, Drawer, EmptyState, Icon, IconButton, Input, LabyrinthBackground, MobileNavigation, PageHeader, SignatureScene, StatusIndicator, Timeline, buttonClass, type IconName } from "@vpn/ui";
 import { supportStatus } from "@vpn/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -34,6 +35,7 @@ function Guard() {
 
 function Shell() {
   const session = useSession()!;
+  const brand = useProductBrand();
   const cache = useQueryClient();
   const navigate = useNavigate();
   const [hidden, hide] = useState(false);
@@ -47,8 +49,8 @@ function Shell() {
   const active = visibleLinks.find(([path]) => path !== "/" && location.pathname.startsWith(path))?.[1] ?? "Обзор";
   useEffect(() => {
     main.current?.focus({ preventScroll: true });
-    document.title = active + " — MZT";
-  }, [active, location.pathname]);
+    document.title = active + " — " + brand;
+  }, [active, location.pathname, brand]);
   async function logout() {
     hide(true); setError("");
     await cache.cancelQueries({ queryKey: ["admin"] });
@@ -72,7 +74,7 @@ function Shell() {
   </SignatureScene> : <div className={`shell${location.pathname === "/" ? " shell--overview" : ""}`}>
     <LabyrinthBackground />
     <a className="skip" href="#main">Перейти к содержимому</a>
-    <aside className="sidebar"><div className="admin-brand"><Link to="/" className="mz-brand-home"><BrandMark /></Link><span>Администрирование</span></div>{navigation()}</aside>
+    <aside className="sidebar"><div className="admin-brand"><Link to="/" className="mz-brand-home"><BrandMark /></Link><span className="admin-product-brand">{brand === "MZT" ? "Администрирование" : brand}</span></div>{navigation()}</aside>
     <div className="body"><header className="admin-topbar">
       <div className="admin-topbar__mobile"><IconButton icon="menu" label="Открыть меню" aria-expanded={menu} onClick={() => setMenu(true)} />
         <Link to="/" className="mz-brand-home"><BrandMark /></Link></div>
@@ -205,16 +207,21 @@ type ServiceStatus = {
 };
 const serviceTitle: Record<string, string> = { panel: "Remnawave", worker: "Воркер выдачи" };
 const serviceReason: Record<string, string> = {
+  PANEL_DISABLED: "Выдача через Remnawave приостановлена оператором.",
   PANEL_PROBE_FAILED: "Панель не ответила на последнюю проверку.", PANEL_UNAVAILABLE: "Наблюдений панели пока нет.",
   NO_HEARTBEAT: "Сигнал воркера ещё не получен.", WORKER_STALE: "Сигнал воркера устарел.", WORKER_NOT_READY: "Воркер не готов к обработке.",
 };
 
 function Operations() {
-  const service = useAdmin<{ asOf: string; services: ServiceStatus[] }>("/operations/status", 30_000);
+  const service = useAdmin<{ asOf: string; services: ServiceStatus[]; product?: Record<string, unknown> }>("/operations/status", 30_000);
   return <><PageHeader title="Сервисы" description="Состояние фоновых процессов и внешних зависимостей." />
     <RequestState state={service} />
     {service.data && <><p className="admin-meta">Снимок {valueText(service.data.asOf)}</p>
       {!service.data.services.length && <EmptyState title="Наблюдений пока нет" />}
+      {service.data.product && <section className="mz-card panel"><h2>Конфигурация продукта</h2>
+        <p>Настройки применяются через конфигурацию установки. Доступность внешних сервисов проверяется отдельно.</p>
+        <Facts data={service.data.product} />
+      </section>}
       <div className="grid">{service.data.services.map(source => <section className="mz-card panel" key={source.key}>
         <div className="dashboard-source-heading"><h2>{serviceTitle[source.key] ?? source.key}</h2>
           <StatusIndicator status={source.state}>{states[source.state]}</StatusIndicator></div>

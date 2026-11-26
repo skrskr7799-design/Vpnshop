@@ -1,5 +1,6 @@
 import { readSecret } from "./secrets";
 import { exactHttpsOrigin, explicitPublicAdminAccess, isRestrictedPeer } from "./proxy";
+import { productSettings } from "./product";
 import { z } from "zod";
 
 // Пустая строка в .env (VAR=) считается «не задано»
@@ -10,6 +11,7 @@ const optionalString = z
 
 const schema = z
   .object({
+    ...productSettings,
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     HOST: z.string().default("0.0.0.0"),
     PORT: z.coerce.number().int().positive().default(3000),
@@ -94,6 +96,9 @@ const schema = z
 
 // Fail-fast: приложение не стартует с неверным конфигом.
 const input = { ...process.env };
+for (const [key, value] of Object.entries(input)) {
+  if (value === "" && Object.hasOwn(productSettings, key)) delete input[key];
+}
 for (const name of ["DATABASE_URL", "JWT_SECRET", "COOKIE_SECRET", "ADMIN_ENCRYPTION_KEY", "SMTP_URL",
   "MAIL_QUEUE_KEY", "GOOGLE_CLIENT_SECRET", "TELEGRAM_CLIENT_SECRET"]) input[name] = readSecret(name);
 const parsed = schema.safeParse(input);

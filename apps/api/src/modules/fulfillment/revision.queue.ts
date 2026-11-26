@@ -17,7 +17,7 @@ const markRevisionWriter = (db: Db) => db.$queryRaw`SELECT set_config('vpnshop.f
 const maxWrites = 6;
 export const driftIntervalMs = 60_000;
 
-export async function claimRevision(owner: string, leaseMs: number) {
+export async function claimRevision(owner: string, leaseMs: number, waitForSquadProfile = false) {
   return subscriptionTransaction(async db => {
     const [row] = await db.$queryRaw<Omit<RevisionJob, "owner" | "generation">[]>`
       SELECT j.id, j."assignmentId", j.attempts, j."verificationEpoch", a.revision,
@@ -26,6 +26,7 @@ export async function claimRevision(owner: string, leaseMs: number) {
       JOIN "Subscription" s ON s.id = a."subscriptionId" AND s.revision = a.revision
       LEFT JOIN "FulfillmentLease" l ON l."userId" = s."userId"
       WHERE NOT s."legacyUnverified"
+        AND (NOT ${waitForSquadProfile} OR NOT a.enabled OR cardinality(a."internalSquads") > 0)
         AND (l."jobId" IS NULL OR l."expiresAt" <= clock_timestamp())
         AND (j.status = 'RUNNING' OR (j.status IN ('PENDING','CONFIRMED','VERIFY_PENDING','RETRY_WAIT')
           AND j."nextAttemptAt" <= (clock_timestamp() AT TIME ZONE 'UTC')))

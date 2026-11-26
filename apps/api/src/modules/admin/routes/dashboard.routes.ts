@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
+import { emailAvailable, env } from "../../../config/env";
 import { z } from "zod";
 import { AppError } from "../../../lib/errors";
 import { prisma } from "../../../lib/prisma";
@@ -19,6 +20,7 @@ export const adminDashboardRoutes: FastifyPluginAsync<DashboardDeps> = async (ap
   let pending: Promise<NonNullable<typeof cached>> | undefined;
   let lastCheck = 0;
   async function panelHealth() {
+    if (env.REMNAWAVE_ENABLED === false) return block<{ version: string }>(null, null, "UNAVAILABLE", "PANEL_DISABLED");
     if (cached && Date.now() - lastCheck < 30_000) return cached;
     if (pending) return pending;
     pending = (async () => {
@@ -49,10 +51,27 @@ export const adminDashboardRoutes: FastifyPluginAsync<DashboardDeps> = async (ap
       : latest.ready ? block({ ready: true }, latest.observedAt) : block(null, latest.observedAt, "UNAVAILABLE", "WORKER_NOT_READY");
     return { panel: panelStatus, worker };
   }
-  app.get("/operations/status", { preHandler: requireAdmin("ops:read") }, async () => {
-    const sources = await health();
-    return { asOf: new Date(), services: Object.entries(sources).map(([key, value]) => ({ key, ...value })),
-      alerts: Object.entries(sources).flatMap(([kind, value]) => value.state === "FRESH" ? [] :
+  app.get("/operations/status", { preHandler: requireAdmin("ops:read") }, async req => {
+    const [sources, unresolved] = await Promise.all([
+      health(), can(adminOf(req).role, "finance:read") ? prisma.payment.count({ where: {
+        provider: "PLATEGA",
+        OR: [{ account: { is: { environment: { not: "MOCK" } } } }, { accountId: null, externalId: { not: null } }],
+        status: { in: ["PENDING", "CREATED", "SUBMITTING", "AWAITING_CUSTOMER", "PROCESSING", "UNKNOWN"] },
+      } }) : 0,
+    ]);
+    const product = {
+      registration: env.REGISTRATION_ENABLED, payments: false, support: env.SUPPORT_ENABLED,
+      maintenance: env.MAINTENANCE_MODE,
+      remnawave: env.REMNAWAVE_ENABLED === false ? "DISABLED" :
+        process.env.REMNAWAVE_REVISION_MODE === "staging" ? "CONFIGURED_UNVERIFIED" : "DISABLED",
+      smtp: emailAvailable ? "CONFIGURED_UNVERIFIED" : "DISABLED",
+      google: process.env.V2_GOOGLE_CONFIGURED === "true" ? "CONFIGURED_UNVERIFIED" : "DISABLED",
+      telegram: process.env.V2_TELEGRAM_CONFIGURED === "true" ? "CONFIGURED_UNVERIFIED" : "DISABLED",
+      platega: unresolved ? "OBLIGATIONS_WITHOUT_PROVIDER" : "CONTRACT_BLOCKED",
+      runtimeConfigVersion: 1,
+    };
+    return { product, asOf: new Date(), services: Object.entries(sources).map(([key, value]) => ({ key, ...value })),
+      alerts: Object.entries(sources).flatMap(([kind, value]) => value.state === "FRESH" || value.reasonCode === "PANEL_DISABLED" ? [] :
         [{ id: kind, kind, severity: "WARNING", since: value.observedAt, reasonCode: value.reasonCode }]) };
   });
 
@@ -112,7 +131,7 @@ export const adminDashboardRoutes: FastifyPluginAsync<DashboardDeps> = async (ap
     }, { isolationLevel: "RepeatableRead" });
     const sources = await health();
     const alerts = [
-      ...Object.entries(sources).flatMap(([kind, value]) => value.state === "FRESH" ? [] : [{ kind, reasonCode: value.reasonCode }]),
+      ...Object.entries(sources).flatMap(([kind, value]) => value.state === "FRESH" || value.reasonCode === "PANEL_DISABLED" ? [] : [{ kind, reasonCode: value.reasonCode }]),
       ...(data.jobs.data?.overdue ? [{ kind: "jobs", reasonCode: "JOBS_OVERDUE" }] : []),
       ...(data.payments.data?.stuck ? [{ kind: "payments", reasonCode: "PAYMENTS_STUCK" }] : []),
     ];

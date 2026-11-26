@@ -1,3 +1,4 @@
+import { requireAdmission } from "../../config/product";
 import { emailAvailable, env } from "../../config/env";
 import { enqueueMail } from "../mail/outbox";
 import type { FastifyBaseLogger } from "fastify";
@@ -51,6 +52,7 @@ export const toPublicUser = (user: Pick<User, "id" | "email" | "role" | "emailVe
 // Всегда отвечает одинаково (наружу ничего не утекает): есть такой аккаунт или нет,
 // узнать можно только из письма на этот адрес.
 export async function register({ email, password }: RegisterInput, ctx: AuthContext): Promise<void> {
+  requireAdmission(env, "registration");
   if (!await consumeMailBudget(email, "register")) return;
   // хэшируем всегда, чтобы время ответа не зависело от наличия аккаунта
   const passwordHash = await hashPassword(password);
@@ -75,6 +77,7 @@ export async function register({ email, password }: RegisterInput, ctx: AuthCont
   const mail = verifyEmailMail(email, token);
   const expiresAt = new Date(+now + VERIFY_TTL_MS);
   await prisma.$transaction(async db => {
+    requireAdmission(env, "registration");
     await db.pendingRegistration.create({ data: { email, passwordHash, tokenHash: sha256(token), expiresAt } });
     if (emailAvailable) await enqueueMail(db, mail, expiresAt);
   });

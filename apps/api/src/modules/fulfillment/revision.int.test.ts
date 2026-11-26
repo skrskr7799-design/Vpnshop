@@ -333,3 +333,25 @@ it("keeps a verification request delivered during a newer worker's lease and dra
     await worker.stop();
   }
 });
+
+it("retains a paid obligation while the panel is paused and recovers its squad profile on resume", async () => {
+  vi.stubEnv("REMNAWAVE_ENABLED", "false");
+  vi.stubEnv("REMNAWAVE_STAGING_TOKEN", "");
+  const grant = await (await booking()).capture();
+  const before = await jobFor();
+  const assignment = await prisma.desiredAssignment.findUniqueOrThrow({ where: { id: before.assignmentId! } });
+  expect(assignment).toMatchObject({ enabled: true, internalSquads: [] });
+  expect(await refreshDueAssignments()).toBe(0);
+  expect(await claimRevision("resume", 5000, true)).toBeNull();
+  expect(before.attempts).toBe(0);
+  expect(fixture.panel.createUser).not.toHaveBeenCalled();
+
+  vi.stubEnv("REMNAWAVE_ENABLED", "true");
+  vi.stubEnv("REMNAWAVE_STAGING_TOKEN", "synthetic-only");
+  expect(await refreshDueAssignments(20, true)).toBe(1);
+  await tick();
+  expect(await jobFor()).toMatchObject({ status: "CONFIRMED" });
+  expect(fixture.current).toMatchObject({ expiresAt: grant.endAt, squads: [squad] });
+  expect(await prisma.paymentTransaction.count()).toBe(1);
+  expect(await prisma.periodGrant.count()).toBe(1);
+});

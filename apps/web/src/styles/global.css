@@ -1,1 +1,13 @@
 @import "./tokens.css";
+
+.mzt-product-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .25rem 1rem;
+  list-style: none;
+  padding: 0;
+  margin-block: .75rem;
+}
+.mzt-product-links li { min-width: 0; overflow-wrap: anywhere; }
+.mzt-product-links a { display: inline-flex; align-items: center; min-height: 44px; color: var(--mz-accent); }
+.mzt-product-brand { overflow-wrap: anywhere; }

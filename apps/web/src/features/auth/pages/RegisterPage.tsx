@@ -1,6 +1,8 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { Link } from "react-router";
+import { useProductConfig } from "../../../config";
+import { ProductLinks } from "../../../components/ProductLinks";
 import { Alert } from "../../../components/Alert/Alert";
 import { AuthPage } from "../../../components/AuthPage/AuthPage";
 import { Button } from "../../../components/Button/Button";
@@ -14,6 +16,7 @@ import { registerFormSchema, type RegisterForm } from "../schemas";
 
 export function RegisterPage() {
   const registration = useRegister();
+  const availability = useProductConfig().data?.availability;
   const {
     register,
     handleSubmit,
@@ -39,6 +42,11 @@ export function RegisterPage() {
       </AuthPage>
     );
   }
+
+  if (availability?.registration === false) return <AuthPage title="Регистрация закрыта"
+    lead="Если у вас уже есть аккаунт, воспользуйтесь входом.">
+    <ButtonLink to="/login">Войти</ButtonLink><ProductLinks kind="support" />
+  </AuthPage>;
 
   return (
     <AuthPage title="Создать аккаунт">
@@ -76,6 +84,7 @@ export function RegisterPage() {
         </Button>
       </form>
       <OAuthButtons />
+      <ProductLinks kind="legal" />
       <p>
         Уже есть аккаунт? <Link to="/login">Войти</Link>
       </p>

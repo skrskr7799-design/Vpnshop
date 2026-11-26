@@ -253,3 +253,5 @@
   .admin-users-search .mz-button { padding-inline: 8px; font-size: .77rem; }
   .admin-users-search > :is(p, button:not(.mz-button)) { grid-column: 1 / -1; }
 }
+
+.admin-product-brand { max-width: 100%; overflow-wrap: anywhere; }
