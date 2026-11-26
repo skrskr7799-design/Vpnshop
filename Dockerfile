@@ -44,19 +44,19 @@ FROM nginx:1.30-alpine@sha256:caf4e1e032a20f9c3c5e28fc7f25ffd768ad8677b4975c5419
 RUN apk upgrade --no-cache libxml2
 ARG REVISION=unknown
 LABEL org.opencontainers.image.revision=${REVISION}
-COPY ops/nginx/base.conf /etc/nginx/nginx.conf
+COPY --chmod=0444 ops/nginx/base.conf /etc/nginx/nginx.conf
 USER 101:101
 ENTRYPOINT ["nginx","-g","daemon off;"]
 
 FROM nginx-runtime AS web
-COPY ops/nginx/static.conf /etc/nginx/conf.d/default.conf
+COPY --chmod=0444 ops/nginx/static.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/apps/web/dist/ /usr/share/nginx/html/
 
 FROM nginx-runtime AS admin
-COPY ops/nginx/static.conf /etc/nginx/conf.d/default.conf
+COPY --chmod=0444 ops/nginx/static.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/apps/admin/dist/ /usr/share/nginx/html/
 
 FROM nginx-runtime AS edge
-COPY ops/nginx/edge.conf ops/nginx/gateway.conf ops/nginx/public-routes.conf /etc/nginx/
+COPY --chmod=0444 ops/nginx/edge.conf ops/nginx/gateway.conf ops/nginx/public-routes.conf /etc/nginx/
 COPY --chmod=0555 ops/nginx/start.sh /usr/local/bin/mzt-edge
 ENTRYPOINT ["mzt-edge"]
