@@ -7,6 +7,7 @@ import { LoginPage } from "./features/auth/pages/LoginPage";
 import { AccountShell } from "./features/account/account";
 import { NotFoundPage } from "./pages/NotFoundPage";
 
+const ActivationPage = lazy(() => import("./features/auth/pages/ActivationPage").then(m => ({ default: m.ActivationPage })));
 const ForgotPasswordPage = lazy(() => import("./features/auth/pages/ForgotPasswordPage").then(m => ({ default: m.ForgotPasswordPage })));
 const RegisterPage = lazy(() => import("./features/auth/pages/RegisterPage").then(m => ({ default: m.RegisterPage })));
 const ResetPasswordPage = lazy(() => import("./features/auth/pages/ResetPasswordPage").then(m => ({ default: m.ResetPasswordPage })));
@@ -36,6 +37,7 @@ export function App() {
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         </Route>
         {/* ссылки из писем открываются независимо от того, вошёл ли пользователь */}
+        <Route path="/activation" element={<ActivationPage />} />
         <Route path="/verify-email" element={<VerifyEmailPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
       </Route>

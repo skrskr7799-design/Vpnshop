@@ -7,7 +7,7 @@ import { Facts, states } from "./views";
 
 export type Field = {
   name: string; label: string; type?: "number" | "email" | "textarea" | "checkbox" | "password";
-  options?: string[]; value?: string | number; required?: boolean; clearable?: boolean;
+  options?: readonly (string | { value: string; label: string })[]; value?: string | number; required?: boolean; clearable?: boolean;
 };
 type Command = Record<string, string | number | boolean | null>;
 type Envelope = {
@@ -112,7 +112,8 @@ export function Action({ title, operation, permission, target, version, fields =
       {fields.map(field => field.type === "checkbox" ? <Checkbox key={field.name} name={field.name}
         defaultChecked={field.value === "true"}>{field.label}</Checkbox> : <label key={field.name}>{field.label}
         {field.options ? <Select name={field.name} defaultValue={field.value}>{field.required === false && <option value="">—</option>}
-          {field.options.map(option => <option key={option} value={option}>{states[option] ?? option}</option>)}</Select>
+          {field.options.map(option => typeof option === "string" ? <option key={option} value={option}>{states[option] ?? option}</option> :
+            <option key={option.value} value={option.value}>{option.label}</option>)}</Select>
           : field.type === "textarea" ? <Textarea name={field.name} rows={3} maxLength={2000} required={field.required ?? true} />
           : field.type === "password" ? <PasswordInput name={field.name} minLength={12} maxLength={128} autoComplete="new-password" required={field.required ?? true} />
           : <Input name={field.name} type={field.type ?? "text"} defaultValue={field.value} required={field.required ?? true} />}

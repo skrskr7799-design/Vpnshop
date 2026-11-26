@@ -1,6 +1,6 @@
 import type { UserRole } from "@prisma/client";
 
-const operational = ["dashboard:read", "users:read", "orders:read", "plans:read", "jobs:read", "ops:read", "support:read", "security:self"] as const;
+const operational = ["dashboard:read", "users:read", "orders:read", "plans:read", "jobs:read", "ops:read", "support:read", "support:reply", "security:self"] as const;
 const restricted = [
   "finance:read", "plans:write", "jobs:write", "bindings:write", "access:write", "users:write",
   "finance:reconcile", "finance:refund", "subscription:adjust", "audit:read",

@@ -142,12 +142,12 @@ export function PlansPage() {
   </>;
 }
 
-export function PageList<T extends { id: string }>({ path, empty, render }: {
-  path: string; empty: string; render: (item: T) => ReactNode;
+export function PageList<T extends { id: string }>({ path, empty, render, refetchInterval }: {
+  path: string; empty: string; refetchInterval?: number; render: (item: T) => ReactNode;
 }) {
   const [cursor, setCursor] = useState<string>();
   const suffix = cursor ? `?${new URLSearchParams({ cursor })}` : "";
-  const query = useOwner<Page<T>>(path + suffix);
+  const query = useOwner<Page<T>>(path + suffix, refetchInterval);
   return <>
     <LoadState pending={query.isPending} error={query.error} retry={query.refetch} />
     {query.data?.items.length === 0 && <EmptyState title={empty} />}

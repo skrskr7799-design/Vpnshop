@@ -81,7 +81,7 @@ const server = createServer(async (req, res) => {
   if (!signedIn) return json({ error: { code: "UNAUTHENTICATED" } }, 401);
   if (path === "/api/auth/logout") { signedIn = false; return res.writeHead(204).end(); }
   const admin = role === "OWNER";
-  const permissions = ["dashboard:read", "users:read", "orders:read", "plans:read", "support:read", "ops:read", "jobs:read",
+  const permissions = ["dashboard:read", "users:read", "orders:read", "plans:read", "support:read", "support:reply", "ops:read", "jobs:read",
     ...(admin ? ["plans:write", "finance:read", "audit:read", "staff:read", "staff:write", "users:create", "users:write", "security:self", "support:write"] : [])];
   if (path === "/api/me") return json({ user: { id: role, username: role.toLowerCase(), email: role.toLowerCase() + "@example.invalid", role },
     security: { policy: "required", enrolled: true, requiresTotp: true, version: 3 }, permissions });
@@ -122,6 +122,7 @@ const server = createServer(async (req, res) => {
     { id: "offer-001", version: 1, name: plan.name, amount: 9000, currency: "RUB", deviceLimit: 3, durationMonths: 1, withdrawnAt: now },
     { id: "offer-002", version: 2, name: plan.name, amount: 11000, currency: "RUB", deviceLimit: 5, durationMonths: 1, publishedAt: now },
   ] : []) });
+  if (path === "/api/support/assignees") return json({ items: [{ id: staff.id, username: staff.username }] });
   if (path === "/api/support/cases") return json(pages([ticket]));
   if (path === "/api/support/cases/case-1") return json({ case: ticket, messages: pages([{ id: "msg", author: "CUSTOMER", text: html, createdAt: now }]),
     history: pages([]) });
@@ -311,6 +312,9 @@ try {
   await until(text(html));
   assert.equal(await evaluate("Boolean(window.adminUnsafe || document.querySelector('.messages img'))"), false);
   assert.equal(await evaluate(text("Ответить или изменить статус")), false);
+  assert.ok(await evaluate(text("Ответить")));
+  assert.equal(await evaluate(text("Назначить ответственного")), false);
+  await fit();
   assert.ok(requests.every(value => value.startsWith(origin) || value.startsWith("data:")));
   await click("Выйти");
   await until(text("Вход для сотрудников"));

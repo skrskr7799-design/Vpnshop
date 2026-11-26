@@ -14,7 +14,7 @@ import { resetFormSchema, type ResetForm } from "../schemas";
 export function ResetPasswordPage() {
   const location = useLocation();
   // Токен читаем один раз и убираем из адресной строки
-  const [token] = useState(() => new URLSearchParams(location.search).get("token"));
+  const [token] = useState(() => new URLSearchParams(location.hash.slice(1)).get("token") ?? new URLSearchParams(location.search).get("token"));
   const reset = useResetPassword();
   const {
     register,

@@ -7,6 +7,7 @@ import { AuthPage } from "../../../components/AuthPage/AuthPage";
 import { Button } from "../../../components/Button/Button";
 import { Field } from "../../../components/Field/Field";
 import { OAuthButtons } from "../../../components/OAuthButtons/OAuthButtons";
+import { ApiError } from "../../../api/ApiError";
 import { useConsumedSearchParam } from "../../../hooks/useConsumedSearchParam";
 import { PasswordField } from "../../../components/Field/PasswordField";
 import { getErrorMessage, getMessageByCode } from "../errors";
@@ -69,7 +70,9 @@ export function LoginPage() {
         <Button type="submit" loading={changing}>Сменить пароль</Button>
         <Button type="button" variant="secondary" disabled={changing} onClick={() => { setTemporary(false); setMessage(undefined); }}>Ко входу</Button>
       </form> : <>
-      <form className="auth-form auth-form--signin" noValidate onSubmit={handleSubmit((values) => login.mutate(values))}>
+      <form className="auth-form auth-form--signin" noValidate onSubmit={handleSubmit(values => login.mutate(values, {
+        onError: error => { if (error instanceof ApiError && error.code === "TEMPORARY_PASSWORD") setTemporary(true); },
+      }))}>
         {login.isError && <Alert variant="error">{getErrorMessage(login.error)}</Alert>}
         {!login.isError && oauthError && <Alert variant="error">{getMessageByCode(oauthError)}</Alert>}
         <Field
@@ -93,6 +96,8 @@ export function LoginPage() {
           {...register("password")}
         />
         <div className="auth-recovery"><Link to="/forgot-password">Забыли пароль?</Link></div>
+        {login.isError && getErrorMessage(login.error) === getMessageByCode("ACTIVATION_PENDING") &&
+          <Link to="/activation">Подтверждение и активация</Link>}
         <Button type="submit" loading={login.isPending}>Войти <Icon name="arrow" size={17} /></Button>
       </form>
       <Button type="button" variant="secondary" onClick={() => { setMessage(undefined); setTemporary(true); }}>У меня временный пароль</Button>

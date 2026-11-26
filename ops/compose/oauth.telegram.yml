@@ -1,6 +1,7 @@
 services:
   public-api:
     environment:
+      TELEGRAM_AUTH_ENABLED: "true"
       TELEGRAM_CLIENT_ID: "${TELEGRAM_CLIENT_ID:?Set the provider client ID}"
       TELEGRAM_CLIENT_SECRET_FILE: /run/secrets/telegram_client_secret
     secrets: [telegram_client_secret]

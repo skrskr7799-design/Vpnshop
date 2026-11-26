@@ -28,6 +28,8 @@ Admin sign-in uses username with safe migration of existing staff accounts. Add 
 
 ### Authentication and support (PASS 04)
 
+See the [authentication and support runbook](V2_AUTHENTICATION_SUPPORT.md) for implemented behavior and external provider gates.
+
 Email registration requires confirmation by email or manual activation. Manual activation does not verify ownership of an email address. A successfully verified Telegram identity can activate the account, and Google activation requires verified identity and verified email. Safely link providers to existing accounts without merging by matching email. Preserve users and data. Extend existing support with categories, priorities, assignee, unread counters, notifications and closure. Preserve conversations, state, and per-user data isolation. Attachments and a separate realtime chat are outside scope.
 
 ### Product configuration and integrations (PASS 05)
@@ -36,7 +38,7 @@ Support settings without image rebuilds for registration, payments, auth provide
 
 Reserved settings and initial values, to be introduced only when consumed by the corresponding implementation:
 
-- Feature switches `PAYMENTS_ENABLED=false`, `REGISTRATION_ENABLED=true`, `MAINTENANCE_MODE=false`, `GOOGLE_AUTH_ENABLED=false`, `TELEGRAM_AUTH_ENABLED=false`, `SUPPORT_ENABLED=true`, `REMNAWAVE_ENABLED=false`.
+- Feature switches `PAYMENTS_ENABLED=false`, `REGISTRATION_ENABLED=true`, `MAINTENANCE_MODE=false`, `SUPPORT_ENABLED=true`, `REMNAWAVE_ENABLED=false`.
 - Product metadata `BRAND_NAME`, `SUPPORT_EMAIL`, `SUPPORT_URL`, `LEGAL_TERMS_URL`, `LEGAL_PRIVACY_URL`, `LEGAL_REFUND_URL`.
 - Runtime settings `LOG_LEVEL=info`, `SENTRY_DSN`, `TELEGRAM_BOT_TOKEN`, `RATE_LIMIT_*`, `DB_POOL_MAX`. Secret-valued settings are backed by files.
 - Integration settings `PLATEGA_*` depend on the provider contract. Reserved live Remnawave settings include `REMNAWAVE_URL`, `REMNAWAVE_INTERNAL_SQUAD_UUIDS` and `REMNAWAVE_TRUSTED_PROXY_HEADERS=false` with operator tokens and API keys. PASS 01 only wires the existing, pinned isolated staging mode.

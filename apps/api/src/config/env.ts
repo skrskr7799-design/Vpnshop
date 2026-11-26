@@ -17,11 +17,14 @@ const schema = z
     MZT_PROCESS: z.enum(["public", "admin", "worker", "billing", "notifications", "exporter"]).default("public"),
     CHECKOUT_TTL_MINUTES: z.coerce.number().int().min(1).max(1440).default(30),
     WEB_TRUSTED_PROXIES: z.string().default("").transform(value => value.split(",").map(x => x.trim()).filter(Boolean)),
+    MAIL_TRANSPORT_ENABLED: z.enum(["true", "false"]).optional(),
+    GOOGLE_AUTH_ENABLED: z.enum(["true", "false"]).optional(),
+    TELEGRAM_AUTH_ENABLED: z.enum(["true", "false"]).optional(),
     TELEGRAM_OIDC_VERIFIED: z.enum(["true", "false"]).default("false"),
     WEB_ORIGIN: z.url().default("http://localhost:5173"),
     COOKIE_SECRET: optionalString.pipe(z.string().min(32).optional()),
     JWT_SECRET: optionalString.pipe(z.string().min(32).optional()),
-    // smtp://user:pass@host:587 . В dev можно не задавать: письма пишутся в лог.
+    // Production application processes only receive the mail capability, the consumer owns SMTP.
     SMTP_URL: z
       .string()
       .optional()
@@ -74,6 +77,12 @@ const schema = z
     path: ["ADMIN_ENCRYPTION_KEY"],
     message: "ADMIN_ENCRYPTION_KEY must be 32 bytes in base64",
   })
+  .refine(v => v.GOOGLE_AUTH_ENABLED !== "true" || !!v.GOOGLE_CLIENT_ID && !!v.GOOGLE_CLIENT_SECRET,
+    { path: ["GOOGLE_AUTH_ENABLED"], message: "Enabled Google sign-in requires client credentials" })
+  .refine(v => v.TELEGRAM_AUTH_ENABLED !== "true" || !!v.TELEGRAM_CLIENT_ID && !!v.TELEGRAM_CLIENT_SECRET && v.TELEGRAM_OIDC_VERIFIED === "true",
+    { path: ["TELEGRAM_AUTH_ENABLED"], message: "Enabled Telegram sign-in requires verified OIDC and client credentials" })
+  .refine(v => v.NODE_ENV !== "production" || v.MAIL_TRANSPORT_ENABLED !== "true" || !!v.MAIL_QUEUE_KEY,
+    { path: ["MAIL_QUEUE_KEY"], message: "Enabled application mail requires queue encryption" })
   .refine((v) => Boolean(v.GOOGLE_CLIENT_ID) === Boolean(v.GOOGLE_CLIENT_SECRET), {
     path: ["GOOGLE_CLIENT_SECRET"],
     message: "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set together",
@@ -96,3 +105,6 @@ if (!parsed.success) {
 
 export const env = parsed.data;
 export const isProd = env.NODE_ENV === "production";
+export const emailAvailable = env.MAIL_TRANSPORT_ENABLED !== undefined
+  ? env.MAIL_TRANSPORT_ENABLED === "true"
+  : !!env.SMTP_URL;

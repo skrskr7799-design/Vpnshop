@@ -34,7 +34,8 @@ const errors: Record<string, string> = {
   PANEL_UNAVAILABLE: "Подключение временно недоступно. Попробуйте позже.",
   RETRY_REQUIRED: "Сессия обновилась. Подтвердите действие ещё раз.",
   ORDER_CLOSED: "Окно оплаты заказа закрылось.", ATTEMPT_IN_PROGRESS: "По заказу уже есть платёжная попытка.",
-  CASE_RESOLVED: "Обращение закрыто. При необходимости откройте новое.",
+  CASE_RESOLVED: "Обращение завершено. Обновите страницу, чтобы увидеть доступные действия.",
+  CASE_STATUS_CONFLICT: "Статус изменился. Обновите обращение и повторите действие.",
 };
 export const errorMessage = (error: unknown) => error instanceof ApiError ?
   errors[error.code] ?? (error.status === 429 ? "Слишком много запросов. Подождите перед повтором." :
@@ -51,7 +52,7 @@ export const labels: Record<string, string> = {
   REFUNDED: "Возврат подтверждён", PARTIAL_REFUND: "Частичный возврат",
   CREATED: "Создана", SUBMITTING: "Отправляется", AWAITING_CUSTOMER: "Ожидается оплата",
   PROCESSING: "Обрабатывается", SUCCEEDED: "Платёж подтверждён", FAILED: "Отклонена",
-  WAITING_CUSTOMER: "Ждём вашего ответа", RESOLVED: "Закрыто",
+  WAITING_CUSTOMER: "Ждём вашего ответа", RESOLVED: "Решено", CLOSED: "Закрыто", IN_PROGRESS: "В работе",
 };
 export const label = (state: string) => labels[state] ?? state;
 

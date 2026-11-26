@@ -40,3 +40,9 @@ export const resetPasswordMail = (to: string, token: string): Mail => ({
     "Если вы не запрашивали сброс, проигнорируйте письмо: пароль не изменится.",
   ].join("\n"),
 });
+
+export const supportUpdateMail = (to: string, id: string): Mail => ({
+  to,
+  subject: "Обновление обращения MZT",
+  text: ["В вашем обращении есть обновление. Войдите в личный кабинет, чтобы его посмотреть.", link("/account/support/" + id)].join("\n"),
+});

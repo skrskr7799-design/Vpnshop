@@ -2,7 +2,7 @@ import type { AuthProvider, Prisma, User } from "@prisma/client";
 import { isUniqueViolation } from "../../lib/db-errors";
 import { AppError } from "../../lib/errors";
 import { prisma } from "../../lib/prisma";
-import { lockIdentityOwner, requireLiveFamily } from "../auth/session.service";
+import { lockIdentityOwner, requireLiveFamily, revokeOtherDevices } from "../auth/session.service";
 import type { AuthClaims } from "../auth/jwt";
 import type { ProviderProfile } from "./oauth.types";
 
@@ -17,8 +17,8 @@ export async function loginWithProfile(provider: AuthProvider, profile: Provider
   if (existing) return assertActive(existing.user);
 
   // Неподтверждённый email не используем ни для поиска, ни для сохранения
-  if (profile.email && !profile.emailVerified) throw new AppError(403, "EMAIL_NOT_VERIFIED");
-  const email = profile.email;
+  if (provider === "GOOGLE" && (!profile.email || !profile.emailVerified)) throw new AppError(403, "EMAIL_NOT_VERIFIED");
+  const email = profile.emailVerified ? profile.email : null;
   const now = new Date();
 
   try {
@@ -62,10 +62,11 @@ export async function linkProfile(claims: AuthClaims, provider: AuthProvider, pr
       }
       const now = new Date();
       await db.authIdentity.create({ data: { userId: user.id, provider, providerId: profile.providerId, verifiedAt: now } });
-      if (!user.email && profile.email && profile.emailVerified &&
-          !await db.user.findUnique({ where: { email: profile.email } })) {
+      if (profile.email && profile.emailVerified && (user.email === profile.email || !user.email &&
+          !await db.user.findUnique({ where: { email: profile.email } }))) {
         await db.user.update({ where: { id: user.id }, data: { email: profile.email, emailVerifiedAt: now } });
       }
+      await revokeOtherDevices(claims, db);
     });
   } catch (err) {
     if (isUniqueViolation(err)) throw new AppError(409, "LINK_CONFLICT");
@@ -86,7 +87,7 @@ export async function listLinkedProviders(userId: string): Promise<AuthProvider[
 }
 
 function assertActive(user: User): User {
-  if (user.status !== "ACTIVE" || user.role !== "USER") throw new AppError(403, "ACCOUNT_BLOCKED");
+  if (user.status !== "ACTIVE" || user.role !== "USER" || user.activationRequired) throw new AppError(403, "ACCOUNT_BLOCKED");
   return user;
 }
 

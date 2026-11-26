@@ -53,6 +53,8 @@ it("enforces BOLA and a database-order owner constraint, including creation race
   expect((await other.get(cases)).json().items).toEqual([]);
   expect((await other.get(`${cases}/${id}`)).statusCode).toBe(404);
   expect((await other.post(`${cases}/${id}/messages`, { message: "Чужая заявка" })).statusCode).toBe(404);
+  expect((await other.post(`${cases}/${id}/status`, { action: "close" })).statusCode).toBe(404);
+  expect((await other.post(`${cases}/${id}/read`, { through: new Date().toISOString() })).statusCode).toBe(404);
   expect((await web.inject({ url: cases })).statusCode).toBe(401);
   expect((await first.get(cases)).headers["cache-control"]).toBe("private, no-store");
 });
@@ -73,7 +75,7 @@ it("serializes duplicate messages, rejects oversize text and returns plain text 
   expect(thread.messages.items).toHaveLength(2);
   expect(thread.messages.items.find((m: { text: string }) => m.text === message.message)).toBeTruthy();
   expect(Object.keys(thread.messages.items[0]).sort()).toEqual(["author", "createdAt", "id", "text"]);
-  expect(Object.keys(thread.case).sort()).toEqual(["category", "createdAt", "id", "orderId", "status", "updatedAt"]);
+  expect(Object.keys(thread.case).sort()).toEqual(["category", "createdAt", "id", "orderId", "status", "subject", "unread", "updatedAt"]);
 });
 
 it("limits the staff contract, atomically audits actions and preserves status transitions", async () => {
@@ -109,4 +111,65 @@ it("limits the staff contract, atomically audits actions and preserves status tr
   expect(details.messages.items).toHaveLength(3);
   expect(JSON.stringify(details)).not.toContain("Требуется уточнение");
   expect(JSON.stringify(details)).not.toContain(support.userId);
+});
+
+it("keeps separate read positions and never clears an unseen concurrent message", async () => {
+  const member = await owner();
+  const first = await createEnrolledAdmin("first-reader@example.com", "SUPPORT");
+  const second = await createEnrolledAdmin("second-reader@example.com", "SUPPORT");
+  const created = await member.post(cases, { category: "TECHNICAL", subject: "Проверка подключения", message: "Первое" });
+  const id = created.json().case.id;
+  const staffUrl = `${staffCases}/${id}`;
+  const publicUrl = `${cases}/${id}`;
+  async function read(token: string) {
+    return (await admin.inject({ url: staffUrl, cookies: { vpn_admin: token } })).json();
+  }
+  const snapshot = await read(first.sessionToken);
+  expect(snapshot.case.unread).toBe(1);
+  expect((await read(first.sessionToken)).case.unread).toBe(1);
+  expect((await member.post(publicUrl + "/messages", { message: "Ещё одно" })).statusCode).toBe(201);
+  const marked = await admin.inject({ method: "POST", url: staffUrl + "/read", cookies: { vpn_admin: first.sessionToken },
+    headers: { origin: env.ADMIN_ORIGIN }, payload: { through: snapshot.readThrough } });
+  expect(marked.statusCode).toBe(204);
+  const data = await read(first.sessionToken);
+  expect(data.case.unread).toBe(1);
+  expect((await read(second.sessionToken)).case.unread).toBe(2);
+  const replied = await as(admin, first.sessionToken).command("support.reply", id, data.case.updatedAt,
+    { publicReply: "Ответ сотрудника" }, { key: randomUUID(), reason: "Ответ в очереди поддержки" });
+  expect(replied.statusCode).toBe(200);
+  const customer = (await member.get(publicUrl)).json();
+  expect(customer.case).toMatchObject({ subject: "Проверка подключения", status: "WAITING_CUSTOMER", unread: 1 });
+  expect((await member.post(publicUrl + "/read", { through: customer.readThrough })).statusCode).toBe(204);
+  expect((await member.get(publicUrl)).json().case.unread).toBe(0);
+  const close = await member.post(publicUrl + "/status", { action: "close" });
+  expect(close.json().case.status).toBe("CLOSED");
+  expect((await member.post(publicUrl + "/status", { action: "reopen" })).statusCode).toBe(409);
+  expect((await member.post(publicUrl + "/messages", { message: "Закрыто" })).statusCode).toBe(409);
+});
+
+it("validates assignments, isolates internal triage and surfaces inactive assignments in the unassigned queue", async () => {
+  const member = await owner();
+  const operator = await createEnrolledAdmin("assignment-admin@example.com");
+  const agent = await createEnrolledAdmin("assignment-support@example.com", "SUPPORT");
+  const { id, updatedAt } = (await member.post(cases, { category: "ACCOUNT", subject: "Профиль", message: "Помогите" })).json().case;
+  const command = as(admin, operator.sessionToken);
+  const mutate = (version: string, input: object) => command.command("support.action", id, version, input,
+    { key: randomUUID(), reason: "Распределение обращения" });
+  expect((await mutate(updatedAt, { assigneeId: member.user.id })).statusCode).toBe(409);
+  const assigned = await mutate(updatedAt, { assigneeId: agent.userId, priority: "HIGH" });
+  expect(assigned.statusCode).toBe(200);
+  const get = (filter: string) => admin.inject({ url: staffCases + filter, cookies: { vpn_admin: operator.sessionToken } });
+  expect((await get("?search=" + encodeURIComponent("профиль") + "&priority=HIGH&assigneeId=" + agent.userId)).json().items[0])
+    .toMatchObject({ id, priority: "HIGH", assigneeId: agent.userId });
+  const publicDetail = (await member.get(cases + "/" + id)).json();
+  expect(publicDetail.case.unread).toBe(0);
+  expect(publicDetail.history.items).toHaveLength(1);
+  expect(JSON.stringify(publicDetail)).not.toContain(agent.userId);
+  await prisma.staffCredential.update({ where: { userId: agent.userId }, data: { deactivatedAt: new Date() } });
+  expect((await get("?assigneeId=unassigned")).json().items[0]).toMatchObject({ id, assigneeId: null, priority: "HIGH" });
+  const version = assigned.json().result.case.updatedAt;
+  const resolved = await mutate(version, { status: "RESOLVED" });
+  expect(resolved.statusCode).toBe(200);
+  const reopened = await member.post(cases + "/" + id + "/status", { action: "reopen" });
+  expect(reopened.json().case.status).toBe("OPEN");
 });

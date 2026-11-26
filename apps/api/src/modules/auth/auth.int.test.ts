@@ -4,8 +4,9 @@ import { prisma } from "../../lib/prisma";
 import { resetDatabase } from "../../test/db";
 import { createUser } from "../../test/factories";
 import { sendMail } from "../mail/mail.service";
-import { forgotPassword, getCurrentUser, login, register, resetPassword, verifyEmail } from "./auth.service";
+import { createEmailAccount, requestEmailVerification, setEmailPassword, forgotPassword, getCurrentUser, login, register, resetPassword, verifyEmail } from "./auth.service";
 import { REFRESH_REUSE_GRACE_MS } from "./auth.constants";
+import { verifyAccessToken } from "./jwt";
 import { hashPassword } from "./password";
 import { createSession, revokeSessionFamily, rotateSession } from "./session.service";
 
@@ -277,3 +278,51 @@ describe("сброс пароля", () => {
 });
 
 void hashPassword;
+
+it("serializes confirmation of separate registrations for the same address", async () => {
+  const email = "race@example.com";
+  await Promise.all([register({ email, password: PASSWORD }, ctx), register({ email, password: PASSWORD + "-different" }, ctx)]);
+  const results = await Promise.allSettled(mails().map(mail => verifyEmail(tokenFrom(mail))));
+  expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+  expect(results.find(result => result.status === "rejected")).toMatchObject({ reason: { code: "INVALID_TOKEN" } });
+  expect(await prisma.user.count({ where: { email } })).toBe(1);
+});
+
+it("can verify a manually activated account without resetting its credentials or removing a block", async () => {
+  const email = "manual@example.com";
+  const passwordHash = await hashPassword(PASSWORD);
+  const { id } = await prisma.$transaction(db => createEmailAccount(db, { email, passwordHash, manualActivatedAt: new Date() }));
+  await expect(login({ email, password: PASSWORD }, ctx)).resolves.toMatchObject({ user: { id, emailVerified: false } });
+  await forgotPassword({ email }, ctx);
+  expect(mails()).toHaveLength(0);
+  await requestEmailVerification(email, ctx);
+  const token = tokenFrom(lastMail());
+  await prisma.user.update({ where: { id }, data: { status: "BLOCKED" } });
+  await expect(verifyEmail(token)).rejects.toMatchObject({ code: "INVALID_TOKEN" });
+  expect(await prisma.user.findUniqueOrThrow({ where: { id } })).toMatchObject({ status: "BLOCKED", emailVerifiedAt: null });
+  await prisma.user.update({ where: { id }, data: { status: "ACTIVE" } });
+  await verifyEmail(token);
+  await expect(verifyEmail(token)).rejects.toMatchObject({ code: "INVALID_TOKEN" });
+  expect(await prisma.authIdentity.findUniqueOrThrow({ where: { userId_provider: { userId: id, provider: "EMAIL" } } })).toMatchObject({ passwordHash });
+  await expect(login({ email, password: PASSWORD }, ctx)).resolves.toMatchObject({ user: { id, emailVerified: true } });
+});
+
+it("adds a real email to a provider account only in the initiating session and revokes sessions when installing a password", async () => {
+  const user = await prisma.user.create({ data: { identities: { create: { provider: "TELEGRAM", providerId: "34567", verifiedAt: new Date() } } } });
+  const initiating = await createSession(user, {});
+  const claims = (await verifyAccessToken(initiating.accessToken))!;
+  const other = (await verifyAccessToken((await createSession(user, {})).accessToken))!;
+  const email = "verified-provider@example.com";
+  const issue = (purpose: string) => prisma.identityProof.create({
+    data: { familyId: claims.sid, target: "EMAIL", purpose, expiresAt: new Date(Date.now() + 600_000) },
+  });
+  const proof = await issue("VERIFY_EMAIL");
+  await requestEmailVerification(email, ctx, { claims, id: proof.id });
+  const token = tokenFrom(lastMail());
+  await expect(verifyEmail(token, other)).rejects.toMatchObject({ code: "VERIFICATION_SESSION_REQUIRED" });
+  await verifyEmail(token, claims);
+  await expect(setEmailPassword(claims, proof.id, PASSWORD)).rejects.toMatchObject({ code: "REAUTH_REQUIRED" });
+  await setEmailPassword(claims, (await issue("SET_PASSWORD")).id, PASSWORD);
+  expect(await prisma.sessionFamily.count({ where: { userId: user.id, revokedAt: null } })).toBe(0);
+  await expect(login({ email, password: PASSWORD }, ctx)).resolves.toMatchObject({ user: { id: user.id, emailVerified: true } });
+});

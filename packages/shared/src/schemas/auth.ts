@@ -23,4 +23,4 @@ export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 
 // Публичное представление пользователя (то, что отдаёт API)
-export type PublicUser = { id: string; email: string | null; role: "USER" | "OWNER" | "ADMIN" | "SUPPORT" };
+export type PublicUser = { id: string; email: string | null; emailVerified?: boolean; role: "USER" | "OWNER" | "ADMIN" | "SUPPORT" };

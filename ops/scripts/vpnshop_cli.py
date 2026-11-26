@@ -926,6 +926,13 @@ class Deployment:
             safe_line("Admin 2FA policy", policy)
             if access == "public" and policy == "disabled":
                 safe_line("Admin 2FA", "WARNING: public administration with 2FA disabled")
+            public_env = runtime.services["public-api"]["environment"]
+            safe_line("Email transport", "configured" if public_env.get("MAIL_TRANSPORT_ENABLED") == "true" else "NOT CONFIGURED")
+            for provider in ("Google", "Telegram"):
+                active = public_env.get(provider.upper() + "_AUTH_ENABLED") == "true"
+                safe_line(provider + " sign-in", "configured" if active else "NOT CONFIGURED")
+            if doctor:
+                safe_line("External identity", "NOT CHECKED: disabling a sole sign-in method can lock out users")
         listed = runtime.containers()
         good = not pending
         for service in runtime.active():

@@ -2,7 +2,7 @@ import type { AuthProvider, OAuthFlow, Prisma } from "@prisma/client";
 import { AUTH_PROVIDERS, checkoutKeySchema, type OAuthProviderId } from "@vpn/shared";
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { env } from "../../config/env";
+import { emailAvailable, env } from "../../config/env";
 import { generateToken, sha256 } from "../../lib/crypto";
 import { AppError } from "../../lib/errors";
 import { prisma } from "../../lib/prisma";
@@ -26,7 +26,7 @@ const callbackQuery = z.object({
 const proofCommand = z.strictObject({ confirmationId: z.uuid() });
 const linkCommand = proofCommand.extend({ returnTo: z.string().max(512).optional() });
 const reauthCommand = z.strictObject({
-  target: z.enum(AUTH_PROVIDERS), purpose: z.enum(["LINK", "UNLINK"]), method: z.enum(AUTH_PROVIDERS), password: z.string().max(128).optional(),
+  target: z.enum(AUTH_PROVIDERS), purpose: z.enum(["LINK", "UNLINK", "VERIFY_EMAIL", "SET_PASSWORD"]), method: z.enum(AUTH_PROVIDERS), password: z.string().max(128).optional(),
 }).refine(value => (value.method === "EMAIL") === !!value.password);
 
 const redirectUriFor = (provider: OAuthProvider) => new URL(`/api/auth/oauth/${provider.id}/callback`, env.WEB_ORIGIN).toString();
@@ -73,9 +73,9 @@ function authorize(provider: OAuthProvider, flow: OAuthFlow) {
   return { authorizeUrl: url.href, expiresAt: flow.expiresAt };
 }
 
-const validIdentity = (identity: { provider: AuthProvider; verifiedAt: Date | null; passwordHash: string | null }, providers: ProviderMap) =>
-  Boolean(identity.verifiedAt) && (identity.provider === "EMAIL" ? !!identity.passwordHash :
-    providers.has(identity.provider.toLowerCase() as OAuthProviderId));
+const validIdentity = (identity: { provider: AuthProvider; verifiedAt: Date | null; passwordHash: string | null; temporaryPasswordExpiresAt: Date | null }, providers: ProviderMap) =>
+  identity.provider === "EMAIL" ? !!identity.passwordHash && !identity.temporaryPasswordExpiresAt :
+    !!identity.verifiedAt && providers.has(identity.provider.toLowerCase() as OAuthProviderId);
 
 export const oauthRoutes: FastifyPluginAsync<{ providers: ProviderMap }> = async (app, { providers }) => {
   app.addHook("onRequest", async (_req, reply) => {
@@ -89,7 +89,7 @@ export const oauthRoutes: FastifyPluginAsync<{ providers: ProviderMap }> = async
   const providerParam = (req: FastifyRequest) => (req.params as { provider: string }).provider;
 
   app.get("/providers", async () => ({
-    providers: { google: providers.has("google"), telegram: providers.has("telegram") },
+    providers: { google: providers.has("google"), telegram: providers.has("telegram") }, emailAvailable,
   }));
 
   app.get("/identities", { preHandler: authenticate }, async req => {
@@ -121,6 +121,7 @@ export const oauthRoutes: FastifyPluginAsync<{ providers: ProviderMap }> = async
 
   app.post("/reauth", { ...limit(8, "1 minute"), preHandler: authenticate }, async (req, reply) => {
     const input = reauthCommand.parse(req.body);
+    if (["VERIFY_EMAIL", "SET_PASSWORD"].includes(input.purpose) && input.target !== "EMAIL") throw new AppError(403, "REAUTH_REQUIRED");
     if (input.purpose === "UNLINK" && input.target === input.method) throw new AppError(403, "REAUTH_REQUIRED");
     const claims = req.auth!;
     const before = await prisma.authIdentity.findUnique({
@@ -129,12 +130,12 @@ export const oauthRoutes: FastifyPluginAsync<{ providers: ProviderMap }> = async
     if (input.method === "EMAIL") {
       const matches = before?.passwordHash ? await verifyPassword(before.passwordHash, input.password!) :
         (await verifyAgainstDummy(input.password!), false);
-      if (!matches || !before?.verifiedAt) throw new AppError(403, "REAUTH_FAILED");
+      if (!matches || !before || before.temporaryPasswordExpiresAt) throw new AppError(403, "REAUTH_FAILED");
       return prisma.$transaction(async db => {
         await lockIdentityOwner(db, claims.userId);
         await requireLiveFamily(claims, db);
         const identity = await db.authIdentity.findUnique({ where: { id: before.id } });
-        if (!identity || identity.passwordHash !== before.passwordHash) throw new AppError(403, "REAUTH_FAILED");
+        if (!identity || identity.temporaryPasswordExpiresAt || identity.passwordHash !== before.passwordHash) throw new AppError(403, "REAUTH_FAILED");
         const proof = await db.identityProof.create({
           data: { familyId: claims.sid, target: input.target, purpose: input.purpose, expiresAt: proofExpiry() },
         });

@@ -19,6 +19,7 @@ export async function resetDatabase(): Promise<void> {
     await tx.adminOperationalSettings.deleteMany();
     await tx.$executeRaw`TRUNCATE "FulfillmentLease", "FulfillmentJob", "DesiredAssignment", "ServiceHold",
       "Adjustment", "PeriodGrant", "OrderAllocation", "Subscription", "RefundIntent", "PaymentTransaction", "PanelObservation", "PanelBinding"`;
+    await tx.supportReadCursor.deleteMany();
     await tx.supportEvent.deleteMany();
     await tx.supportMessage.deleteMany();
     await tx.supportCase.deleteMany();

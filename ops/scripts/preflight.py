@@ -29,7 +29,7 @@ OFFSITE = {"LOGICAL_S3_ENDPOINT", "LOGICAL_S3_BUCKET", "LOGICAL_S3_REGION", "LOG
 FLAGS = {"MZT_ENABLE_LOCAL_BACKUP", "MZT_ENABLE_OFFSITE", "MZT_ENABLE_SMTP_EGRESS", "MZT_ENABLE_OAUTH_EGRESS", "MZT_ENABLE_PANEL_EGRESS"}
 APPS = {"PUBLIC_ORIGIN", "ADMIN_HOSTNAME", "ADMIN_ORIGIN", "ADMIN_BIND_IP", "ADMIN_CLIENT_CIDRS", "ADMIN_TLS_PORT",
         "ADMIN_ACCESS_MODE", "ADMIN_2FA_POLICY", "ADMIN_SESSION_HOURS", "ADMIN_IDLE_MINUTES", "CHECKOUT_TTL_MINUTES", "MAIL_FROM",
-        "GOOGLE_CLIENT_ID", "TELEGRAM_CLIENT_ID", "TELEGRAM_OIDC_VERIFIED", "REMNAWAVE_REVISION_MODE",
+        "GOOGLE_AUTH_ENABLED", "TELEGRAM_AUTH_ENABLED", "GOOGLE_CLIENT_ID", "TELEGRAM_CLIENT_ID", "TELEGRAM_OIDC_VERIFIED", "REMNAWAVE_REVISION_MODE",
         "BACKUP_MONITOR", "PANEL_MONITOR", "ALERTMANAGER_CONFIG"} | PANEL | OFFSITE | FLAGS
 DEFAULT = {"MZT_DEPLOY_ENV": "production", "ADMIN_ACCESS_MODE": "private", "ADMIN_2FA_POLICY": "required", "LINK_MODE": "private",
            "PUBLIC_TLS_PORT": "443", "ADMIN_TLS_PORT": "443", "PUBLIC_BIND_IP": "127.0.0.1",
@@ -234,16 +234,23 @@ def design(role, raw, secrets):
         flags.add("smtp")
     else:
         require(not v.get("MAIL_FROM"), "MAIL_FROM requires SMTP egress")
-    providers = [p for p in ("google", "telegram") if v.get(p.upper() + "_CLIENT_ID")]
+    configured = [p for p in ("google", "telegram") if v.get(p.upper() + "_CLIENT_ID")]
     verified = enabled(v, "TELEGRAM_OIDC_VERIFIED", "true", "false")
-    require(verified == ("telegram" in providers), "Telegram requires verified OIDC and a client ID together")
+    providers = []
+    for provider in ("google", "telegram"):
+        switch = provider.upper() + "_AUTH_ENABLED"
+        active = (enabled(v, switch, "true", "false") if switch in v else provider in configured)
+        if active:
+            require(provider in configured, f"{provider} authentication requires a client ID and secret")
+            providers.append(provider)
+    require("telegram" not in providers or verified, "Telegram requires verified OIDC and a client ID together")
     oauth = enabled(v, "MZT_ENABLE_OAUTH_EGRESS")
     require(oauth == bool(providers), "OAuth egress requires configured provider client IDs and secrets")
     if oauth:
         files += ["oauth"] + ["oauth." + p for p in providers]
         flags.update(providers)
     for p in ("google", "telegram"):
-        require(p in providers or not os.path.lexists(secrets / (p + "_client_secret")),
+        require(p in configured or not os.path.lexists(secrets / (p + "_client_secret")),
                 f"{p} client ID and secret must be configured together")
     panel = enabled(v, "MZT_ENABLE_PANEL_EGRESS")
     require(v.get("REMNAWAVE_REVISION_MODE", "off") == ("staging" if panel else "off"), "Panel egress requires explicit staging revision mode")
@@ -432,6 +439,12 @@ def validate_topology(conf, role, v, flags, files):
                 "PostgreSQL must retain the existing pgdata layout")
         require(("mail" not in services["notifications"].get("profiles", [])) == ("smtp" in flags),
                 "Notification process activation differs from SMTP policy")
+        require((web.get("MAIL_TRANSPORT_ENABLED") == "true") == ("smtp" in flags) and
+                (admin.get("MAIL_TRANSPORT_ENABLED") == "true") == ("smtp" in flags),
+                "Application mail availability differs from SMTP policy")
+        for provider in ("google", "telegram"):
+            require((web.get(provider.upper() + "_AUTH_ENABLED") == "true") == (provider in flags),
+                    f"Rendered authentication policy differs for {provider}")
     if role != "core":
         edge = services["public-edge"]["environment"]
         require(edge["EDGE_SCOPE"] == "public" and edge["EDGE_HOST"] == v["PUBLIC_HOST"] and edge["EDGE_STATIC"] == "web:8080",
@@ -562,7 +575,8 @@ def verify_secrets(conf, role, v, flags, directory, owner_on_host):
         if not applicable:
             require(name not in mounts, f"Unexpected secret mounted: {name}")
             continue
-        services_for_secret = set(consumers.split(",")) & services.keys()
+        entries = (entry.partition("@") for entry in consumers.split(","))
+        services_for_secret = {service for service, _, flag in entries if not flag or flag in flags} & services.keys()
         expected[name] = services_for_secret
         ownership[name] = owner
         path = directory / name

@@ -38,7 +38,7 @@ describe("buildAuthorizationUrl", () => {
       client_id: "google-client",
       redirect_uri: "https://x.test/cb",
       response_type: "code",
-      scope: "openid email profile",
+      scope: "openid email",
       state: "st",
       code_challenge: "ch",
       code_challenge_method: "S256",

@@ -28,6 +28,8 @@ let subscriptionState = "ACTIVE";
 let accessRequests = 0;
 let slowOverview = false;
 let oauthEnabled = false;
+let mailEnabled = true;
+let verifiedReads = 0;
 
 const price = { amountMinor: 10000, currency: "RUB" };
 const offer = { id: "offer-smoke", name: "MZT Smoke", durationMonths: 1, deviceLimit: 3, price };
@@ -58,8 +60,8 @@ const server = createServer(async (req, res) => {
     return json({ error: { code: "INVALID_CREDENTIALS" } }, 401);
   }
   if (path === "/api/auth/refresh") return json({ error: { code: "INVALID_SESSION" } }, 401);
-  if (path === "/api/auth/oauth/providers") return json({ providers: { google: oauthEnabled, telegram: oauthEnabled } });
-  if (["/api/auth/register", "/api/auth/forgot-password"].includes(path)) { req.resume(); return json({ ok: true }); }
+  if (path === "/api/auth/oauth/providers") return json({ providers: { google: oauthEnabled, telegram: oauthEnabled }, emailAvailable: mailEnabled });
+  if (["/api/auth/register", "/api/auth/forgot-password", "/api/auth/resend-verification"].includes(path)) { req.resume(); return json({ ok: true, emailAvailable: mailEnabled }); }
   if (["/api/auth/reset-password", "/api/auth/verify-email"].includes(path)) {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
@@ -97,16 +99,26 @@ const server = createServer(async (req, res) => {
   if (path === "/api/me/subscription/periods") return json(page([period]));
   if (path === "/api/me/subscription/access") { accessRequests++; return json({ subscriptionUrl: url }); }
   if (path === "/api/me/support/cases" && req.method === "GET") return json(page(ticket ? [ticket] : []));
+  if (path.endsWith("/read") && req.method === "POST") {
+    req.resume();
+    verifiedReads++;
+    ticket.unread = 0;
+    return res.writeHead(204).end();
+  }
   if (path.startsWith("/api/me/support/cases") && req.method === "POST") {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
-    const { message, orderId } = JSON.parse(Buffer.concat(chunks));
-    ticket ??= { id: "case-smoke", orderId, category: "PAYMENT", status: "OPEN", createdAt: now, updatedAt: now };
+    const { message, orderId, subject, action } = JSON.parse(Buffer.concat(chunks));
+    if (action === "close") {
+      ticket.status = "CLOSED";
+      return json({ case: ticket });
+    }
+    ticket ??= { subject, unread: 1, id: "case-smoke", orderId, category: "PAYMENT", status: "OPEN", createdAt: now, updatedAt: now };
     const entry = { id: String(history.length), author: "CUSTOMER", text: message, createdAt: now };
     history = [entry, ...history];
     return json({ case: ticket, message: entry }, 201);
   }
-  if (path === "/api/me/support/cases/case-smoke") return json({ case: ticket, messages: page(history), history: page([]) });
+  if (path === "/api/me/support/cases/case-smoke") return json({ case: ticket, readThrough: now, messages: page(history), history: page([]) });
   return json({ error: { code: "NOT_FOUND" } }, 404);
 });
 
@@ -198,10 +210,14 @@ try {
   await click("Помощь с заказом");
   await until(text("Новое обращение"));
   await fit();
+  await evaluate('document.querySelector(`input[name="subject"]`).value = "Помощь с заказом для теста"');
   await evaluate(`document.querySelector("textarea").value = ${JSON.stringify(payload)}`);
   await click("Создать обращение");
   await until(text(payload));
   assert.equal(ticket.orderId, order.id);
+  assert.equal(ticket.subject, "Помощь с заказом для теста");
+  await until(text("Помощь с заказом для теста"));
+  assert.equal(verifiedReads, 1);
   assert.equal(await evaluate("Boolean(window.__supportUnsafe || document.querySelector('.mzt-message img'))"), false);
   await evaluate(`
     const input = document.querySelector("textarea");
@@ -210,6 +226,10 @@ try {
   `);
   await click("Отправить");
   await until(text("Можно уточнить?"));
+  await click("Закрыть обращение");
+  await click("Закрыть");
+  await until(text("Обращение закрыто."));
+  await fit();
   await menu("Безопасность");
   await until(text("Chromium Smoke"));
   await menu("Подключение");
@@ -274,15 +294,21 @@ try {
   await fillAuth({ email: "synthetic@example.invalid" });
   await click("Отправить ссылку");
   await until(text("Проверьте почту"));
-  await send("Page.navigate", { url: origin + "/verify-email?token=" + emailToken });
+  await send("Page.navigate", { url: origin + "/verify-email#token=" + emailToken });
   await until(text("Почта подтверждена"));
-  assert.equal(await evaluate("location.search"), "");
-  await send("Page.navigate", { url: origin + "/reset-password?token=" + emailToken });
+  assert.equal(await evaluate("location.search + location.hash"), "");
+  await send("Page.navigate", { url: origin + "/reset-password#token=" + emailToken });
   await until(text("Сохранить пароль"));
-  assert.equal(await evaluate("location.search"), "");
+  assert.equal(await evaluate("location.search + location.hash"), "");
   await fillAuth({ password, confirmPassword: password });
   await click("Сохранить пароль");
   await until(text("Пароль изменён"));
+  mailEnabled = false;
+  await send("Page.navigate", { url: origin + "/activation" });
+  await until(text("Автоматические письма сейчас недоступны"));
+  await send("Page.navigate", { url: origin + "/forgot-password" });
+  await until(text("Автоматический сброс по почте сейчас недоступен"));
+  mailEnabled = true;
   signedIn = true;
   await send("Emulation.setDeviceMetricsOverride", { width: 360, height: 800, deviceScaleFactor: 1, mobile: true });
   slowOverview = true;
@@ -304,14 +330,15 @@ try {
   console.log("Chromium 360 px: checkout retry and UNKNOWN, support, local QR/copy/hide/logout, account states, auth validation/OAuth/registration/verify/reset passed");
   if (process.env.MZT_VISUAL_DIR) {
     await visualQa({ site: "web", dist, send, evaluate, until, origin,
-      prepare: screen => { signedIn = !screen.guest; oauthEnabled = Boolean(screen.oauth); },
+      prepare: screen => { signedIn = !screen.guest; oauthEnabled = Boolean(screen.oauth); mailEnabled = !screen.noMail; },
       afterLoad: async () => { await click("Выбрать"); await until(text("Проверьте условия")); },
       screens: [
         { id: "login", path: "/login", ready: "Войти", guest: true, measure: true },
         { id: "register", path: "/register", ready: "Пароль", guest: true },
         { id: "forgot-password", path: "/forgot-password", ready: "Отправить ссылку", guest: true },
-        { id: "verify-email", path: "/verify-email?token=" + emailToken, ready: "Почта подтверждена", guest: true },
-        { id: "reset-password", path: "/reset-password?token=" + emailToken, ready: "Сохранить пароль", guest: true },
+        { id: "activation-pending", path: "/activation", ready: "ручной активации", guest: true, noMail: true },
+        { id: "verify-email", path: "/verify-email#token=" + emailToken, ready: "Почта подтверждена", guest: true },
+        { id: "reset-password", path: "/reset-password#token=" + emailToken, ready: "Сохранить пароль", guest: true },
         { id: "oauth-login", path: "/login?error=OAUTH_DENIED", ready: "Продолжить через Google", guest: true, oauth: true },
         { id: "not-found", path: "/page-not-found", ready: "Страница не найдена", guest: true },
         { id: "dashboard", path: "/account", ready: "Показать ссылку и QR", measure: true },

@@ -288,6 +288,17 @@ class Deployment(unittest.TestCase):
             with self.subTest(role=role, overrides=overrides):
                 self.rejects(role, CONFIG[role, link] | overrides, error)
 
+    def test_provider_switches_and_mail_availability(self):
+        base = CONFIG["single", "private"]
+        self.rejects("single", base | {"GOOGLE_AUTH_ENABLED": "true"}, "requires a client ID")
+        self.rejects("single", base | {"TELEGRAM_AUTH_ENABLED": "true", "TELEGRAM_CLIENT_ID": "fixture",
+                     "MZT_ENABLE_OAUTH_EGRESS": "1"}, "verified OIDC")
+        conf = self.render("single", base | {"GOOGLE_AUTH_ENABLED": "false", "GOOGLE_CLIENT_ID": "fixture"})
+        self.assertNotIn("GOOGLE_CLIENT_ID", conf["services"]["public-api"]["environment"])
+        self.assertNotIn("oauth-egress", conf["networks"])
+        self.assertNotIn("MAIL_TRANSPORT_ENABLED", conf["services"]["public-api"]["environment"])
+        self.assertNotIn("MAIL_TRANSPORT_ENABLED", conf["services"]["admin-api"]["environment"])
+
     def test_rejects_missing_conditional_secrets_and_wrong_permissions(self):
         self.rejects("single", CONFIG["single", "private"] | {"MZT_ENABLE_OAUTH_EGRESS": "1", "GOOGLE_CLIENT_ID": "fixture"},
                      "google_client_secret")

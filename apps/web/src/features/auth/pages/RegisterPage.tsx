@@ -26,10 +26,13 @@ export function RegisterPage() {
   if (registration.isSuccess) {
     return (
       <AuthPage
-        title="Проверьте почту"
-        lead={`Мы отправили письмо на ${registration.variables.email}. Откройте ссылку из него в течение 24 часов, чтобы завершить регистрацию.`}
+        title={registration.data.emailAvailable === false ? "Заявка на активацию" : "Проверьте почту"}
+        lead={registration.data.emailAvailable === false
+          ? "Автоматические письма недоступны. Обратитесь к оператору магазина для ручной активации."
+          : "Если для адреса нужна регистрация, письмо будет поставлено в очередь. Ссылка для подтверждения действует 24 часа."}
       >
-        <p>Письма нет? Посмотрите в папке «Спам» или зарегистрируйтесь ещё раз с тем же адресом.</p>
+        {registration.data.emailAvailable !== false &&
+          <><p>Проверьте папку «Спам». Для созданного аккаунта <Link to="/activation">запросите подтверждение</Link>.</p><Button type="button" variant="secondary" onClick={() => registration.reset()}>Повторить регистрацию</Button></>}
         <ButtonLink to="/login" variant="secondary">
           Вернуться ко входу
         </ButtonLink>

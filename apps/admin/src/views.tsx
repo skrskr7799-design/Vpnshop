@@ -1,6 +1,7 @@
 import { Breadcrumbs, Button, Card, CodeDisplay, DataTable, EmptyState, ErrorState, Icon, MetricCard, PageHeader, Pagination,
   Skeleton, StatusIndicator, type IconName } from "@vpn/ui";
-import { useQuery } from "@tanstack/react-query";
+import { supportCategory, supportPriority, supportStatus } from "@vpn/shared";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useLocation, useParams, useSearchParams } from "react-router";
 import { api, errorText } from "./api";
@@ -19,6 +20,7 @@ export function RequestState({ state }: { state: { isPending: boolean; error: un
   return state.error ? <ErrorState message={errorText(state.error)} retry={state.refetch} /> : null;
 }
 const labels: Record<string, string> = {
+  subject: "Тема", priority: "Приоритет", assignee: "Ответственный", unread: "Новые события",
   username: "Имя пользователя", displayName: "Отображаемое имя", contactEmail: "Контакт",
   activation: "Активация", emailVerified: "Почта подтверждена", lastLoginAt: "Последний вход",
   activeSessions: "Активные сессии", temporaryUntil: "Временный пароль до",
@@ -51,10 +53,12 @@ export const states: Record<string, string> = {
   RETRY_WAIT: "Ожидает повтора", FAILED: "Ошибка", UNKNOWN: "Исход уточняется", WAITING: "Ожидает",
   AWAITING_CUSTOMER: "Ожидает оплату", WAITING_EXTERNAL: "Ожидает внешнего подтверждения", PROCESSING: "Обрабатывается",
   AWAITING_APPROVAL: "Ожидает одобрения", HELD: "Приостановлено", READY: "Доступ подтверждён",
-  WAITING_CUSTOMER: "Ждём клиента", OPEN: "Открыто", RESOLVED: "Закрыто", NOT_REQUESTED: "Без заявки на выдачу",
+  WAITING_CUSTOMER: "Ждём клиента", OPEN: "Ждём поддержки", RESOLVED: "Решено", CLOSED: "Закрыто", IN_PROGRESS: "В работе", NOT_REQUESTED: "Без заявки на выдачу",
 };
 const domainLabels: Record<string, string> = {
   PAYMENT: "Оплата", DELIVERY: "Выдача доступа", ACCESS: "Подключение", OTHER: "Другой вопрос",
+  GENERAL: "Общий вопрос", SUBSCRIPTION: "Подписка", TECHNICAL: "Техническая проблема", ACCOUNT: "Аккаунт",
+  LOW: "Низкий", NORMAL: "Обычный", HIGH: "Высокий", URGENT: "Срочный",
   CAPTURE: "Поступление", REFUND: "Возврат", CHARGEBACK_DEBIT: "Списание по спору", CHARGEBACK_REVERSAL: "Возврат списания",
   OWNER: "Владелец", ADMIN: "Администратор", SUPPORT: "Поддержка", CUSTOMER: "Клиент", STAFF: "Сотрудник",
 };
@@ -89,7 +93,8 @@ export function Table({ rows, columns, destination, compactUsers }: {
       : key === "id" || key.endsWith("Id") ? <CodeDisplay>{valueText(row[key])}</CodeDisplay> : valueText(row[key])}</td>)}</tr>)}
   </DataTable></div>;
 }
-type Filter = [key: string, title: string, values?: string[]];
+type FilterOption = string | { value: string; label: string };
+type Filter = [key: string, title: string, values?: readonly FilterOption[]];
 export function List({ title, path, columns, filters = [], destination, children, actions, nested = false }: {
   title: string; path: string; columns: string[]; filters?: Filter[]; destination?: (row: Row) => string;
   children?: ReactNode; actions?: (rows: Row[]) => ReactNode; nested?: boolean;
@@ -99,7 +104,7 @@ export function List({ title, path, columns, filters = [], destination, children
   for (const [key] of filters) if (params.get(key)) queryString.set(key, params.get(key)!);
   if (params.get("cursor")) queryString.set("cursor", params.get("cursor")!);
   const key = queryString.toString();
-  const query = useAdmin<Page>(path + (key ? (path.includes("?") ? "&" : "?") + key : ""));
+  const query = useAdmin<Page>(path + (key ? (path.includes("?") ? "&" : "?") + key : ""), path === "/support/cases" ? 30_000 : undefined);
   const [search, setSearch] = useState<Page>();
   const [finding, setFinding] = useState(false);
   const lookup = useRef<AbortController>(null);
@@ -140,7 +145,12 @@ export function List({ title, path, columns, filters = [], destination, children
         setParams(Object.fromEntries(filters.flatMap(([key]) => data.get(key) ? [[key, String(data.get(key)).trim()]] : [])));
       }}>
       {filters.map(([key, title, values]) => <label key={key}>{title}{values ? <select name={key} defaultValue={params.get(key) ?? ""}>
-        <option value="">Все</option>{values.map(value => <option key={value} value={value}>{states[value] ?? domainLabels[value] ?? (value === "true" ? "Да" : value === "false" ? "Нет" : value)}</option>)}
+        <option value="">Все</option>{values.map(option => {
+          const value = typeof option === "string" ? option : option.value;
+          const text = typeof option === "string" ? states[value] ?? domainLabels[value] ??
+            (value === "true" ? "Да" : value === "false" ? "Нет" : value) : option.label;
+          return <option key={value} value={value}>{text}</option>;
+        })}
       </select> : <input name={key} defaultValue={params.get(key) ?? ""} />}</label>)}
       <Button type="submit" variant="secondary">Применить фильтры</Button>
     </form>;
@@ -170,12 +180,13 @@ export function List({ title, path, columns, filters = [], destination, children
 }
 export const orderColumns = ["id", "status", "delivery", "userId", "createdAt"];
 export const jobColumns = ["id", "status", "revision", "attempts", "reasonCode", "leaseUntil", "nextAttemptAt"];
-export const ticketColumns = ["id", "category", "status", "orderId", "updatedAt"];
+export const ticketColumns = ["id", "subject", "category", "status", "priority", "assignee", "unread", "orderId", "updatedAt"];
 export const jobFilters: Filter[] = [["status", "Статус", ["PENDING", "VERIFY_PENDING", "NEEDS_REVIEW", "RUNNING", "CONFIRMED", "RETRY_WAIT", "SUPERSEDED", "FAILED"]],
   ["userId", "ID пользователя"], ["overdue", "Просрочено", ["true"]]];
 export const orderFilters: Filter[] = [["userId", "ID пользователя"], ["status", "Статус", ["PENDING", "PAID", "FULFILLED", "REFUNDED", "EXPIRED", "CANCELED"]]];
-export const ticketFilters: Filter[] = [["status", "Статус", ["OPEN", "WAITING_CUSTOMER", "RESOLVED"]],
-  ["category", "Тема", ["PAYMENT", "DELIVERY", "ACCESS", "OTHER"]], ["orderId", "ID заказа"], ["forUserId", "ID владельца"]];
+export const ticketFilters: Filter[] = [["search", "Тема или ID"], ["status", "Статус", supportStatus.options],
+  ["category", "Категория", supportCategory.options], ["priority", "Приоритет", supportPriority.options],
+  ["orderId", "ID заказа"], ["forUserId", "ID владельца"]];
 
 function currencyMovement(value: string, currency: string) {
   if (!/^-?\d+$/.test(value) || !["RUB", "USD", "XTR"].includes(currency)) return value;
@@ -346,12 +357,24 @@ export function PlanDetail({ actions }: { actions?: (plan: Row, rows: Row[]) => 
 export function SupportDetail({ command }: { command?: (ticket: Row, refresh: () => unknown) => ReactNode }) {
   const { id } = useParams();
   const [pagination, setPagination] = useSearchParams();
-  const query = useAdmin<{ case: Row; messages: Page; history: Page }>("/support/cases/" + encodeURIComponent(id ?? "") + "?" + pagination);
+  const cache = useQueryClient();
+  const canReadUsers = useCan("users:read");
+  const path = "/support/cases/" + encodeURIComponent(id ?? "");
+  const query = useAdmin<{ case: Row; readThrough?: string; messages: Page; history: Page }>(path + "?" + pagination, 30_000);
+  const through = query.data?.readThrough;
+  const unread = query.data?.case.unread;
+  useEffect(() => {
+    if (!through || !unread) return;
+    void api(path + "/read", { method: "POST", body: { through } })
+      .then(() => cache.invalidateQueries({ predicate: entry => String(entry.queryKey.at(-1)).startsWith("/support/cases?") ||
+        entry.queryKey.at(-1) === "/support/cases" })).catch(() => {});
+  }, [cache, path, through, unread, query.dataUpdatedAt]);
   const state = useLocation().state as { returnTo?: string; focusRow?: string } | null;
   const back = state?.returnTo?.startsWith("/support?") ? state.returnTo : "/support";
   return <><Breadcrumbs><Link to={back} state={{ focusRow: state?.focusRow }}><Icon name="back" size={16} />К обращениям</Link></Breadcrumbs>
     <PageHeader title="Обращение" /><RequestState state={query} />{query.data && <>
-    <div className="admin-thread"><section className="mz-card panel"><h2>Карточка обращения</h2><Facts data={query.data.case} keys={["id", "userId", "status", "category", "updatedAt"]} />
+    <div className="admin-thread"><section className="mz-card panel"><h2>Карточка обращения</h2><Facts data={query.data.case} keys={["id", "subject", "userId", "status", "category", "priority", "assignee", "updatedAt"]} />
+      {canReadUsers && typeof query.data.case.userId === "string" && <p><Link to={"/users/" + query.data.case.userId}>Карточка пользователя</Link></p>}
       {typeof query.data.case.orderId === "string" && <Link to={"/orders/" + query.data.case.orderId}>Связанный заказ</Link>}
     </section>
     <section className="mz-card panel"><h2>Переписка</h2><ol className="messages">

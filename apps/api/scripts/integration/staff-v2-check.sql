@@ -22,3 +22,18 @@ BEGIN
   END;
 END
 $$;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM "SupportCase" WHERE id = 'legacy-case' AND category = 'DELIVERY'
+    AND priority = 'NORMAL' AND "assigneeId" IS NULL AND subject IS NULL) THEN
+    RAISE EXCEPTION 'Legacy support case changed';
+  END IF;
+  IF NOT EXISTS (SELECT FROM "SupportMessage" WHERE id = 'legacy-message' AND text = 'Legacy support conversation')
+    OR NOT EXISTS (SELECT FROM "SupportEvent" WHERE id = 'legacy-event' AND "customerVisible") THEN
+    RAISE EXCEPTION 'Legacy conversation changed';
+  END IF;
+  IF NOT EXISTS (SELECT FROM "VerificationToken" WHERE id = 'legacy-reset' AND type = 'PASSWORD_RESET'
+    AND "tokenHash" = 'fixture-reset-hash' AND "familyId" IS NULL AND email IS NULL) THEN
+    RAISE EXCEPTION 'Legacy password reset token changed';
+  END IF;
+END $$;

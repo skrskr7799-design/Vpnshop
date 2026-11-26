@@ -87,7 +87,7 @@ export const adminDashboardRoutes: FastifyPluginAsync<DashboardDeps> = async (ap
         db.payment.count({ where: { status: "AWAITING_CUSTOMER", expiresAt: { gt: asOf } } }),
         db.fulfillmentJob.count({ where: { status: { in: ["FAILED", "NEEDS_REVIEW"] } } }),
         db.fulfillmentJob.count({ where: { status: { in: ["VERIFY_PENDING", "RETRY_WAIT", "PENDING"] }, nextAttemptAt: { lt: jobCutoff } } }),
-        db.supportCase.count({ where: { status: { not: "RESOLVED" } } }),
+        db.supportCase.count({ where: { status: { notIn: ["RESOLVED", "CLOSED"] } } }),
       ]);
       const finance = financeAllowed ? await db.$queryRaw<{
         currency: string; captured: string; allocated: string; unallocated: string;

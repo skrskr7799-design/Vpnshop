@@ -12,6 +12,8 @@ export async function enqueueMail(db: Prisma.TransactionClient, mail: Mail, expi
   await db.notificationOutbox.create({ data: { payload: encrypt(JSON.stringify(mail), mailKey()), expiresAt }, select: { id: true } });
 }
 
+export class PermanentMailError extends Error {}
+
 export async function deliverNext(send: (mail: Mail, id: string) => Promise<void>) {
   const leaseId = randomUUID();
   await prisma.notificationOutbox.deleteMany({ where: { expiresAt: { lte: new Date() } } });
@@ -28,11 +30,15 @@ export async function deliverNext(send: (mail: Mail, id: string) => Promise<void
   if (!entry) return false;
   try {
     await send(JSON.parse(decrypt(entry.payload, mailKey())) as Mail, entry.id);
-  } catch {
+  } catch (error) {
+    if (error instanceof PermanentMailError) {
+      await prisma.notificationOutbox.deleteMany({ where: { id: entry.id, leaseId } });
+      throw new Error("NOTIFICATION_DELIVERY_REJECTED");
+    }
     await prisma.notificationOutbox.updateMany({ where: { id: entry.id, leaseId }, data: {
       dueAt: new Date(Date.now() + 60_000), leaseId: null, leaseUntil: null,
     } });
-    throw new Error("NOTIFICATION_DELIVERY_FAILED");
+    throw new Error("NOTIFICATION_DELIVERY_RETRY");
   }
   await prisma.notificationOutbox.deleteMany({ where: { id: entry.id, leaseId } });
   return true;

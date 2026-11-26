@@ -1,4 +1,4 @@
-import { env } from "../../config/env";
+import { emailAvailable, env } from "../../config/env";
 import { enqueueMail } from "../mail/outbox";
 import type { FastifyBaseLogger } from "fastify";
 import type {
@@ -17,7 +17,10 @@ import { sendMail } from "../mail/mail.service";
 import { accountExistsMail, resetPasswordMail, verifyEmailMail } from "../mail/mail.templates";
 import { MAX_MAILS_PER_EMAIL_PER_HOUR, RESET_TTL_MS, VERIFY_TTL_MS } from "./auth.constants";
 import { hashPassword, verifyAgainstDummy, verifyPassword } from "./password";
-import { createSession, lockIdentityOwner, revokeAllUserSessions, type IssuedTokens } from "./session.service";
+import { createSession, lockIdentityOwner, requireLiveFamily, revokeAllUserSessions, type IssuedTokens } from "./session.service";
+
+import { consumeProof } from "../oauth/oauth.service";
+import type { AuthClaims } from "./jwt";
 
 export type AuthContext = { log: FastifyBaseLogger; ip?: string; userAgent?: string };
 
@@ -37,10 +40,11 @@ async function consumeMailBudget(email: string, purpose: string) {
   return rows.length > 0;
 }
 
-export const toPublicUser = (user: Pick<User, "id" | "email" | "role">): PublicUser => ({
+export const toPublicUser = (user: Pick<User, "id" | "email" | "role" | "emailVerifiedAt">): PublicUser => ({
   id: user.id,
   email: user.email,
   role: user.role,
+  emailVerified: !!user.emailVerifiedAt,
 });
 
 // ───────────── Регистрация ─────────────
@@ -60,6 +64,7 @@ export async function register({ email, password }: RegisterInput, ctx: AuthCont
     select: { id: true },
   });
   if (existing) {
+    if (!emailAvailable) return;
     const mail = accountExistsMail(email);
     if (env.MAIL_QUEUE_KEY) await enqueueMail(prisma, mail, new Date(+now + VERIFY_TTL_MS));
     else void sendMail(ctx.log, mail);
@@ -71,32 +76,110 @@ export async function register({ email, password }: RegisterInput, ctx: AuthCont
   const expiresAt = new Date(+now + VERIFY_TTL_MS);
   await prisma.$transaction(async db => {
     await db.pendingRegistration.create({ data: { email, passwordHash, tokenHash: sha256(token), expiresAt } });
-    await enqueueMail(db, mail, expiresAt);
+    if (emailAvailable) await enqueueMail(db, mail, expiresAt);
   });
-  if (!env.MAIL_QUEUE_KEY) void sendMail(ctx.log, mail);
+  if (emailAvailable && !env.MAIL_QUEUE_KEY) void sendMail(ctx.log, mail);
 }
 
-// Аккаунт появляется только здесь, после подтверждения владения почтой.
-export async function verifyEmail(token: string): Promise<void> {
-  const now = new Date();
+// Serialize creation by email before consuming one of several pending requests.
+export async function lockRegistration(db: Prisma.TransactionClient, email: string) {
+  await db.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${"registration:" + email}, 0))`;
+}
+
+export async function verifyEmail(token: string, claims?: AuthClaims): Promise<void> {
+  const tokenHash = sha256(token);
   try {
-    await prisma.$transaction(async (tx) => {
-      const pending = await tx.pendingRegistration.findUnique({ where: { tokenHash: sha256(token) } });
-      if (!pending || pending.expiresAt <= now) throw new AppError(400, "INVALID_TOKEN");
-
-      // атомарно «съедаем» заявку: повторный клик по ссылке ничего не создаст
-      const taken = await tx.pendingRegistration.deleteMany({ where: { id: pending.id } });
-      if (taken.count !== 1) throw new AppError(400, "INVALID_TOKEN");
-
-      await createEmailAccount(tx, { email: pending.email, passwordHash: pending.passwordHash, emailVerifiedAt: now });
-      // остальные заявки на этот адрес больше не нужны
-      await tx.pendingRegistration.deleteMany({ where: { email: pending.email } });
+    await prisma.$transaction(async db => {
+      const now = new Date();
+      const pending = await db.pendingRegistration.findUnique({ where: { tokenHash } });
+      if (pending) {
+        await lockRegistration(db, pending.email);
+        const taken = await db.pendingRegistration.deleteMany({ where: { id: pending.id, expiresAt: { gt: now } } });
+        if (taken.count !== 1) throw new AppError(400, "INVALID_TOKEN");
+        await createEmailAccount(db, { email: pending.email, passwordHash: pending.passwordHash, emailVerifiedAt: now });
+        await db.pendingRegistration.deleteMany({ where: { email: pending.email } });
+        return;
+      }
+      const record = await db.verificationToken.findUnique({ where: { tokenHash } });
+      if (!record?.email || record.type !== "VERIFY_EMAIL" || record.usedAt || record.expiresAt <= now)
+        throw new AppError(400, "INVALID_TOKEN");
+      const owner = await lockIdentityOwner(db, record.userId);
+      if (!owner || owner.role !== "USER" || owner.status !== "ACTIVE" || owner.emailVerifiedAt ||
+          (owner.email && owner.email !== record.email)) throw new AppError(400, "INVALID_TOKEN");
+      if (record.familyId) {
+        if (claims?.sid !== record.familyId || claims.userId !== owner.id) throw new AppError(401, "VERIFICATION_SESSION_REQUIRED");
+        await requireLiveFamily(claims, db);
+      }
+      const used = await db.verificationToken.updateMany({
+        where: { id: record.id, usedAt: null, expiresAt: { gt: now } }, data: { usedAt: now },
+      });
+      if (used.count !== 1) throw new AppError(400, "INVALID_TOKEN");
+      await db.user.update({ where: { id: owner.id }, data: {
+        email: record.email, emailVerifiedAt: now, activationRequired: false,
+      } });
+      await db.authIdentity.updateMany({
+        where: { userId: owner.id, provider: "EMAIL", providerId: record.email }, data: { verifiedAt: now },
+      });
     });
   } catch (err) {
-    // аккаунт на этот email успел появиться другим путём
     if (isUniqueViolation(err)) throw new AppError(400, "INVALID_TOKEN");
     throw err;
   }
+}
+
+export async function requestEmailVerification(email: string, ctx: AuthContext, confirmation?: { claims: AuthClaims; id: string }) {
+  if (!emailAvailable) {
+    if (confirmation) throw new AppError(503, "EMAIL_UNAVAILABLE");
+    return;
+  }
+  if (!await consumeMailBudget(email, "verify")) {
+    if (confirmation) throw new AppError(429, "RATE_LIMIT_EXCEEDED");
+    return;
+  }
+  const candidate = confirmation ? { id: confirmation.claims.userId } : await prisma.user.findUnique({ where: { email }, select: { id: true } });
+  if (!candidate) return;
+  const token = generateToken();
+  const mail = verifyEmailMail(email, token);
+  const issued = await prisma.$transaction(async db => {
+    const owner = await lockIdentityOwner(db, candidate.id);
+    if (!owner || owner.role !== "USER" || owner.status !== "ACTIVE" || owner.emailVerifiedAt ||
+        (confirmation ? !!owner.email && owner.email !== email : owner.email !== email)) return false;
+    if (confirmation) {
+      await requireLiveFamily(confirmation.claims, db);
+      if (!(await consumeProof(db, confirmation.claims, confirmation.id, "EMAIL", "VERIFY_EMAIL")).count)
+        throw new AppError(403, "REAUTH_REQUIRED");
+    }
+    const now = new Date();
+    const expiresAt = new Date(+now + VERIFY_TTL_MS);
+    const familyId = confirmation?.claims.sid ?? null;
+    await db.verificationToken.updateMany({
+      where: { userId: owner.id, type: "VERIFY_EMAIL", familyId, usedAt: null }, data: { usedAt: now },
+    });
+    await db.verificationToken.create({ data: { userId: owner.id, type: "VERIFY_EMAIL", familyId, email, tokenHash: sha256(token), expiresAt } });
+    await enqueueMail(db, mail, expiresAt);
+    return true;
+  });
+  if (!issued && confirmation) throw new AppError(409, "EMAIL_UPDATE_UNAVAILABLE");
+  if (issued && !env.MAIL_QUEUE_KEY) void sendMail(ctx.log, mail);
+}
+
+export async function setEmailPassword(claims: AuthClaims, confirmationId: string, password: string) {
+  const passwordHash = await hashPassword(password);
+  await prisma.$transaction(async db => {
+    const owner = await lockIdentityOwner(db, claims.userId);
+    await requireLiveFamily(claims, db);
+    if (!owner?.email || !owner.emailVerifiedAt) throw new AppError(409, "EMAIL_NOT_VERIFIED");
+    if (!(await consumeProof(db, claims, confirmationId, "EMAIL", "SET_PASSWORD")).count)
+      throw new AppError(403, "REAUTH_REQUIRED");
+    await db.authIdentity.upsert({
+      where: { userId_provider: { userId: owner.id, provider: "EMAIL" } },
+      create: { userId: owner.id, provider: "EMAIL", providerId: owner.email, passwordHash, verifiedAt: owner.emailVerifiedAt },
+      update: { passwordHash, temporaryPasswordExpiresAt: null },
+    });
+    await db.user.update({ where: { id: owner.id }, data: { emailLoginDisabled: false } });
+    await db.verificationToken.updateMany({ where: { userId: owner.id, type: "PASSWORD_RESET", usedAt: null }, data: { usedAt: new Date() } });
+    await revokeAllUserSessions(owner.id, db);
+  });
 }
 
 export function createEmailAccount(db: Prisma.TransactionClient, input: {
@@ -119,7 +202,7 @@ export async function changeTemporaryUserPassword(email: string, temporaryPasswo
   const passwordHash = await hashPassword(password);
   await prisma.$transaction(async db => {
     const owner = await lockIdentityOwner(db, identity.userId);
-    if (!owner || owner.role !== "USER" || owner.status !== "ACTIVE" || owner.activationRequired || owner.emailLoginDisabled)
+    if (!owner || owner.role !== "USER" || owner.status !== "ACTIVE" || owner.emailLoginDisabled)
       throw new AppError(403, "ACCOUNT_BLOCKED");
     const consumed = await db.authIdentity.updateMany({
       where: { id: identity.id, passwordHash: identity.passwordHash, temporaryPasswordExpiresAt: { gt: new Date() } },
@@ -151,13 +234,14 @@ export async function login(
 
   return prisma.$transaction(async db => {
     const owner = await lockIdentityOwner(db, identity.userId);
-    if (owner?.status !== "ACTIVE" || owner.role !== "USER" || owner.activationRequired || owner.emailLoginDisabled) throw new AppError(403, "ACCOUNT_BLOCKED");
+    if (owner?.status !== "ACTIVE" || owner.role !== "USER" || owner.emailLoginDisabled) throw new AppError(403, "ACCOUNT_BLOCKED");
     const current = await db.authIdentity.findUnique({ where: { id: identity.id } });
     if (!current || current.passwordHash !== identity.passwordHash) throw new AppError(401, "INVALID_CREDENTIALS");
     if (current.temporaryPasswordExpiresAt) {
       if (current.temporaryPasswordExpiresAt <= new Date()) throw new AppError(401, "INVALID_CREDENTIALS");
       throw new AppError(403, "TEMPORARY_PASSWORD");
     }
+    if (owner.activationRequired) throw new AppError(403, "ACTIVATION_PENDING");
     const tokens = await createSession(owner, { ip: ctx.ip, userAgent: ctx.userAgent }, db);
     return { user: toPublicUser(owner), ...tokens };
   });
@@ -165,7 +249,7 @@ export async function login(
 
 // ───────────── Сброс пароля ─────────────
 export async function forgotPassword({ email }: ForgotPasswordInput, ctx: AuthContext): Promise<void> {
-  if (!await consumeMailBudget(email, "reset")) return;
+  if (!emailAvailable || !await consumeMailBudget(email, "reset")) return;
   const candidate = await prisma.user.findUnique({ where: { email }, select: { id: true } });
   if (!candidate) return;
   const token = generateToken();
@@ -183,6 +267,7 @@ export async function forgotPassword({ email }: ForgotPasswordInput, ctx: AuthCo
       data: {
         userId: user.id,
         type: "PASSWORD_RESET",
+        email,
         tokenHash: sha256(token),
         expiresAt,
       },
@@ -204,7 +289,7 @@ export async function resetPassword({ token, password }: ResetPasswordInput): Pr
     }
     const user = await lockIdentityOwner(tx, record.userId);
     if (!user?.email || !user.emailVerifiedAt || user.role !== "USER" || user.status !== "ACTIVE" ||
-        user.emailLoginDisabled) throw new AppError(400, "INVALID_TOKEN");
+        user.emailLoginDisabled || record.email && record.email !== user.email) throw new AppError(400, "INVALID_TOKEN");
     const consumed = await tx.verificationToken.updateMany({
       where: { id: record.id, usedAt: null, expiresAt: { gt: new Date() } },
       data: { usedAt: now },

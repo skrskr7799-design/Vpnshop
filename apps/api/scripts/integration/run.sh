@@ -140,6 +140,7 @@ pnpm exec prisma migrate deploy
 pnpm exec prisma migrate deploy
 sql vpnshop_staff_legacy < scripts/integration/staff-v2-check.sql
 
+export MAIL_TRANSPORT_ENABLED=true
 phase=suite-grants
 # Only the runtime schema is writable, with DML privileges on application tables.
 sql vpnshop_suite <<SQL
@@ -167,7 +168,7 @@ GRANT SELECT, INSERT, UPDATE, TRUNCATE ON "RefundIntent" TO vpnshop_suite;
 GRANT SELECT, INSERT, UPDATE, DELETE ON "AdminOperationalSettings", "WorkerHeartbeat" TO vpnshop_suite;
 GRANT SELECT, INSERT, TRUNCATE ON "AuditLog" TO vpnshop_suite;
 GRANT SELECT, INSERT, UPDATE, DELETE ON "StaffCredential","StaffChallenge","StaffInvite","StaffReset","AdminConfirmation","AdminCommand" TO vpnshop_suite;
-GRANT SELECT, INSERT, UPDATE, DELETE ON "SupportCase" TO vpnshop_suite;
+GRANT SELECT, INSERT, UPDATE, DELETE ON "SupportCase", "SupportReadCursor" TO vpnshop_suite;
 GRANT SELECT, INSERT, DELETE ON "SupportMessage", "SupportEvent" TO vpnshop_suite;
 -- TRUNCATE permits guarded suite reset without allowing ledger UPDATE/DELETE.
 GRANT SELECT, INSERT, TRUNCATE ON "PaymentTransaction", "OrderAllocation", "PeriodGrant",

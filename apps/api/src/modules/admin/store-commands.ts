@@ -3,7 +3,7 @@ import { createPlanSchema, emailField, updatePlanSchema } from "@vpn/shared";
 import { z } from "zod";
 import { isUniqueViolation } from "../../lib/db-errors";
 import { AppError } from "../../lib/errors";
-import { createEmailAccount } from "../auth/auth.service";
+import { createEmailAccount, lockRegistration } from "../auth/auth.service";
 import { hashPassword } from "../auth/password";
 import { TEMPORARY_PASSWORD_MS } from "./auth/admin-auth.service";
 import { lockIdentityOwner, revokeAllUserSessions } from "../auth/session.service";
@@ -134,6 +134,7 @@ export const storeCommands = {
     const pending = await ctx.db.pendingRegistration.findFirst({ where: { id: versionTarget(ctx), expiresAt: { gt: ctx.now } } });
     if (!pending) throw new AppError(404, "NOT_FOUND");
     expectVersion(ctx.expectedVersion, pending.createdAt);
+    await lockRegistration(ctx.db, pending.email);
     const consumed = await ctx.db.pendingRegistration.deleteMany({ where: { id: pending.id, expiresAt: { gt: ctx.now } } });
     if (consumed.count !== 1) throw new AppError(409, "VERSION_CONFLICT");
     try {

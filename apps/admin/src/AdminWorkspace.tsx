@@ -1,4 +1,5 @@
 import { Badge, BrandMark, Button, CodeDisplay, Drawer, EmptyState, Icon, IconButton, Input, LabyrinthBackground, MobileNavigation, PageHeader, SignatureScene, StatusIndicator, Timeline, buttonClass, type IconName } from "@vpn/ui";
+import { supportStatus } from "@vpn/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from "react-router";
@@ -273,13 +274,8 @@ export default function AdminWorkspace() {
       <Route path="plans" element={<List title="Тарифы" path="/plans" columns={["name", "code", "revision", "deviceLimit", "isActive"]}
         filters={[["active", "Активен", ["true", "false"]]]} destination={row => "/plans/" + row.id}><PlanCreate /></List>} />
       <Route path="plans/:id" element={<PlanDetail actions={(plan, versions) => <PlanActions plan={plan} versions={versions} />} />} />
-      <Route path="support" element={<List title="Обращения" path="/support/cases" columns={ticketColumns} filters={ticketFilters}
-        destination={row => "/support/" + row.id} />} />
-      <Route path="support/:id" element={<SupportDetail command={ticket => <Action title="Ответить или изменить статус" operation="support.action" permission="support:write"
-        target={ticket.id} version={String(ticket.updatedAt)} fields={[
-          { name: "status", label: "Новый статус", options: ["OPEN", "WAITING_CUSTOMER", "RESOLVED"], required: false },
-          { name: "publicReply", label: "Публичный ответ", type: "textarea", required: false },
-        ]} />} />} />
+      <Route path="support" element={<SupportQueue />} />
+      <Route path="support/:id" element={<SupportDetail command={ticket => <SupportActions ticket={ticket} />} />} />
       <Route path="audit" element={<Permit permission="audit:read"><List title="Аудит" path="/audit"
         columns={["action", "actorId", "permission", "entityId", "reason", "commandId", "createdAt"]}
         filters={[["action", "Действие"], ["entity", "Объект"], ["actorId", "ID сотрудника"], ["entityId", "ID объекта"]]} destination={row => "/audit/" + row.id} /></Permit>} />
@@ -306,4 +302,42 @@ export default function AdminWorkspace() {
       </EmptyState></>} />
     </Route>
   </Routes>;
+}
+
+
+function useAssignees() {
+  return useAdmin<{ items: { id: string; username: string }[] }>("/support/assignees");
+}
+
+function SupportQueue() {
+  const staff = useAssignees();
+  const options = [{ value: "unassigned", label: "Без назначения" },
+    ...(staff.data?.items ?? []).map(row => ({ value: row.id, label: row.username }))];
+  return <List title="Обращения" path="/support/cases" columns={ticketColumns}
+    filters={[...ticketFilters, ["assigneeId", "Ответственный", options]]} destination={row => "/support/" + row.id}>
+    {staff.isError && <RequestState state={staff} />}
+  </List>;
+}
+
+function SupportActions({ ticket }: { ticket: { id: string; [key: string]: unknown } }) {
+  const staff = useAssignees();
+  const assigned = typeof ticket.assigneeId === "string" ? ticket.assigneeId : "";
+  const options = (staff.data?.items ?? []).map(row => ({ value: row.id, label: row.username }));
+  const canManage = useCan("support:write");
+  const common = { target: ticket.id, version: String(ticket.updatedAt), context: String(ticket.subject ?? ticket.id) };
+  return <>
+    {ticket.status !== "CLOSED" && (canManage ?
+      <Action {...common} title="Ответить или изменить статус" operation="support.action" permission="support:write" fields={[
+        { name: "status", label: "Новый статус", options: supportStatus.options, required: false },
+        { name: "publicReply", label: "Публичный ответ", type: "textarea", required: false },
+      ]} /> : ticket.status !== "RESOLVED" &&
+      <Action {...common} title="Ответить" operation="support.reply" permission="support:reply"
+        fields={[{ name: "publicReply", label: "Публичный ответ", type: "textarea" }]} />)}
+    {canManage && <><Action {...common} title="Изменить приоритет" operation="support.action" permission="support:write"
+      fields={[{ name: "priority", label: "Приоритет", options: [{ value: "LOW", label: "Низкий" }, { value: "NORMAL", label: "Обычный" },
+        { value: "HIGH", label: "Высокий" }, { value: "URGENT", label: "Срочный" }], value: String(ticket.priority ?? "NORMAL") }]} />
+    <RequestState state={staff} />
+    {staff.data && <Action key={assigned} {...common} title="Назначить ответственного" operation="support.action" permission="support:write"
+      fields={[{ name: "assigneeId", label: "Ответственный", options, required: false, clearable: true, value: assigned }]} />}</>}
+  </>;
 }

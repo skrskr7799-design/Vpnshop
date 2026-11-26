@@ -1,3 +1,4 @@
+import { emailField } from "@vpn/shared";
 import { AppError } from "../../../lib/errors";
 import type { OAuthProvider } from "../oauth.types";
 
@@ -22,14 +23,15 @@ export function createGoogleProvider(
     // Google использует оба написания issuer
     issuers: ["https://accounts.google.com", "accounts.google.com"],
     algorithms: ["RS256"],
-    scope: "openid email profile",
+    scope: "openid email",
     tokenAuth: "post",
     useNonce: true,
     toProfile(claims) {
       if (!claims.sub) throw new AppError(400, "OAUTH_FAILED");
+      const email = emailField.safeParse(claims.email);
       return {
         providerId: claims.sub,
-        email: typeof claims.email === "string" ? claims.email.trim().toLowerCase() : null,
+        email: email.success ? email.data : null,
         emailVerified: claims.email_verified === true,
       };
     },

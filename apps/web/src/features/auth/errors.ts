@@ -2,6 +2,9 @@ import { ApiError } from "../../api/ApiError";
 
 const BY_CODE: Record<string, string> = {
   INVALID_CREDENTIALS: "Неверный email или пароль.",
+  ACTIVATION_PENDING: "Аккаунт ожидает активации. Подтвердите адрес или обратитесь к оператору магазина.",
+  EXPLICIT_LINK_REQUIRED: "Войдите существующим способом и подключите Google в разделе «Безопасность».",
+  EMAIL_UNAVAILABLE: "Подтверждение по почте сейчас недоступно.",
   ACCOUNT_BLOCKED: "Аккаунт заблокирован. Напишите в поддержку.",
   TEMPORARY_PASSWORD: "Перед входом задайте свой пароль.",
   PASSWORD_MUST_CHANGE: "Выберите пароль, отличный от временного.",
