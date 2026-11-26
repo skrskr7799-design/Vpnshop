@@ -331,9 +331,18 @@ try {
   if (process.env.MZT_VISUAL_DIR) {
     await visualQa({ site: "web", dist, send, evaluate, until, origin,
       prepare: screen => { signedIn = !screen.guest; oauthEnabled = Boolean(screen.oauth); mailEnabled = !screen.noMail; },
-      afterLoad: async () => { await click("Выбрать"); await until(text("Проверьте условия")); },
+      afterLoad: async screen => {
+        if (screen.id === "initial-password") {
+          await click("У меня временный пароль");
+          await until(text("Сменить пароль"));
+        } else {
+          await click("Выбрать");
+          await until(text("Проверьте условия"));
+        }
+      },
       screens: [
         { id: "login", path: "/login", ready: "Войти", guest: true, measure: true },
+        { id: "initial-password", path: "/login", ready: "Войти", guest: true, afterLoad: true },
         { id: "register", path: "/register", ready: "Пароль", guest: true },
         { id: "forgot-password", path: "/forgot-password", ready: "Отправить ссылку", guest: true },
         { id: "activation-pending", path: "/activation", ready: "ручной активации", guest: true, noMail: true },

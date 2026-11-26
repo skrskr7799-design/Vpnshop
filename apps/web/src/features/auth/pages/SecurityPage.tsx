@@ -39,6 +39,7 @@ export function SecurityPage() {
       {!!devices.data?.sessions.length && <ul className="login-methods__list">{devices.data.sessions.map(device => <li className="login-methods__row" key={device.id}>
         <div><Badge tone={device.current ? "accent" : "neutral"}>{device.current ? "Текущее устройство" : "Другой вход"}</Badge>
           <p>{device.device}</p>
+          {device.createdAt && <p className="mz-muted">Вход <time dateTime={device.createdAt}>{new Date(device.createdAt).toLocaleString("ru-RU")}</time></p>}
           <p className="mz-muted">Последняя активность <time dateTime={device.lastSeenAt}>{new Date(device.lastSeenAt).toLocaleString("ru-RU")}</time></p>
         </div>
         {device.current ? <Button variant="secondary" onClick={() => logout.mutate()}>Выйти с этого устройства</Button> :

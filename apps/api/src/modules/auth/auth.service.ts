@@ -107,7 +107,8 @@ export async function verifyEmail(token: string, claims?: AuthClaims): Promise<v
       if (!owner || owner.role !== "USER" || owner.status !== "ACTIVE" || owner.emailVerifiedAt ||
           (owner.email && owner.email !== record.email)) throw new AppError(400, "INVALID_TOKEN");
       if (record.familyId) {
-        if (claims?.sid !== record.familyId || claims.userId !== owner.id) throw new AppError(401, "VERIFICATION_SESSION_REQUIRED");
+        if (!claims) throw new AppError(401, "UNAUTHENTICATED");
+        if (claims.sid !== record.familyId || claims.userId !== owner.id) throw new AppError(401, "VERIFICATION_SESSION_REQUIRED");
         await requireLiveFamily(claims, db);
       }
       const used = await db.verificationToken.updateMany({

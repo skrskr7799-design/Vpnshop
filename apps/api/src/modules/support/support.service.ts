@@ -33,6 +33,10 @@ function summary(row: SupportCase): CaseSummary {
   };
 }
 
+function hasAssignee(row: SupportCase | WithAssignee): row is WithAssignee {
+  return "assignee" in row;
+}
+
 function staffSummary(row: WithAssignee) {
   const assignee = row.assignee;
   const active = assignee && assignee.role !== "USER" && assignee.status === "ACTIVE" &&
@@ -90,7 +94,7 @@ export async function listCases(reader: Reader, input: PageInput & {
       : await db.supportCase.findMany(args);
     const unread = await unreadCounts(db, rows.map(row => row.id), reader);
     return keysetPage(scope, rows, limit, row => ({
-      ...("assignee" in row ? staffSummary(row) : summary(row)), unread: unread.get(row.id) ?? 0,
+      ...(hasAssignee(row) ? staffSummary(row) : summary(row)), unread: unread.get(row.id) ?? 0,
     }));
   }, { isolationLevel: "RepeatableRead" });
 }
@@ -119,7 +123,7 @@ export async function readCase(id: string, reader: Reader, input: PageInput & { 
     });
     const unread = await unreadCounts(db, [id], reader);
     return {
-      case: { ...("assignee" in row ? staffSummary(row) : summary(row)), unread: unread.get(id) ?? 0 },
+      case: { ...(hasAssignee(row) ? staffSummary(row) : summary(row)), unread: unread.get(id) ?? 0 },
       ...(!input.cursor && !input.historyCursor && { readThrough: row.updatedAt.toISOString() }),
       messages: keysetPage(scope, messages, input.limit, message => messageDto(message, reader.isStaff)),
       history: keysetPage(historyScope, history, input.limit, e => ({

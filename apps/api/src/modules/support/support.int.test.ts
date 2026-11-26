@@ -7,6 +7,7 @@ import { prisma } from "../../lib/prisma";
 import { resetDatabase } from "../../test/db";
 import { createOrder, createUser } from "../../test/factories";
 import { buildTestAdminApp, createEnrolledAdmin, as } from "../admin/admin.test-helpers";
+import { deliverNext } from "../mail/outbox";
 import { createSession } from "../auth/session.service";
 
 let web: FastifyInstance;
@@ -172,4 +173,31 @@ it("validates assignments, isolates internal triage and surfaces inactive assign
   expect(resolved.statusCode).toBe(200);
   const reopened = await member.post(cases + "/" + id + "/status", { action: "reopen" });
   expect(reopened.json().case.status).toBe("OPEN");
+});
+
+it("commits one optional email job per staff reply and never includes the message", async () => {
+  const original = env.MAIL_QUEUE_KEY;
+  env.MAIL_QUEUE_KEY = Buffer.alloc(32, 7).toString("base64");
+  try {
+    const member = await owner();
+    await prisma.user.update({ where: { id: member.user.id }, data: { emailVerifiedAt: new Date() } });
+    const operator = await createEnrolledAdmin("notify-support@example.com");
+    const { id, updatedAt } = (await member.post(cases, { category: "OTHER", message: "Проверка канала" })).json().case;
+    const key = randomUUID();
+    const text = "Текст остаётся внутри кабинета";
+    const send = () => as(admin, operator.sessionToken).command("support.action", id, updatedAt, { publicReply: text },
+      { key, reason: "Ответ о состоянии обращения" });
+    expect((await send()).statusCode).toBe(200);
+    expect((await send()).statusCode).toBe(200);
+    expect(await prisma.notificationOutbox.count()).toBe(1);
+    expect(await prisma.supportMessage.count({ where: { caseId: id, author: "STAFF" } })).toBe(1);
+    expect(await deliverNext(async mail => {
+      expect(mail.to).toBe(member.user.email);
+      expect(mail.text).not.toContain(text);
+      expect(mail.text).toContain("/account/support/" + id);
+    })).toBe(true);
+    expect(await prisma.notificationOutbox.count()).toBe(0);
+  } finally {
+    env.MAIL_QUEUE_KEY = original;
+  }
 });

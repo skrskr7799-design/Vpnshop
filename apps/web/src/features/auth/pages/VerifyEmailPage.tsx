@@ -30,7 +30,7 @@ export function VerifyEmailPage() {
     return (
       <AuthPage
         title="Ссылка не работает"
-        lead={error instanceof ApiError && error.code === "VERIFICATION_SESSION_REQUIRED"
+        lead={error instanceof ApiError && ["UNAUTHENTICATED", "VERIFICATION_SESSION_REQUIRED"].includes(error.code)
           ? "Для добавления адреса откройте ссылку в браузере, где запросили подтверждение. При необходимости запросите новую ссылку в кабинете."
           : "Ссылка недействительна или устарела. Повторите запрос подтверждения."}
       >

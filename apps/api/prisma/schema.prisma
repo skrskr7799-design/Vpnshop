@@ -366,8 +366,6 @@ model Order {
   offerVersion OfferVersion? @relation(fields: [offerVersionId], references: [id], onDelete: Restrict)
 
   supportCases SupportCase[]
-  assignedCases SupportCase[] @relation("SupportAssignee")
-  supportReads SupportReadCursor[]
 
   @@unique([id, userId])
   @@unique([userId, checkoutKeyHash])
