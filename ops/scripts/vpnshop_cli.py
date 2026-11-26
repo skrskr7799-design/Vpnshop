@@ -991,6 +991,13 @@ class Deployment:
             data = {"username": username, "correlationId": str(uuid4())}
             if operation == "bootstrap":
                 fields = {"displayName": args.display_name, "contactEmail": args.contact_email}
+                if not args.password_file and not args.password_stdin:
+                    with open("/dev/tty", "r+", encoding="utf-8") as terminal:
+                        for field, label in (("displayName", "Display name"), ("contactEmail", "Contact email")):
+                            if not fields[field]:
+                                terminal.write(f"{label} (optional): ")
+                                terminal.flush()
+                                fields[field] = terminal.readline().rstrip("\r\n")
                 data.update({key: value for key, value in fields.items() if value})
             else:
                 demand(matches(r"[A-Za-z0-9][A-Za-z0-9._-]{4,79}", args.incident), "Provide a nonsecret incident ID")

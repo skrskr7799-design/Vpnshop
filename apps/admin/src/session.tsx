@@ -81,7 +81,7 @@ export function Login({ invitation = false }: { invitation?: boolean }) {
     </> : <form onSubmit={event => void submit(event)} key={stage?.token ?? "login"}>
       {invitation && <label>Код приглашения<Input name="token" required autoComplete="off" /></label>}
       {!stage && <label>Имя пользователя<span className="mz-input-icon"><Icon name="users" size={19} />
-        <Input name="username" required minLength={3} maxLength={48} pattern="[A-Za-z0-9][A-Za-z0-9._-]{2,47}"
+        <Input name="username" required minLength={3} maxLength={48} pattern={"[A-Za-z0-9][A-Za-z0-9._\\-]{2,47}"}
           autoComplete="username" autoCapitalize="none" spellCheck={false} /></span></label>}
       {(!stage || changing) && <label>{changing ? "Новый пароль" : "Пароль"}<span className="mz-input-icon"><Icon name="lock" size={19} />
         <Input name="password" type="password" required minLength={changing || invitation ? 12 : undefined} maxLength={128}

@@ -18,7 +18,8 @@ let role = "OWNER";
 let commandCalls = 0;
 let commandKey;
 let commandBody;
-const customer = { id: "id-customer", email: "p•••@example.invalid", status: "ACTIVE", createdAt: now };
+const visitedStaffOperations = [];
+const customer = { activation: "PENDING", emailVerified: false, id: "id-customer", email: "p•••@example.invalid", status: "ACTIVE", createdAt: now };
 const plan = { id: "fixture-plan", name: "MZT Standard", code: "standard", revision: 1, deviceLimit: 5, isActive: true };
 const ticket = { id: "case-1", category: "DELIVERY", orderId: "order-1", status: "OPEN", updatedAt: now };
 const html = '<img src=x onerror="window.adminUnsafe=true">';
@@ -114,11 +115,21 @@ const server = createServer(async (req, res) => {
   if (path === "/api/support/cases") return json(pages([ticket]));
   if (path === "/api/support/cases/case-1") return json({ case: ticket, messages: pages([{ id: "msg", author: "CUSTOMER", text: html, createdAt: now }]),
     history: pages([]) });
+  if (path === "/api/auth/sessions/revoke-others" && req.method === "POST") {
+    visitedStaffOperations.push("revoke-others");
+    return res.writeHead(204).end();
+  }
   if (path === "/api/auth/step-up") {
-    if (input.code !== "123456" || input.permission !== "plans:write" || !admin) return json({ error: { code: "FORBIDDEN" } }, 403);
+    if (input.code !== "123456" || !permissions.includes(input.permission) || !admin) return json({ error: { code: "FORBIDDEN" } }, 403);
     return json({ confirmationId: "confirmation-test" });
   }
   if (path.startsWith("/api/commands/")) {
+    const operation = path.split("/")[3];
+    if (["staff.create", "user.create", "user.activate", "staff.role"].includes(operation)) {
+      assert.equal(input.confirmationId, "confirmation-test");
+      visitedStaffOperations.push(operation);
+      return json({ commandId: operation + "-saved", result: { id: "fixture-committed" } });
+    }
     commandCalls++;
     if (commandCalls === 1) {
       commandKey = req.headers["idempotency-key"];
@@ -238,11 +249,50 @@ try {
   await until(text("persisted-command"));
   assert.equal(commandCalls, 2);
   assert.equal(commandBody.command.amountMinor, 10000);
+  async function confirmIdentity() {
+    await fill("reason", "Проверка команды на стенде");
+    await click("Проверить команду");
+    await until(text("Свежий код TOTP"));
+    assert.equal(await evaluate(text("fixture-disposable-2026")), false);
+    await fill("password", "local-test-password");
+    await fill("code", "123456");
+    await click("Подтвердить и выполнить");
+  }
+  await menu("Сотрудники");
+  await click("Создать сотрудника");
+  await fill("username", "new-employee");
+  await fill("temporaryPassword", "fixture-disposable-2026");
+  await confirmIdentity();
+  await until(text("staff.create-saved"));
+  await click(staff.username);
+  await click("Изменить роль и завершить сессии");
+  await fill("role", "SUPPORT");
+  await confirmIdentity();
+  await until(text("staff.role-saved"));
+  await fit();
+  await menu("Пользователи");
+  await click("Создать аккаунт пользователя");
+  await fill("email", "fixture-created@example.invalid");
+  await fill("temporaryPassword", "fixture-disposable-2026");
+  await confirmIdentity();
+  await until(text("user.create-saved"));
+  await click(customer.email);
+  await click("Активировать аккаунт вручную");
+  await confirmIdentity();
+  await until(text("user.activate-saved"));
+  await menu("Сессии");
+  await click("Завершить остальные сессии");
+  await until(text("Политика: Обязательна"));
+  assert.deepEqual(visitedStaffOperations, ["staff.create", "staff.role", "user.create", "user.activate", "revoke-others"]);
+  await fit();
   await click("Выйти");
   await login("support@example.invalid");
   await until(text("Открытые обращения"));
   assert.equal(await evaluate(text("Движения по валюте")), false);
   assert.equal(await evaluate("Boolean(document.querySelector('nav a[href=\"/staff\"]'))"), false);
+  await menu("Пользователи");
+  await until(text(customer.email));
+  assert.equal(await evaluate(text("Создать аккаунт пользователя")), false);
   await send("Page.navigate", { url: origin + "/payments" });
   await until(text("Раздел закрыт"));
   await menu("Поддержка");

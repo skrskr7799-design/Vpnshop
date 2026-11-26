@@ -212,7 +212,7 @@ class Deployment(unittest.TestCase):
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual(json.loads(result.stdout)["services"]["admin-api"]["environment"]["ADMIN_2FA_POLICY"], policy)
                     self.assertEqual("WARNING" in result.stderr, mode == "public" and policy == "disabled")
-        self.rejects("edge", CONFIG["edge", "private"] | {"ADMIN_2FA_POLICY": "disabled"}, "Unknown or inapplicable")
+        self.rejects("edge", CONFIG["edge", "private"] | {"ADMIN_2FA_POLICY": "disabled"}, "unsupported or derived variables")
         self.rejects("core", CONFIG["core", "private"] | {"ADMIN_2FA_POLICY": "off"}, "Invalid ADMIN_2FA_POLICY")
 
     def test_tls_uses_system_ca_when_private_ca_is_absent(self):
