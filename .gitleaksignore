@@ -2,3 +2,9 @@
 93579e7ec6ef204b66aa4e1880f24c2f414ce866:ops/scripts/smoke.sh:generic-api-key:90
 c8d570e04d652c4a681f27c14675b169c8b5aaf4:apps/api/src/modules/admin/auth/totp.test.ts:generic-api-key:5
 989584fc9065108b2cf6ac43dbd7a30936e0ad96:ops/scripts/smoke.sh:generic-api-key:202
+
+# PASS 03 local Chromium fixtures. These matches were never used by the application or any provider.
+55d7ef6309501b9065f03c4351deccb2c9ea8607:apps/admin/scripts/admin-browser-smoke.mjs:generic-api-key:264
+55d7ef6309501b9065f03c4351deccb2c9ea8607:apps/admin/scripts/admin-browser-smoke.mjs:generic-api-key:276
+00b063fd3e781d88089a067e9509f6b0315b1ff5:apps/admin/scripts/admin-browser-smoke.mjs:generic-api-key:69
+00b063fd3e781d88089a067e9509f6b0315b1ff5:apps/admin/scripts/admin-browser-smoke.mjs:generic-api-key:319

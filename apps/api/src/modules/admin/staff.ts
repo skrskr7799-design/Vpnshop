@@ -36,11 +36,14 @@ async function staffTarget({ db, targetId, expectedVersion }: CommandContext) {
 
 async function protectLastOwner(ctx: CommandContext, owner: { id: string; role: string; status: string }) {
   if (owner.role !== "OWNER" || owner.status !== "ACTIVE") return;
+  const unlocked = { OR: [{ lockedUntil: null }, { lockedUntil: { lte: ctx.now } }] };
+  const available: Prisma.UserWhereInput = env.ADMIN_2FA_POLICY === "disabled" ? {}
+    : env.ADMIN_2FA_POLICY === "optional" ? { OR: [
+      { totp: null }, { totp: { is: { confirmedAt: null } } }, { totp: { is: unlocked } },
+    ] }
+    : { totp: { is: { confirmedAt: { not: null }, ...unlocked } } };
   if (!await ctx.db.user.count({ where: { id: { not: owner.id }, role: "OWNER", status: "ACTIVE",
-    staffCredential: { is: { temporaryUntil: null, deactivatedAt: null } },
-    ...(env.ADMIN_2FA_POLICY !== "disabled" && { NOT: { totp: { is: { confirmedAt: { not: null },
-      lockedUntil: { gt: ctx.now } } } } }),
-  } })) throw new AppError(409, "LAST_OWNER");
+    staffCredential: { is: { temporaryUntil: null, deactivatedAt: null } }, ...available } })) throw new AppError(409, "LAST_OWNER");
 }
 
 async function guardStaffChange(ctx: CommandContext, target: Awaited<ReturnType<typeof staffTarget>>) {

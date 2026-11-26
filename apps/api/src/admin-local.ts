@@ -1,3 +1,5 @@
+import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { env } from "./config/env";
 import { AppError } from "./lib/errors";
 import { prisma } from "./lib/prisma";
@@ -23,7 +25,10 @@ try {
   }
 } catch (error) {
   // Neither parse details nor a Prisma exception may contain credential material in operator logs.
-  console.error(error instanceof AppError ? error.code : "LOCAL_ADMIN_COMMAND_FAILED");
+  const code = error instanceof AppError ? error.code
+    : error instanceof Prisma.PrismaClientKnownRequestError && /^P[0-9]{4}$/.test(error.code) ? "LOCAL_ADMIN_DB_" + error.code
+    : (error instanceof SyntaxError || error instanceof z.ZodError) ? "INVALID_LOCAL_INPUT" : "LOCAL_ADMIN_COMMAND_FAILED";
+  console.error(code);
   process.exitCode = 1;
 } finally {
   await prisma.$disconnect();

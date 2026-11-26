@@ -321,14 +321,23 @@ if [[ "${MZT_V2_CLI_SMOKE:-0}" == 1 ]]; then
   correlation=$(cat /proc/sys/kernel/random/uuid)
   local_admin=(docker compose --env-file "$tmp/settings" --profile monitoring "${stack[@]}"
     run -T --rm --no-deps --entrypoint node admin-api dist/admin-local.js)
+  local_identity() {
+    local operation=$1
+    if ! "${local_admin[@]}" "$operation" 2>"$tmp/local-admin.stderr"; then
+      local code
+      code=$(grep -m1 -E '^(LOCAL_ADMIN_[A-Z0-9_]+|STAFF_[A-Z_]+|INVALID_LOCAL_INPUT|OWNER_[A-Z_]+)$' "$tmp/local-admin.stderr" || true)
+      printf '::error::Isolated admin %s failed (%s)\n' "$operation" "${code:-container execution failed}" >&2
+      return 1
+    fi
+  }
   jq -n --arg id "$correlation" '{username:"isolated-owner",password:("synthetic-"+$id),correlationId:$id}' |
-    "${local_admin[@]}" bootstrap |
+    local_identity bootstrap |
     jq -e '.username == "isolated-owner" and .role == "OWNER"'
-  "${local_admin[@]}" list |
+  local_identity list |
     jq -e 'any(.[]; .username == "isolated-owner" and .role == "OWNER")'
   jq -n --arg id "$correlation" '{username:"isolated-owner",password:("different-"+$id),incident:"SMOKE-RECOVERY",
     correlationId:$id,resetTotp:true,restoreStatus:false}' |
-    "${local_admin[@]}" recover |
+    local_identity recover |
     jq -e '.username == "isolated-owner" and .active == true'
 fi
 echo "Compose, TLS, origins, schema failure, Prisma/Argon2, DB grants, secret scopes and SIGTERM verified"

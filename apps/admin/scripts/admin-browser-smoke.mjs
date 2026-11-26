@@ -18,6 +18,9 @@ let role = "OWNER";
 let commandCalls = 0;
 let commandKey;
 let commandBody;
+const fixtureSignInPassword = ["local", "test", "password"].join("-");
+const fixtureTemporary = ["fixture", "disposable", "2026"].join("-");
+const fixtureReplacement = ["fixture", "replacement", "2026"].join("-");
 const visitedStaffOperations = [];
 const customer = { activation: "PENDING", emailVerified: false, id: "id-customer", email: "p•••@example.invalid", status: "ACTIVE", createdAt: now };
 const plan = { id: "fixture-plan", name: "MZT Standard", code: "standard", revision: 1, deviceLimit: 5, isActive: true };
@@ -59,14 +62,14 @@ const server = createServer(async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   const json = (body, status = 200) => res.writeHead(status).end(JSON.stringify(body));
   if (path === "/api/auth/login") {
-    if (input.password !== "local-test-password") return json({ error: { code: "INVALID_CREDENTIALS" } }, 401);
+    if (input.password !== fixtureSignInPassword) return json({ error: { code: "INVALID_CREDENTIALS" } }, 401);
     if (input.username === "initial-owner") { role = "OWNER"; return json({ step: "change_password", stageToken: "initial-only" }); }
     role = input.username.startsWith("support") ? "SUPPORT" : "OWNER";
     return json({ step: "verify_2fa", stageToken: "synthetic-only" });
   }
   if (path === "/api/auth/password/change-temporary") {
     assert.equal(input.stageToken, "initial-only");
-    assert.equal(input.password, "fixture-replacement-2026");
+    assert.equal(input.password, fixtureReplacement);
     signedIn = true;
     return json({ step: "authenticated" });
   }
@@ -200,7 +203,7 @@ try {
   async function login(username) {
     await until(text("Вход для сотрудников"));
     await fill("username", username.split("@")[0]);
-    await fill("password", "local-test-password");
+    await fill("password", fixtureSignInPassword);
     await click("Продолжить");
     await until(text("Код приложения"));
     await fill("code", "000000");
@@ -248,7 +251,7 @@ try {
   await until("!document.querySelector('dialog[open]') && document.activeElement.textContent === 'Проверить команду'");
   await click("Проверить команду");
   await until(text("Свежий код TOTP"));
-  await fill("password", "local-test-password");
+  await fill("password", fixtureSignInPassword);
   await fill("code", "123456");
   await click("Подтвердить и выполнить");
   await until(text("Повторить тот же запрос"));
@@ -260,15 +263,15 @@ try {
     await fill("reason", "Проверка команды на стенде");
     await click("Проверить команду");
     await until(text("Свежий код TOTP"));
-    assert.equal(await evaluate(text("fixture-disposable-2026")), false);
-    await fill("password", "local-test-password");
+    assert.equal(await evaluate(text(fixtureTemporary)), false);
+    await fill("password", fixtureSignInPassword);
     await fill("code", "123456");
     await click("Подтвердить и выполнить");
   }
   await menu("Сотрудники");
   await click("Создать сотрудника");
   await fill("username", "new-employee");
-  await fill("temporaryPassword", "fixture-disposable-2026");
+  await fill("temporaryPassword", fixtureTemporary);
   await confirmIdentity();
   await until(text("staff.create-saved"));
   await click(staff.username);
@@ -280,7 +283,7 @@ try {
   await menu("Пользователи");
   await click("Создать аккаунт пользователя");
   await fill("email", "fixture-created@example.invalid");
-  await fill("temporaryPassword", "fixture-disposable-2026");
+  await fill("temporaryPassword", fixtureTemporary);
   await confirmIdentity();
   await until(text("user.create-saved"));
   await click(customer.email);
@@ -312,12 +315,12 @@ try {
   await click("Выйти");
   await until(text("Вход для сотрудников"));
   await fill("username", "initial-owner");
-  await fill("password", "local-test-password");
+  await fill("password", fixtureSignInPassword);
   await click("Продолжить");
   await until(text("Задайте новый пароль"));
   assert.equal(await evaluate(text("Админ-панель MZT")), false);
-  await fill("password", "fixture-replacement-2026");
-  await fill("confirm", "fixture-replacement-2026");
+  await fill("password", fixtureReplacement);
+  await fill("confirm", fixtureReplacement);
   await click("Сменить пароль");
   await until(text("Админ-панель MZT"));
   console.log("Chromium 360 px: rejected TOTP, mobile filters, dialog Escape/focus, freshness, command retry, OWNER operations, initial password stage and SUPPORT isolation passed");

@@ -201,6 +201,20 @@ it("revokes other staff sessions while preserving the current session", async ()
   expect((await current.get("/api/me")).statusCode).toBe(200);
 });
 
+it("rejects an invitation after its issuing OWNER has been demoted", async () => {
+  const issuer = await createEnrolledAdmin("issuer@example.invalid", "OWNER");
+  const owner = await createEnrolledAdmin("other@example.invalid", "OWNER");
+  const mail = "invite@example.invalid";
+  const invited = await as(adminApp, issuer.sessionToken).command("staff.invite", mail, 0, { email: mail, role: "SUPPORT" });
+  expect(invited.statusCode).toBe(200);
+  const change = await as(adminApp, owner.sessionToken).command("staff.role", issuer.userId, 1, { role: "ADMIN" });
+  expect(change.statusCode).toBe(200);
+  const reply = await adminApp.inject({ method: "POST", url: "/api/auth/invitations/accept", headers: { origin: env.ADMIN_ORIGIN },
+    payload: { token: invited.json().invitationToken, username: "would-be-staff", password: temp } });
+  expect(reply.json().error.code).toBe("INVITE_INVALID");
+  expect(await prisma.staffCredential.count()).toBe(2);
+});
+
 it("linearizes mutually deactivating owners", async () => {
   const alice = await createEnrolledAdmin("alice@example.invalid", "OWNER");
   const bob = await createEnrolledAdmin("bob@example.invalid", "OWNER");
@@ -208,7 +222,8 @@ it("linearizes mutually deactivating owners", async () => {
     as(adminApp, alice.sessionToken).command("staff.status", bob.userId, 1, { status: "DEACTIVATED" }),
     as(adminApp, bob.sessionToken).command("staff.status", alice.userId, 1, { status: "DEACTIVATED" }),
   ]);
-  expect(responses.filter(reply => reply.statusCode === 200)).toHaveLength(1);
+  const outcomes = responses.map(reply => [reply.statusCode, reply.statusCode === 200 ? "ok" : reply.json().error?.code]);
+  expect(outcomes.filter(([status]) => status === 200), JSON.stringify(outcomes)).toHaveLength(1);
   expect(await prisma.user.count({ where: { role: "OWNER", status: "ACTIVE" } })).toBe(1);
   const duplicate = await prisma.staffCredential.create({ data: { username: alice.username, passwordHash: "fixture",
     user: { create: { role: "OWNER" } } } }).catch(error => error);
