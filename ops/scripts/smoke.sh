@@ -170,6 +170,10 @@ SELECT count(*)=1 FROM "NotificationOutbox" WHERE payload NOT LIKE '"'"'%synthet
 if [[ "${MZT_V2_SMOKE:-0}" == 1 ]]; then
   dc run --rm --no-deps logical-local
   dc run --rm --no-deps --entrypoint sh logical-local -ec 'cd /state/proofs; set -- */SHA256SUMS; [ "$#" = 1 ]; cd "${1%/*}"; sha256sum -c SHA256SUMS'
+  if [[ "${MZT_V2_CLI_SMOKE:-0}" == 1 ]]; then
+    PYTHONDONTWRITEBYTECODE=1 python3 ops/scripts/v2_cli_pg_smoke.py "$tmp" \
+      --env-file "$tmp/settings" --profile monitoring "${stack[@]}"
+  fi
 fi
 dc exec -T db psql -U postgres -d vpnshop -Atc '
 SELECT NOT has_schema_privilege('"'"'mzt_public'"'"','"'"'public'"'"','"'"'CREATE'"'"')

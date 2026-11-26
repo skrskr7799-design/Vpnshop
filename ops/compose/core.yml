@@ -1,31 +1,31 @@
 # Shared service definitions come from the installed-stack Compose contract.
 services:
   db:
-    extends: {file: compose.yml, service: db}
+    extends: {file: "${V2_LEGACY_COMPOSE:-compose.yml}", service: db}
   migrator:
-    extends: {file: compose.yml, service: migrator}
+    extends: {file: "${V2_LEGACY_COMPOSE:-compose.yml}", service: migrator}
   public-api:
-    extends: {file: compose.yml, service: public-api}
+    extends: {file: "${V2_LEGACY_COMPOSE:-compose.yml}", service: public-api}
     environment:
       CHECKOUT_TTL_MINUTES: ${CHECKOUT_TTL_MINUTES:-30}
   worker:
-    extends: {file: compose.yml, service: worker}
+    extends: {file: "${V2_LEGACY_COMPOSE:-compose.yml}", service: worker}
   billing:
-    extends: {file: compose.yml, service: billing}
+    extends: {file: "${V2_LEGACY_COMPOSE:-compose.yml}", service: billing}
   notifications:
-    extends: {file: compose.yml, service: notifications}
+    extends: {file: "${V2_LEGACY_COMPOSE:-compose.yml}", service: notifications}
     profiles: [mail]
     environment: {SMTP_URL_FILE: ""}
     secrets: !override [notifications_url, mail_key]
   exporter:
-    extends: {file: compose.yml, service: exporter}
+    extends: {file: "${V2_LEGACY_COMPOSE:-compose.yml}", service: exporter}
     secrets: !override [monitor_url, {source: monitor_admin_cert, target: admin_cert}]
   prometheus:
-    extends: {file: compose.yml, service: prometheus}
+    extends: {file: "${V2_LEGACY_COMPOSE:-compose.yml}", service: prometheus}
   alertmanager:
-    extends: {file: compose.yml, service: alertmanager}
+    extends: {file: "${V2_LEGACY_COMPOSE:-compose.yml}", service: alertmanager}
   alert-sink:
-    extends: {file: compose.yml, service: alert-sink}
+    extends: {file: "${V2_LEGACY_COMPOSE:-compose.yml}", service: alert-sink}
 
 networks:
   public-api-edge:

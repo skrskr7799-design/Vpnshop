@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+if ! command -v python3 >/dev/null; then
+  printf 'VPNShop requires Python 3 for release verification and mandatory preflight.\n' >&2
+  exit 69
+fi
+exec python3 -c "$(cat <<'VPNSHOP_PYTHON'

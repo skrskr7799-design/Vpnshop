@@ -1,16 +1,16 @@
 # Shared service definitions come from the installed-stack Compose contract.
 services:
   admin-api:
-    extends: {file: compose.yml, service: admin-api}
+    extends: {file: "${V2_LEGACY_COMPOSE:-compose.yml}", service: admin-api}
     environment:
       ADMIN_ACCESS_MODE: ${ADMIN_ACCESS_MODE:-private}
       ADMIN_IDLE_MINUTES: ${ADMIN_IDLE_MINUTES:-30}
       ADMIN_SESSION_HOURS: ${ADMIN_SESSION_HOURS:-12}
   admin:
-    extends: {file: compose.yml, service: admin}
+    extends: {file: "${V2_LEGACY_COMPOSE:-compose.yml}", service: admin}
   admin-edge:
     user: "101:101"
-    extends: {file: compose.yml, service: admin-edge}
+    extends: {file: "${V2_LEGACY_COMPOSE:-compose.yml}", service: admin-edge}
     environment: {EDGE_ADMIN_MODE: "${ADMIN_ACCESS_MODE:-private}"}
 
 networks:

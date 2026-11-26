@@ -278,7 +278,7 @@ def design(role, raw, secrets):
     return v, files, flags
 
 
-def compose(settings, role, files, secrets, release, project, disposable):
+def compose(settings, role, files, secrets, release, project, disposable, *, project_dir=None, monitoring_dir=None):
     require(re.fullmatch(r"[a-z0-9][a-z0-9_-]*", project), "Invalid Compose project")
     if project != f"vpnshop-{role}":
         require(disposable and project.startswith("mzt-ci-"), "Use the fixed Compose project for this role")
@@ -304,7 +304,9 @@ def compose(settings, role, files, secrets, release, project, disposable):
     for key in PUBLIC | LINK | CORE | APPS | IMAGES | {"V2_WEB_PROXY", "V2_PUBLIC_AUTHORITY", "CORE_API_ADDR", "MZT_DEPLOY_ENV"}:
         env.pop(key, None)
     env.update(v)
-    command = ["docker", "compose", "--project-directory", str(OPS), "--env-file", "/dev/null", "-p", project, "--profile", "monitoring"]
+    env["V2_LEGACY_COMPOSE"] = str(OPS / "compose.yml")
+    env["V2_MONITORING_DIR"] = str(monitoring_dir or OPS / "monitoring")
+    command = ["docker", "compose", "--project-directory", str(project_dir or OPS), "--env-file", "/dev/null", "-p", project, "--profile", "monitoring"]
     for name in files:
         command += ["-f", str(OPS / "compose" / (name + ".yml"))]
     result = subprocess.run(command + ["--profile", "*", "config", "--format", "json"],

@@ -8,6 +8,19 @@ export AWS_SHARED_CREDENTIALS_FILE=/run/secrets/logical_s3_credentials AWS_EC2_M
 export GNUPGHOME="$work/gnupg" AWS_CONFIG_FILE="$work/aws.conf"
 printf '[default]\ns3 =\n    addressing_style = path\n' > "$AWS_CONFIG_FILE"
 mkdir -m 700 "$GNUPGHOME"
+operation=${1:-}
+case "$operation" in
+  verify|decrypt)
+    [ "${MZT_LOGICAL_LOCAL:-0}" = 1 ]
+    gpg --batch --pinentry-mode loopback --passphrase-file /run/secrets/logical_key --output "$work/verified.dump" --decrypt
+    pg_restore --list "$work/verified.dump" >/dev/null
+    if [ "$operation" = decrypt ]; then cat "$work/verified.dump"; fi
+    exit 0
+    ;;
+  export) [ "${MZT_LOGICAL_LOCAL:-0}" = 1 ] ;;
+  "") ;;
+  *) exit 64 ;;
+esac
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 mzt-with-postgres /run/secrets/backup_url pg_dump --no-password --enable-row-security --no-owner --no-acl -Fc -f "$work/dump"
 pg_restore --list "$work/dump" >/dev/null
@@ -21,6 +34,10 @@ if [ "${MZT_LOGICAL_LOCAL:-0}" = 1 ]; then
   (cd "$target"; printf '%s  dump.gpg\n' "$digest" > SHA256SUMS; sha256sum -c SHA256SUMS >/dev/null)
   gpg --batch --pinentry-mode loopback --passphrase-file /run/secrets/logical_key --output "$work/verified.dump" --decrypt "$target/dump.gpg"
   pg_restore --list "$work/verified.dump" >/dev/null
+  if [ "$operation" = export ]; then
+    cat "$target/dump.gpg"
+    exit 0
+  fi
   mv -T "$target" "/state/proofs/$stamp-${target##*-}"
   target=
   exit 0

@@ -44,4 +44,32 @@ jobs:
           MZT_V2_EDGE_IMAGE: mzt-ci-edge:${{ github.sha }}
         run: PYTHONDONTWRITEBYTECODE=1 python3 ops/scripts/v2_tls_smoke.py
       - name: Start the disposable Single deployment and verify local backup
-        run: MZT_V2_SMOKE=1 ops/scripts/smoke.sh
+        run: MZT_V2_SMOKE=1 MZT_V2_CLI_SMOKE=1 ops/scripts/smoke.sh
+  artifacts:
+    name: Test release selection, CLI recovery and deploy artifacts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Exercise fingerprints, archive boundaries and CLI transactions
+        run: PYTHONDONTWRITEBYTECODE=1 python3 ops/scripts/test_v2_release.py -v
+      - name: Verify the source-free installer and reproducible test bundle
+        run: |
+          set -euo pipefail
+          python3 ops/scripts/v2_release.py candidate "$RUNNER_TEMP/vpnshop-candidate"
+          python3 ops/scripts/v2_release.py candidate "$RUNNER_TEMP/vpnshop-reproduction"
+          diff -r "$RUNNER_TEMP/vpnshop-candidate" "$RUNNER_TEMP/vpnshop-reproduction"
+          cd "$RUNNER_TEMP/vpnshop-candidate"
+          sha256sum -c ./*.sha256
+          bash -n vpnshop.sh
+          shellcheck vpnshop.sh "$GITHUB_WORKSPACE"/ops/scripts/build.sh "$GITHUB_WORKSPACE"/ops/backup/logical.sh
+          ./vpnshop.sh version
+          ./vpnshop.sh help
+      - name: Upload non-installable test candidate
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: vpnshop-test-candidate-${{ github.sha }}
+          path: ${{ runner.temp }}/vpnshop-candidate
+          if-no-files-found: error

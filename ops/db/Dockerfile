@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1@sha256:572cebbc2b15e6f84c077742952674889cb63cd5e9b80abdffcbe587b6f19183
 FROM postgres:17-bookworm@sha256:837bed18782820fe967067cb5328b02b0d9992c1be9a37ee0c9c492cfc03af3b AS postgres-base
 RUN rm -f /etc/apt/sources.list.d/pgdg.list
 
@@ -15,7 +15,7 @@ RUN --mount=type=secret,id=proxy_ca \
 
 FROM postgres-base AS database
 ARG REVISION=unknown
-LABEL org.opencontainers.image.revision=${REVISION}
+LABEL org.opencontainers.image.revision=${REVISION} org.opencontainers.image.source=https://github.com/skrskr7799-design/Vpnshop
 RUN apt-get update && apt-get install -y --no-install-recommends libxml2 liblz4-1 libzstd1 libbz2-1.0 libyaml-0-2 liblzma5 && \
     rm -rf /var/lib/apt/lists/* && rm -f /usr/local/bin/gosu && \
     install -d -o 999 -g 999 /state/db /state/repo /state/proofs && \
@@ -27,7 +27,7 @@ ENV PGDATA=/state/db/pgdata
 
 FROM database AS backup
 ARG REVISION=unknown
-LABEL org.opencontainers.image.revision=${REVISION}
+LABEL org.opencontainers.image.revision=${REVISION} org.opencontainers.image.source=https://github.com/skrskr7799-design/Vpnshop
 USER 0
 RUN apt-get update && apt-get install -y --no-install-recommends awscli gnupg && rm -rf /var/lib/apt/lists/*
 COPY --chmod=0555 ops/db/with-postgres.py /usr/local/bin/mzt-with-postgres

@@ -238,6 +238,7 @@ class Deployment(unittest.TestCase):
                     (self.secrets / name).unlink()
         for name, value in generated.items():
             path = self.secrets / name
+            path.unlink(missing_ok=True)
             path.write_text(value)
             path.chmod(0o400)
         conf = self.render("single", base | all_vars)
