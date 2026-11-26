@@ -82,10 +82,10 @@ sql vpnshop_legacy <<< 'DROP INDEX fnd02_drift_probe'
 legacy_diff
 
 snapshot() {
-  # Project Order onto its legacy columns. The new nullable fields are checked separately.
+  # Compare the original columns of tables that received additive migrations.
   {
     docker exec "$container" pg_dump -U postgres -d vpnshop_legacy --data-only --schema=public \
-      --exclude-table=public._prisma_migrations --exclude-table='public."Subscription"' --exclude-table='public."FulfillmentJob"' --exclude-table='public."AdminSession"' --exclude-table='public."Plan"' --exclude-table='public."AuditLog"' --exclude-table='public."User"' --exclude-table='public."AuthIdentity"' --exclude-table='public."Session"' --exclude-table='public."Order"' --exclude-table='public."Payment"' --exclude-table='public."WebhookEvent"' --inserts --no-owner --no-privileges |
+      --exclude-table=public._prisma_migrations --exclude-table='public."Subscription"' --exclude-table='public."FulfillmentJob"' --exclude-table='public."AdminSession"' --exclude-table='public."Plan"' --exclude-table='public."AuditLog"' --exclude-table='public."User"' --exclude-table='public."AuthIdentity"' --exclude-table='public."Session"' --exclude-table='public."Order"' --exclude-table='public."Payment"' --exclude-table='public."WebhookEvent"' --exclude-table='public."VerificationToken"' --inserts --no-owner --no-privileges |
       sed -n '/^INSERT INTO /p'
     sql vpnshop_legacy <<'SQL'
 COPY (SELECT id, "userId", "tokenHash", ip, "userAgent", "createdAt", "lastSeenAt", "idleExpiresAt", "expiresAt" FROM "AdminSession") TO STDOUT;
@@ -98,6 +98,7 @@ COPY (SELECT id, "userId", "planId", "durationMonths", "deviceLimit", currency, 
   status, "expiresAt", "paidAt", "fulfilledAt", "createdAt", "updatedAt" FROM "Order") TO STDOUT;
 COPY (SELECT id, "orderId", provider, "externalId", status, amount, currency, "providerData",
   "paidAt", "createdAt", "updatedAt" FROM "Payment") TO STDOUT;
+COPY (SELECT id, "userId", type, "tokenHash", "expiresAt", "usedAt", "createdAt" FROM "VerificationToken") TO STDOUT;
 COPY (SELECT id, provider, "eventKey", payload, "signatureValid", "receivedAt", "processedAt", error
   FROM "WebhookEvent") TO STDOUT;
 COPY (SELECT id, "orderId", status, attempts, "nextAttemptAt", "targetExpireAt", "lockedAt",
