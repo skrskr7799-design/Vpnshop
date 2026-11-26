@@ -30,6 +30,13 @@ REQUIRED = {"release.env", "release-images.json", "migration-history.json", "NOT
             "compose/oauth.google.yml", "compose/oauth.telegram.yml", "compose/egress.panel-key.yml",
             "monitoring/prometheus.yml", "monitoring/alerts.yml", "monitoring/alertmanager.yml", "monitoring/sink.mjs"}
 NOTE_FIELDS = ("changes", "settings", "secrets", "compatibility", "update", "downtime", "rollback", "known_issues")
+ROLLBACK_PROOF = "templates/rollback-compatibility.list"
+
+
+def rollback_target(value):
+    demand(matches(VERSION + " " + SHA, value) and len(value) <= 86,
+           "Independent rollback requires an exact predecessor version and SHA")
+    return tuple(value.split(" "))
 
 
 class ReleaseError(Exception):
@@ -86,6 +93,12 @@ def manifest(directory):
                and matches(SHA, item["source"]) and item["reference"] == values[IMAGE_KEYS[image]]
                and item["decision"] in {"built", "reused"}
                and (item["decision"] != "built" or item["source"] == values["GIT_SHA"]), "Invalid image provenance")
+    proof = directory / ROLLBACK_PROOF
+    if proof.is_file():
+        predecessor = rollback_target(proof.read_text(encoding="ascii").removesuffix("\n"))
+        demand(predecessor[0] != values["VPNSHOP_VERSION"]
+               and provenance["coordination"] == "compatible", "Invalid independent rollback compatibility proof")
+        provenance["rollbackCompatibleWith"] = predecessor
     return values, history, provenance
 
 

@@ -29,10 +29,13 @@ export function createGoogleProvider(
     toProfile(claims) {
       if (!claims.sub) throw new AppError(400, "OAUTH_FAILED");
       const email = emailField.safeParse(claims.email);
+      const hostedDomain = typeof claims.hd === "string" && claims.hd.length > 0;
+      // For third-party addresses Google may only have verified past ownership.
+      const authoritative = email.success && (email.data.endsWith("@gmail.com") || hostedDomain);
       return {
         providerId: claims.sub,
         email: email.success ? email.data : null,
-        emailVerified: claims.email_verified === true,
+        emailVerified: authoritative && claims.email_verified === true,
       };
     },
   };

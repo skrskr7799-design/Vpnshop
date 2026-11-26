@@ -9,8 +9,7 @@ See [Master Specification](V2_MASTER_SPEC.md) and [Development Rules](V2_DEVELOP
 | 03 · Administration & Identity | Username migration, protected OWNER, staff/user creation, explicit 2FA policy and equivalent protected step-up, sessions and audit. | PASS 01 access modes, local command contract PASS 02, existing staff identity and RBAC. | IMPLEMENTED · verification below |
 | 04 · Authentication & Support | Email/manual activation, verified Google and Telegram paths, safe linking, support assignment/unread/notifications and isolation. | PASS 03 owner capabilities. SMTP is optional. Live SMTP and OIDC acceptance require approved test credentials. | IMPLEMENTED · live verification pending |
 | 05 · Product Configuration & Integrations | Runtime flags and metadata, gates for new payments only, optional panel and verified provider integration. | PASS 01 overlays, PASS 03–04 roles/auth; confirmed Platega test contract and isolated Remnawave panel. | IMPLEMENTED · provider acceptance pending |
-| 06 · Integration & Release Preparation | Cross-pass end-to-end acceptance, versioned artifacts, backup/restore, upgrade/rollback, safe legacy cutover rehearsal, external readiness evidence. | PASS 01–05, approved isolated staging and legacy fixture. | PLANNED |
-| 07 · Astra Final Audit | Independent assessment of application, integrations, financial integrity, auth, infrastructure and release evidence. Commercial decision by owner. | Accepted PASS 06 candidate and the external gates. | PLANNED |
+| 06 · Critical Delta Audit & Remediation | Independent fixed-range audit and remediation of its six findings. Final development pass. | PASS 01–05, Toolchain CI, Deployment CI. Separate operational acceptance covers provider and VPS evidence. | Audit complete · remediation verification below |
 
 ## PASS 01 evidence and boundaries
 
@@ -22,7 +21,7 @@ See [Master Specification](V2_MASTER_SPEC.md) and [Development Rules](V2_DEVELOP
 
 ## PASS 02 evidence and boundaries
 
-The protected release workflow and source-free CLI use the existing topology, preflight, migrator, logical backup and recovery scripts. The [release process](RELEASE_PROCESS.md) describes fingerprint inputs, digest reuse, manifest validation and accepted operator evidence. The [CLI runbook](V2_OPERATIONS.md) covers independent role installation, recovery and database rollback. The read-only [branch CI](https://github.com/skrskr7799-design/Vpnshop/actions/workflows/v2-deployment.yml) checks deterministic artifacts, deployment cases and isolated PostgreSQL restore with synthetic credentials. Production GHCR publication, protection configuration and attestation verification are external checks. Existing release acceptance blockers remain. OWNER bootstrap/recovery require PASS 03 and actual legacy cutover requires PASS 06.
+The protected release workflow and source-free CLI use the existing topology, preflight, migrator, logical backup and recovery scripts. The [release process](RELEASE_PROCESS.md) describes fingerprint inputs, digest reuse, manifest validation and accepted operator evidence. The [CLI runbook](V2_OPERATIONS.md) covers independent role installation, recovery and database rollback. The read-only [branch CI](https://github.com/skrskr7799-design/Vpnshop/actions/workflows/v2-deployment.yml) checks deterministic artifacts, deployment cases and isolated PostgreSQL restore with synthetic credentials. Production GHCR publication, protection configuration, attestation verification and legacy cutover remain external checks. OWNER bootstrap and recovery were delivered in PASS 03.
 
 ## PASS 03 implementation
 
@@ -31,9 +30,17 @@ The [administration runbook](V2_ADMINISTRATION.md) covers migration, OWNER boots
 
 ## PASS 04 implementation
 
-The [authentication and support runbook](V2_AUTHENTICATION_SUPPORT.md) records SMTP optionality, OAuth configuration, account linking, read positions, case triage and the additive database migration. Branch CI exercises existing workflows with synthetic identity providers, a disposable PostgreSQL instance, the three deployment roles and Chromium evidence. Live Google and Telegram claims, fresh Telegram reauthentication and mail relay delivery still require isolated credentials and operator acceptance. The existing-server upgrade and compatibility rehearsal remain in PASS 06.
+The [authentication and support runbook](V2_AUTHENTICATION_SUPPORT.md) records SMTP optionality, OAuth configuration, account linking, read positions, case triage and the additive database migration. Branch CI exercises existing workflows with synthetic identity providers, a disposable PostgreSQL instance, the three deployment roles and Chromium evidence. Live Google and Telegram claims, fresh Telegram reauthentication, mail delivery and the existing-server rehearsal require separate operational acceptance.
 
 
 ## PASS 05 implementation
 
-[Product configuration](V2_PRODUCT_CONFIGURATION.md) records runtime metadata, Core-owned admission gates, optional integrations and the staged cutover contract. Platega contract and sandbox remain externally blocked. Live Remnawave, SMTP, Google and Telegram acceptance remains with PASS 06.
+[Product configuration](V2_PRODUCT_CONFIGURATION.md) records runtime metadata, Core-owned admission gates, optional integrations and the staged cutover contract. Platega contract and sandbox remain externally blocked. Live Remnawave, SMTP, Google and Telegram remain external acceptance checks.
+
+## PASS 06 final development pass
+
+The independent audit compared `5b89a3d28e6c4ccc0d4579e4c3bce48e4f66e3e2` with `3b9d6cfec7d7eccb7ed6fb96ab1770ff4941fa3d`. Remediation adds restore quarantine and explicit reconciliation, inactive Compose service cleanup, directional split rollback approval, authoritative Google email handling, locked system package inputs and preserved Edge API errors. The release and operations guides record the new controls and test boundaries.
+
+Local checks covered the release and CLI suite, Compose matrix, Google claims and Nginx transport smoke. Deployment CI includes the full disposable PostgreSQL restore and SMTP overlay transition. The managed proxy denied local downloads of the Debian snapshot and Prisma engine checksum. Exact release-image and full Toolchain CI evidence therefore require the branch runs on the remediation commit.
+
+Operational acceptance is separate from development. It still includes exact candidate validation, approved VPS transport and failover rehearsal, legacy cutover, live provider evidence and the existing release gates. Publishing the working branch leaves production release and rollout subject to separate authorization.

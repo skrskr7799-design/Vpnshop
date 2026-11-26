@@ -26,6 +26,8 @@ if "REPOSITORY" not in globals():
 MARKER = "writers-stopped-isolated-target"
 ACTIVE_PROFILES = {"monitoring"}
 APP_WRITERS = ("public-api", "admin-api", "worker", "billing", "notifications")
+LIVE_CONTAINER_STATES = {"running", "restarting", "paused"}
+RESTORE_REVIEW = "awaiting-reconciliation"
 BACKUP_ID = r"[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}"
 POSTGRES_MAJOR = 17
 
@@ -147,6 +149,7 @@ class ReleaseSource:
 class Runtime:
     def __init__(self, deployment, release, *, allow_pull=False, read_only=False):
         self.release, self.role, self.secrets = release, deployment.role, deployment.secrets
+        self.project = f"vpnshop-{self.role}"
         self.values, self.history, self.metadata = manifest(release)
         api = module(release / "scripts/preflight.py")
         self.api = api
@@ -154,7 +157,7 @@ class Runtime:
         path = deployment.monitoring_path(release, create=not read_only)
         self.command, self.env, self.config = api.compose(
             self.settings, deployment.role, files, deployment.secrets, self.values,
-            f"vpnshop-{deployment.role}", False, project_dir=deployment.root, monitoring_dir=path,
+            self.project, False, project_dir=deployment.root, monitoring_dir=path,
         )
         api.hardened(self.config, False)
         api.validate_topology(self.config, deployment.role, self.settings, self.flags, files)
@@ -227,7 +230,42 @@ class Runtime:
         return [name for name, definition in self.services.items()
                 if not definition.get("profiles") or ACTIVE_PROFILES.intersection(definition["profiles"])]
 
+    def project_containers(self):
+        output = call(["docker", "ps", "--all", "--filter", f"label=com.docker.compose.project={self.project}",
+                       "--format", '{{.ID}} {{.Label "com.docker.compose.service"}} {{.State}} '
+                                   '{{.Label "com.docker.compose.oneoff"}}'], env=self.env).stdout.decode()
+        return [line.split() for line in output.splitlines()]
+
+    def inactive_containers(self):
+        expected = set(self.active())
+        return [row for row in self.project_containers() if row[3].lower() == "false" and row[1] not in expected]
+
+    def unexpected_live(self):
+        return [(container, service) for container, service, state, _ in self.inactive_containers()
+                if state in LIVE_CONTAINER_STATES]
+
+    def stop_containers(self, containers):
+        if containers:
+            call(["docker", "stop", "--time", "120", *containers], env=self.env, timeout=180)
+
+    def remove_containers(self, workloads):
+        self.stop_containers([row[0] for row in workloads if row[2] in LIVE_CONTAINER_STATES])
+        if workloads:
+            call(["docker", "rm", *(row[0] for row in workloads)], env=self.env)
+
+    def quarantine_restore(self):
+        # Removing containers, without -v, also prevents daemon restart policies
+        # from bringing any ingress or writers back while the journal is pending.
+        self.remove_containers([row for row in self.project_containers() if row[1] != "db"])
+        demand(all(row[1] == "db" for row in self.project_containers()), "Restore quarantine is incomplete")
+
+    def reconcile_inactive(self):
+        self.remove_containers(self.inactive_containers())
+        demand(not self.inactive_containers(), "Inactive Compose services are still present")
+
     def start(self, *services):
+        if not services:
+            self.reconcile_inactive()
         converge = ("--remove-orphans",) if not services else ()
         self.compose("up", "-d", "--pull", "never", "--wait", "--wait-timeout", "150",
                      *converge, *services, timeout=260)
@@ -238,6 +276,7 @@ class Runtime:
             call(self.command + ["--profile", "*", "stop", "--timeout", "120", *names], env=self.env, timeout=180)
 
     def verify_live(self):
+        demand(not self.unexpected_live(), "Inactive Compose services are still running")
         actual = self.containers()
         for service in self.active():
             item = actual.get(service, {})
@@ -724,8 +763,13 @@ class Deployment:
             demand("db" not in changed, "Rollback across a PostgreSQL image change requires a separate recovery plan")
         safe_line("Rollback", f"{former.name} → {target.name}")
         safe_line("Changed images", ", ".join(changed) or "none")
-        if candidate.metadata["coordination"] == "coordinated" and self.role != "single":
-            ask("Confirm the rollback order in NOTES.md by typing the previous release.", phrase=target.name)
+        independent = (current.metadata["coordination"] == candidate.metadata["coordination"] == "compatible"
+                       and current.metadata.get("rollbackCompatibleWith") == (target.name, candidate.values["GIT_SHA"]))
+        if self.role != "single" and not independent:
+            demand(args.order, "Review both releases' NOTES.md and supply --order core-first or --order edge-first")
+            safe_line("Core/Edge rollback order", args.order)
+            ask("Confirm the reviewed rollback order. Type the target version followed by the order.",
+                phrase=f"{target.name} {args.order}")
         ask("Type yes to roll back.", yes=args.yes)
         pending = {"operation": "rollback", "source": former.name, "target": target.name, "backup": None,
                    "startedAt": clock().isoformat(), "migrations": [], "databaseImageChange": False,
@@ -800,19 +844,14 @@ class Deployment:
         release = self.pointer("current")
         demand(release.name == pending["source"], "Current release no longer matches the restore")
         runtime = Runtime(self, release, allow_pull=True)
+        runtime.quarantine_restore()
         demand("panel" not in runtime.flags, "Disable panel egress before continuing restore")
-        encrypted, info = self.backup_record(pending["backup"], runtime)
         scratch, retained, old_oid = (pending[key] for key in ("scratch", "retained", "oldOid"))
         demand(matches(r"mzt_restore_[0-9a-f]{12}", scratch) and matches(r"mzt_retained_[0-9a-f]{12}", retained)
                and matches(r"[0-9]+", old_oid), "Unsafe restore state")
         actual = runtime.sql("SELECT oid FROM pg_database WHERE datname='vpnshop';", "postgres")
-        if actual != old_oid:
-            new_oid = pending.get("newOid")
-            demand(matches(r"[0-9]+", new_oid) and actual == new_oid
-                   and runtime.sql(f"SELECT oid FROM pg_database WHERE datname='{retained}' AND NOT datallowconn;", "postgres") == old_oid,
-                   "Database identity cannot be reconciled. Leave writers stopped and inspect PostgreSQL.")
-        else:
-            runtime.stop_writers()
+        if actual == old_oid:
+            encrypted, info = self.backup_record(pending["backup"], runtime)
             if not pending["safetyBackup"]:
                 pending["safetyBackup"] = self.backup(runtime, offsite=False)
                 self.set_pending(pending, "restore-stopped")
@@ -841,15 +880,52 @@ class Deployment:
                 ALTER DATABASE vpnshop RENAME TO {retained};
                 ALTER DATABASE {scratch} RENAME TO vpnshop;
                 COMMIT;""", "postgres")
-        demand(runtime.inventory()[0] == runtime.history, "Restored active schema failed verification")
+        self.verify_restore_swap(runtime, pending)
         pending["switched"] = True
-        self.set_pending(pending, "restore-starting")
-        runtime.start()
-        runtime.verify_live()
-        self.completed("restore", release, backup=pending["backup"])
-        self.finish_pending()
-        safe_line("Previous database retained", retained)
-        notify("Restored deployment is ready.")
+        self.set_pending(pending, RESTORE_REVIEW)
+        self.restore_status(pending)
+
+    def verify_restore_swap(self, runtime, pending):
+        retained, old_oid, new_oid = (pending.get(key) for key in ("retained", "oldOid", "newOid"))
+        demand(matches(r"mzt_retained_[0-9a-f]{12}", retained)
+               and matches(r"[0-9]+", old_oid) and matches(r"[0-9]+", new_oid) and old_oid != new_oid,
+               "Unsafe restore state")
+        demand(runtime.sql("SELECT oid FROM pg_database WHERE datname='vpnshop';", "postgres") == new_oid
+               and runtime.sql(f"SELECT oid FROM pg_database WHERE datname='{retained}' AND NOT datallowconn;", "postgres") == old_oid,
+               "Database identity cannot be reconciled. Leave writers stopped and inspect PostgreSQL.")
+        demand(runtime.inventory()[0] == runtime.history, "Restored active schema failed verification")
+
+    def restore_status(self, pending):
+        safe_line("Retained database", pending["retained"])
+        safe_line("Protective backup", pending["safetyBackup"])
+        safe_line("Restore confirmation ID", pending["scratch"])
+        notify("Public ingress and writers are quarantined. After reconciliation run vpnshop restore-finish.", "33")
+
+    def finish_restore(self, restore_id):
+        pending = self.read_pending()
+        demand(pending and pending["operation"] == "restore" and pending["phase"] == RESTORE_REVIEW,
+               "No restore is awaiting reconciliation. Use vpnshop recover for interrupted operations.")
+        demand(restore_id == pending["scratch"], "Confirmation ID must match this restore operation")
+        release = self.pointer("current")
+        demand(release.name == pending["source"], "Current release no longer matches the restore")
+        runtime = Runtime(self, release, allow_pull=True)
+        runtime.quarantine_restore()
+        demand("panel" not in runtime.flags, "Keep panel egress disabled until recovery has completed")
+        self.verify_restore_swap(runtime, pending)
+        self.backup_record(pending["safetyBackup"], runtime)
+        ask("Confirm that account credentials, payments and external state have been reconciled. Type the restore ID.",
+            phrase=restore_id)
+        self.set_pending(pending, "restore-activating")
+        try:
+            runtime.start()
+            runtime.verify_live()
+            self.completed("restore", release, backup=pending["backup"])
+            self.finish_pending()
+        except BaseException:
+            runtime.quarantine_restore()
+            self.set_pending(pending, RESTORE_REVIEW)
+            raise
+        notify("Reconciled deployment is ready.")
 
     def recover(self, args):
         pending = self.read_pending()
@@ -894,6 +970,8 @@ class Deployment:
         safe_line("Last successful", private_regular(last) if last.exists() else "none")
         pending = self.read_pending()
         safe_line("Pending", (pending["operation"] + " · " + pending["phase"]) if pending else "none")
+        if pending and pending["operation"] == "restore" and pending["phase"] == RESTORE_REVIEW:
+            self.restore_status(pending)
         safe_line("Disk free (MiB)", shutil.disk_usage(self.root).free // (1024 * 1024))
         backups = sorted(path.name for path in self.backups.iterdir() if matches(BACKUP_ID, path.name))
         safe_line("Last backup", backups[-1] if backups else "none")
@@ -952,6 +1030,10 @@ class Deployment:
                     safe_line("Payment follow-up", "NOT CHECKED: database unavailable")
         listed = runtime.containers()
         good = not pending
+        inactive = sorted({service for _, service in runtime.unexpected_live()})
+        if inactive:
+            safe_line("Inactive services", "ERROR: running " + ", ".join(inactive))
+            good = False
         for service in runtime.active():
             item = listed.get(service, {})
             healthy = item.get("State") == "running" and item.get("Health") in ("", "healthy")
@@ -1076,9 +1158,11 @@ class Deployment:
         if service:
             demand(service in runtime.active(), "Unknown or inactive service")
         if operation == "down":
+            runtime.reconcile_inactive()
             runtime.compose("down", "--timeout", "120", timeout=260)
         else:
             if service:
+                runtime.reconcile_inactive()
                 runtime.compose("restart", "--timeout", "120", service, timeout=260)
                 runtime.start(service)
             else:
@@ -1108,10 +1192,13 @@ def parser():
         command.add_argument("--yes", action="store_true")
         if name == "recover":
             command.add_argument("--cancel", action="store_true")
+        else:
+            command.add_argument("--order", choices=["core-first", "edge-first"])
     for name in ("up", "down", "status", "doctor", "backup", "version", "help"):
         add(name)
     add("restart").add_argument("service", nargs="?")
     add("restore").add_argument("backup")
+    add("restore-finish").add_argument("restore_id")
     add("compose").add_argument("compose_args", nargs=argparse.REMAINDER)
     admin = add("admin").add_subparsers(dest="admin_action", required=True)
     admin.add_parser("list")
@@ -1168,7 +1255,17 @@ def mutate(args, deployment, source_factory):
     if args.command == "recover":
         deployment.recover(args)
         return 0
-    demand(not deployment.read_pending(), "An operation is interrupted. Run vpnshop status and vpnshop recover.")
+    if args.command == "restore-finish":
+        deployment.finish_restore(args.restore_id)
+        return 0
+    pending = deployment.read_pending()
+    if pending and pending["operation"] == "restore" and pending["phase"] == RESTORE_REVIEW:
+        if args.command == "admin" and args.admin_action in {"list", "recover"}:
+            demand(not getattr(args, "adopt_legacy_owner", False), "Only existing OWNER recovery is allowed during reconciliation")
+            deployment.local_admin(args)
+            return 0
+        raise ReleaseError("Restore is awaiting reconciliation. Run vpnshop status and vpnshop restore-finish.")
+    demand(not pending, "An operation is interrupted. Run vpnshop status and vpnshop recover.")
     current = deployment.pointer("current")
     if args.command == "admin":
         deployment.local_admin(args)

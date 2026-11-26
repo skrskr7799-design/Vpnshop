@@ -16,10 +16,20 @@ from tempfile import TemporaryDirectory
 from test_v2_compose import tls_fixtures
 
 OPS = Path(__file__).resolve().parents[1]
-BASE = "nginx:1.30-alpine@sha256:caf4e1e032a20f9c3c5e28fc7f25ffd768ad8677b4975c54193075997b3a97e3"
+BASE = next(line.split()[1] for line in (OPS.parent / "Dockerfile").read_text().splitlines()
+            if line.startswith("FROM ") and line.endswith(" AS nginx-runtime"))
 NODE = "node:24.22.3-trixie-slim@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0"
 STUB = """require('node:http').createServer((req, res) => {
   res.setHeader('content-type', 'application/json');
+  const restriction = {
+    '/api/orders/disabled': 'PAYMENTS_DISABLED',
+    '/api/auth/register/maintenance': 'MAINTENANCE_MODE',
+    '/api/me/support/disabled': 'SUPPORT_DISABLED',
+  }[req.url];
+  if (restriction) {
+    res.statusCode = 503;
+    return res.end(JSON.stringify({error: {code: restriction}}));
+  }
   res.end(JSON.stringify({url: req.url, host: req.headers.host,
     forwardedHost: req.headers['x-forwarded-host'], proto: req.headers['x-forwarded-proto'],
     client: req.headers['x-forwarded-for'], forwarded: req.headers.forwarded}));
@@ -150,6 +160,12 @@ USER 101:101
         gw = gateway("gateway", public, "core-gw")
         output = wait(context, "shop.example.test", port(public), "/api/ready")
         assert output["host"] == output["forwardedHost"] == "shop.example.test" and output["proto"] == "https"
+        for proxy in (private, public):
+            for path, expected in (("/api/orders/disabled", "PAYMENTS_DISABLED"),
+                                   ("/api/auth/register/maintenance", "MAINTENANCE_MODE"),
+                                   ("/api/me/support/disabled", "SUPPORT_DISABLED")):
+                status, payload = request(context, "shop.example.test", port(proxy), path)
+                assert status == 503 and json.loads(payload) == {"error": {"code": expected}}
         for path in ("/api/auth/oauth/google/callback?code=only-local", "/webhooks/platega/test-only"):
             code, payload = request(context, "shop.example.test", port(public), path,
                                     {"X-Forwarded-For": "203.0.113.39", "X-MZT-Edge-Client-IP": "203.0.113.39",
@@ -191,6 +207,10 @@ USER 101:101
             "-e", "EDGE_APP=admin-api:3001", "-e", "EDGE_ADMIN_MODE=public",
         ], admin_material)
         assert docker("wait", empty) == "64"
+        docker("stop", api)
+        for proxy in (private, public):
+            payload = wait(context, "shop.example.test", port(proxy), "/api/ready", 503)
+            assert json.loads(payload) == {"error": {"code": "SERVICE_UNAVAILABLE"}}
         print("TLS smoke passed: private proxy, mTLS gateway, CA and hostname checks, access modes, public route and forwarding isolation")
     except BaseException:
         for container in running:

@@ -18,8 +18,8 @@ export async function loginWithProfile(provider: AuthProvider, profile: Provider
   const existing = await findIdentity(provider, profile.providerId);
   if (existing) return assertActive(existing.user);
 
-  // Неподтверждённый email не используем ни для поиска, ни для сохранения
-  if (provider === "GOOGLE" && (!profile.email || !profile.emailVerified)) throw new AppError(403, "EMAIL_NOT_VERIFIED");
+  // The signed subject authenticates the account. Only authoritative proof can
+  // claim an address. Other addresses can be added through email verification.
   const email = profile.emailVerified ? profile.email : null;
   const now = new Date();
 

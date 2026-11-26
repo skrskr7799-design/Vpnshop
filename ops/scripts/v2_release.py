@@ -10,9 +10,9 @@ import sys
 import tempfile
 
 from release_bundle import (
-    HEX, IMAGE_KEYS, NOTE_FIELDS, PLATFORM, REGISTRY, REPOSITORY, REQUIRED, SHA, ReleaseError,
+    HEX, IMAGE_KEYS, NOTE_FIELDS, PLATFORM, REGISTRY, REPOSITORY, REQUIRED, ROLLBACK_PROOF, SHA, ReleaseError,
     allowed_member, atomic, checksum, demand, digest_file, hashlib, json, manifest,
-    matches, os, Path, re, tarfile, tree_id, unpack, version,
+    matches, os, Path, re, rollback_target, tarfile, tree_id, unpack, version,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -152,9 +152,14 @@ def launcher(output):
 
 
 def notes_text(tag, sha, history, old_history, entries, supplied):
-    demand(set(supplied) == {*NOTE_FIELDS, "coordination"}
+    required = {*NOTE_FIELDS, "coordination"}
+    demand(required <= set(supplied) <= required | {"rollback_compatible_with"}
            and all(isinstance(supplied[key], str) and supplied[key].strip() for key in NOTE_FIELDS)
            and supplied["coordination"] in {"compatible", "coordinated"}, "Maintainer release notes are incomplete")
+    reverse = supplied.get("rollback_compatible_with")
+    if "rollback_compatible_with" in supplied:
+        demand(rollback_target(reverse)[0] != tag and supplied["coordination"] == "compatible",
+               "Independent rollback requires compatible coordination and an earlier release")
     previous = old_history or {}
     added = [name for name in sorted(history) if name not in previous]
     sections = {
@@ -168,7 +173,8 @@ def notes_text(tag, sha, history, old_history, entries, supplied):
         "Compatibility": supplied["compatibility"] + f"\n\nCore/Edge: {supplied['coordination']}.",
         "Update procedure": supplied["update"],
         "Downtime": supplied["downtime"],
-        "Rollback": supplied["rollback"],
+        "Rollback": supplied["rollback"] + ("\n\nIndependent Core/Edge rollback validated to " + reverse + "."
+                                             if reverse else "\n\nIndependent Core/Edge rollback is unconfirmed."),
         "Known issues": supplied["known_issues"],
     }
     return f"# VPNShop {tag}\n\n" + "\n\n".join(f"## {title}\n\n{body.strip()}" for title, body in sections.items()) + "\n"
@@ -207,6 +213,9 @@ def make_bundle(output, tag, sha, entries, history, prior_history, notes):
         "NOTES.md": notes_text(tag, sha, history, prior_history, entries, notes).encode(),
         "vpnshop.sh": script.read_bytes(),
     }
+    demand(ROLLBACK_PROOF not in files, "Rollback proof is generated from verified release metadata")
+    if "rollback_compatible_with" in notes:
+        files[ROLLBACK_PROOF] = (notes["rollback_compatible_with"] + "\n").encode()
     demand(REQUIRED <= files.keys(), "Missing required release files")
     archive = output / f"vpnshop-deploy-{tag}.tar.gz"
     with archive.open("wb") as raw, gzip.GzipFile(fileobj=raw, mode="wb", filename="", mtime=0) as gz, \
@@ -247,7 +256,7 @@ def previous_release(tag, directory, current_sha):
     demand(old["VPNSHOP_VERSION"] == tag and is_ancestor(old["GIT_SHA"], current_sha), "Prior release does not belong to the source ancestry")
     for item in metadata["images"].values():
         demand(is_ancestor(item["source"], old["GIT_SHA"]), "Prior image is outside the attested release ancestry")
-    return history, metadata["images"]
+    return history, metadata["images"], old["GIT_SHA"]
 
 
 def is_ancestor(older, newer):
@@ -282,9 +291,10 @@ def prepare_plan(prior, output, refresh):
     sha = production()
     current = fingerprints()
     old_history, old_images = {}, {}
+    old_sha = None
     if prior != "first-release":
         with tempfile.TemporaryDirectory() as directory:
-            old_history, old_images = previous_release(prior, Path(directory), sha)
+            old_history, old_images, old_sha = previous_release(prior, Path(directory), sha)
     selected = {} if refresh else reuse(old_images, current, verify_registry, lambda source: is_ancestor(source, sha))
     for name, item in selected.items():
         run(["docker", "tag", item["reference"], f"mzt-ci-{name}:{sha}"])
@@ -298,7 +308,8 @@ def prepare_plan(prior, output, refresh):
                     env=os.environ | {"MZT_BUILD_PLATFORM": PLATFORM})
             finally:
                 git("worktree", "remove", "--force", str(context))
-    content = {"source": sha, "current": current, "reused": selected, "prior_history": old_history}
+    content = {"source": sha, "current": current, "reused": selected, "prior_history": old_history,
+               "prior_source": f"{prior} {old_sha}" if old_sha else None}
     atomic(output, json.dumps(content).encode())
     print("Built:", ", ".join(changed) or "none")
     print("Reused:", ", ".join(sorted(selected)) or "none")
@@ -311,6 +322,8 @@ def finalize(plan_path, tag, notes_path, output):
     history = migration_history()
     notes = json.loads(notes_path.read_text())
     notes_text(tag, sha, history, plan["prior_history"], {}, notes)
+    demand("rollback_compatible_with" not in notes or notes["rollback_compatible_with"] == plan["prior_source"],
+           "Independent rollback proof must name the exact attested predecessor")
     demand(all(history.get(name) == digest for name, digest in plan["prior_history"].items()), "Published migration history was changed")
     for name, fingerprint in plan["current"].items():
         reused = plan["reused"].get(name)

@@ -1,6 +1,8 @@
 # syntax=docker/dockerfile:1@sha256:572cebbc2b15e6f84c077742952674889cb63cd5e9b80abdffcbe587b6f19183
 FROM node:24.22.3-trixie-slim@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0 AS node-runtime
-RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY ops/build/trixie.sources /etc/apt/sources.list.d/debian.sources
+COPY --chmod=0555 ops/build/apt-install.sh /usr/local/bin/mzt-apt-install
+RUN mzt-apt-install openssl ca-certificates
 WORKDIR /app
 
 FROM node-runtime AS dependencies
@@ -42,7 +44,7 @@ RUN node -e 'const {PrismaClient}=require("@prisma/client"); new PrismaClient().
 CMD ["node","dist/server.js"]
 
 FROM dependencies AS migrator
-RUN apt-get update && apt-get install -y --no-install-recommends postgresql-client python3-minimal && rm -rf /var/lib/apt/lists/*
+RUN mzt-apt-install postgresql-client python3-minimal
 ARG REVISION=unknown
 LABEL org.opencontainers.image.revision=${REVISION} org.opencontainers.image.source=https://github.com/skrskr7799-design/Vpnshop
 COPY apps/api/prisma apps/api/prisma
@@ -67,8 +69,7 @@ COPY apps/admin/tsconfig.json apps/admin/vite.config.ts apps/admin/index.html ap
 COPY apps/admin/src apps/admin/src
 RUN pnpm --filter @vpn/admin build
 
-FROM nginx:1.30-alpine@sha256:caf4e1e032a20f9c3c5e28fc7f25ffd768ad8677b4975c54193075997b3a97e3 AS nginx-runtime
-RUN apk upgrade --no-cache libxml2
+FROM nginx:1.30-alpine@sha256:8eb04fe3b385090e9aa02961f77398ad09b6bf33ab07f6669a5bb7acce22c0d3 AS nginx-runtime
 ARG REVISION=unknown
 LABEL org.opencontainers.image.revision=${REVISION} org.opencontainers.image.source=https://github.com/skrskr7799-design/Vpnshop
 COPY --chmod=0444 ops/nginx/base.conf /etc/nginx/nginx.conf

@@ -15,7 +15,7 @@ on:
         required: true
         type: string
       refresh:
-        description: 'Rebuild all images to pick up reviewed upstream package updates'
+        description: 'Rebuild all images from the checked-in inputs, including the pinned system packages'
         type: boolean
         default: false
 

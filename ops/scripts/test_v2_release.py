@@ -63,6 +63,9 @@ class ReleaseTests(ReleaseFixtures):
                 "pnpm-lock.yaml": {"application", "admin", "web", "migrator"},
                 "ops/db/grants.sql": {"migrator"},
                 "ops/backup/logical.sh": {"backup"},
+                "ops/build/bookworm.sources": {"db", "backup"},
+                "ops/build/trixie.sources": {"application", "migrator", "web", "admin"},
+                "ops/build/apt-install.sh": set(bundle.IMAGE_KEYS) - {"edge"},
                 "docs/V2_MASTER_SPEC.md": set(),
                 ".dockerignore": set(bundle.IMAGE_KEYS),
             }
@@ -74,6 +77,9 @@ class ReleaseTests(ReleaseFixtures):
                     try:
                         observed = release.fingerprints(root)
                         self.assertEqual({key for key, value in observed.items() if original[key] != value}, affected)
+                        previous = release.fixture_entries(self.sha, original)
+                        reused = release.reuse(previous, observed, lambda *_: True, lambda _: True)
+                        self.assertEqual(set(reused), set(bundle.IMAGE_KEYS) - affected)
                     finally:
                         path.write_bytes(old)
             db_file = root / "ops/db/Dockerfile"
@@ -106,6 +112,18 @@ class ReleaseTests(ReleaseFixtures):
         subprocess.run(["bash", "-n", dest / "vpnshop.sh"], check=True)
         self.assertIn(b"vpnshop CLI 2", subprocess.check_output([dest / "vpnshop.sh", "version"]))
         self.assertIn(b"install", subprocess.check_output([dest / "vpnshop.sh", "help"]))
+
+    def test_rollback_proof_is_optional_and_bound_to_an_exact_commit(self):
+        predecessor = ("v2.0.0", "b" * 40)
+        notes = self.notes | {"rollback_compatible_with": " ".join(predecessor)}
+        archive = release.make_bundle(self.root / "rollback-proof", "v2.1.0",
+                                      self.sha, self.entries, self.history, self.history, notes)
+        dest = self.root / "rollback-unpacked"
+        dest.mkdir()
+        self.assertEqual(bundle.unpack(archive, dest)[2]["rollbackCompatibleWith"], predecessor)
+        with self.assertRaisesRegex(bundle.ReleaseError, "compatible coordination"):
+            release.notes_text("v2.1.0", self.sha, self.history, self.history, self.entries,
+                               notes | {"coordination": "coordinated"})
 
     def test_reject_archive_invalid_paths_links_and_duplicates(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -187,6 +205,7 @@ class VirtualRuntime:
     def __init__(self, deployment, release_path, **kwargs):
         self.deployment, self.release = deployment, release_path
         self.values, self.history, self.metadata = bundle.manifest(release_path)
+        self.flags = set()
         if release_path.name == "release" and self.missing:
             raise bundle.ReleaseError("Missing required setting")
 
@@ -213,6 +232,9 @@ class VirtualRuntime:
 
     def stop_writers(self):
         self.events.append(("drain", self.values["VPNSHOP_VERSION"]))
+
+    def quarantine_restore(self):
+        self.events.append(("quarantine", self.values["VPNSHOP_VERSION"]))
 
     def migrate(self):
         cli.migration_delta(self.history_in_db, self.history)
@@ -339,6 +361,80 @@ class CLITests(ReleaseFixtures):
         self.assertIn(("migrate", "v2.1.0"), VirtualRuntime.events)
         with self.assertRaisesRegex(bundle.ReleaseError, "incompatible"):
             self.deploy.rollback(cli.parser().parse_args(["rollback", "--yes"]))
+
+    def test_restore_recovery_stays_in_review_until_exact_confirmation(self):
+        installed = self.install("single")
+        restore_id = "mzt_restore_abcdef123456"
+        pending = {"operation": "restore", "source": installed.name, "target": installed.name,
+                   "oldOid": "100", "newOid": "101", "scratch": restore_id,
+                   "retained": "mzt_retained_abcdef123456", "backup": "fixture", "safetyBackup": "safety"}
+        self.deploy.set_pending(pending, "swap-prepared")
+        recover = cli.parser().parse_args(["recover"])
+
+        def oid(query, database):
+            self.assertEqual(database, "postgres")
+            return pending["oldOid"] if "NOT datallowconn" in query else pending["newOid"]
+
+        with patch.object(VirtualRuntime, "sql", side_effect=oid, create=True), \
+                patch.object(self.deploy, "backup_record"), patch.object(cli, "ask") as confirm:
+            self.deploy.recover(recover)
+            self.deploy.recover(recover)
+            self.assertEqual(self.deploy.read_pending()["phase"], cli.RESTORE_REVIEW)
+            self.assertFalse(any(event[0] == "start" for event in VirtualRuntime.events))
+            for args in (["up"], ["restart"], ["update", "latest"], ["rollback"], ["restore", "fixture"]):
+                with self.assertRaisesRegex(bundle.ReleaseError, "awaiting reconciliation"):
+                    cli.execute(cli.parser().parse_args(args), self.deploy)
+            with self.assertRaisesRegex(bundle.ReleaseError, "Confirmation ID"):
+                self.deploy.finish_restore("wrong-id")
+            VirtualRuntime.failing = True
+            with self.assertRaisesRegex(bundle.ReleaseError, "readiness"):
+                self.deploy.finish_restore(restore_id)
+            self.assertEqual(self.deploy.read_pending()["phase"], cli.RESTORE_REVIEW)
+            self.assertEqual(VirtualRuntime.events[-1][0], "quarantine")
+            VirtualRuntime.failing = False
+            self.deploy.finish_restore(restore_id)
+            self.assertEqual(confirm.call_args.kwargs, {"phrase": restore_id})
+            self.assertIsNone(self.deploy.read_pending())
+
+    def test_split_rollback_requires_explicit_order_unless_reverse_pair_is_proven(self):
+        current = self.install("edge")
+        target = self.deploy.releases / "v2.1.0"
+        target.mkdir()
+        bundle.unpack(self.candidate(), target)
+        new_sha = "b" * 40
+        real_manifest = bundle.manifest
+
+        def metadata(path):
+            values, history, images = real_manifest(path)
+            if path == target:
+                return values | {"GIT_SHA": new_sha}, history, images | source_metadata
+            return values, history, images | target_metadata
+
+        with patch.object(bundle, "manifest", side_effect=metadata):
+            for source, destination, proof in [
+                ("compatible", "coordinated", self.sha),
+                ("coordinated", "compatible", self.sha),
+                ("coordinated", "coordinated", self.sha),
+                ("compatible", "compatible", None),
+                ("compatible", "compatible", "c" * 40),
+                ("compatible", "compatible", self.sha),
+            ]:
+                with self.subTest(source=source, destination=destination, proof=proof), patch.object(cli, "ask") as confirm:
+                    source_metadata = {"coordination": source, "rollbackCompatibleWith": ("v2.0.0", proof) if proof else None}
+                    target_metadata = {"coordination": destination}
+                    self.deploy.switch("current", target)
+                    self.deploy.switch("previous", current)
+                    independent = source == destination == "compatible" and proof == self.sha
+                    if not independent:
+                        with self.assertRaisesRegex(bundle.ReleaseError, "--order"):
+                            self.deploy.rollback(cli.parser().parse_args(["rollback", "--yes"]))
+                        self.assertEqual(self.deploy.pointer("current"), target)
+                    args = ["rollback", "--yes"] if independent else ["rollback", "--yes", "--order", "edge-first"]
+                    self.deploy.rollback(cli.parser().parse_args(args))
+                    self.assertEqual(self.deploy.pointer("current"), current)
+                    self.assertEqual(confirm.call_count, 1 if independent else 2)
+                    if not independent:
+                        self.assertEqual(confirm.call_args_list[0].kwargs, {"phrase": "v2.0.0 edge-first"})
 
     def test_admin_local_command_refuses_edge(self):
         self.install("edge")
