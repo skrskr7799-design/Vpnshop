@@ -290,8 +290,14 @@ def prepare_plan(prior, output, refresh):
         run(["docker", "tag", item["reference"], f"mzt-ci-{name}:{sha}"])
     changed = sorted(current.keys() - selected.keys())
     if changed:
-        run(["bash", "ops/scripts/build.sh", "mzt-ci", *changed], cwd=ROOT,
-            env=os.environ | {"MZT_BUILD_PLATFORM": PLATFORM})
+        with tempfile.TemporaryDirectory() as directory:
+            context = Path(directory) / "source"
+            git("worktree", "add", "--detach", str(context), sha)
+            try:
+                run(["bash", "ops/scripts/build.sh", "mzt-ci", *changed], cwd=context,
+                    env=os.environ | {"MZT_BUILD_PLATFORM": PLATFORM})
+            finally:
+                git("worktree", "remove", "--force", str(context))
     content = {"source": sha, "current": current, "reused": selected, "prior_history": old_history}
     atomic(output, json.dumps(content).encode())
     print("Built:", ", ".join(changed) or "none")

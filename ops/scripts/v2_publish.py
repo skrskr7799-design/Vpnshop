@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Commit the attested release assets to GitHub without replacing an existing release."""
 import argparse
+import os
 import subprocess
 import sys
 import tempfile
@@ -24,6 +25,16 @@ def check(tag):
     return sha
 
 
+def tag_commit(tag, sha, create=False):
+    endpoint = f"repos/{REPOSITORY}/git/refs"
+    if create:
+        run(["gh", "api", "--method", "POST", endpoint,
+             "-f", f"ref=refs/tags/{tag}", "-f", f"sha={sha}"], capture_output=True)
+    target = run(["gh", "api", f"repos/{REPOSITORY}/git/ref/tags/{tag}", "--jq", ".object.sha"],
+                 capture_output=True).stdout.strip()
+    demand(target == sha, "The release tag does not point to the candidate commit")
+
+
 def publish(tag, directory):
     sha = check(tag)
     archive = directory / f"vpnshop-deploy-{tag}.tar.gz"
@@ -42,14 +53,19 @@ def publish(tag, directory):
         values, _, _ = unpack(archive, extracted)
         demand(values["VPNSHOP_VERSION"] == tag and values["GIT_SHA"] == sha and
                digest_file(extracted / script.name) == digest_file(script), "Release assets do not match source and standalone CLI")
+        scan = "zricethezav/gitleaks:v8.30.0@sha256:691af3c7c5a48b16f187ce3446d5f194838f91238f27270ed36eef6359a574d9"
+        run(["docker", "run", "--rm", "--network", "none", "-u", f"{os.getuid()}:{os.getgid()}",
+             "-v", f"{extracted}:/release:ro", scan, "dir", "--no-banner", "--redact=100", "/release"])
+        tag_commit(tag, sha, create=True)
         run(["gh", "release", "create", tag, *map(str, assets + checks), "--repo", REPOSITORY,
-             "--draft", "--target", sha, "--title", f"VPNShop {tag}", "--notes-file", str(extracted / "NOTES.md")])
+             "--draft", "--verify-tag", "--title", f"VPNShop {tag}", "--notes-file", str(extracted / "NOTES.md")])
         download = ["gh", "release", "download", tag, "--repo", REPOSITORY, "--dir", staging]
         for file in assets + checks:
             download += ["--pattern", file.name]
         run(download)
         demand(all(digest_file(dest / file.name) == digest_file(file) for file in assets + checks),
                "Uploaded draft assets differ from the verified release")
+        tag_commit(tag, sha)
         run(["gh", "release", "edit", tag, "--repo", REPOSITORY, "--draft=false"])
 
 

@@ -155,6 +155,15 @@ class ReleaseTests(ReleaseFixtures):
                     with self.assertRaises(bundle.ReleaseError):
                         v2_publish.require_absent("fixture")
 
+    def test_release_tag_must_point_at_the_tested_commit(self):
+        with patch.object(v2_publish, "run", return_value=Mock(stdout="b" * 40)):
+            with self.assertRaisesRegex(bundle.ReleaseError, "candidate commit"):
+                v2_publish.tag_commit("v2.0.0", self.sha)
+        with patch.object(v2_publish, "run", return_value=Mock(stdout=self.sha)) as run:
+            v2_publish.tag_commit("v2.0.0", self.sha, create=True)
+            self.assertIn("POST", run.call_args_list[0].args[0])
+            self.assertIn("sha=" + self.sha, run.call_args_list[0].args[0])
+
 
 class LocalSource:
     def __init__(self, archive):
