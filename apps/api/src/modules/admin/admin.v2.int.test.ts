@@ -112,17 +112,21 @@ it("activates only eligible customers, without proving email, charging or provis
   const pending = await prisma.user.findUniqueOrThrow({ where: { id } });
   expect(pending).toMatchObject({ emailVerifiedAt: null, activationRequired: true, status: "ACTIVE" });
   const credentials = { email: input.email, temporaryPassword: temp, password: permanent };
-  expect((await publicPost("password/change-temporary", credentials)).statusCode).toBe(403);
-  await prisma.user.update({ where: { id }, data: { status: "BLOCKED" } });
-  expect((await operator.command("user.activate", id, pending.updatedAt.toISOString(), {})).json().error.code).toBe("ACCOUNT_BLOCKED");
-  const restored = await prisma.user.update({ where: { id }, data: { status: "ACTIVE" } });
-  expect((await operator.command("user.activate", id, restored.updatedAt.toISOString(), {})).statusCode).toBe(200);
-  expect((await operator.command("user.activate", id, restored.updatedAt.toISOString(), {})).json().result.alreadyActive).toBe(true);
   const temporaryLogin = await publicPost("login", { email: input.email, password: temp });
   expect(temporaryLogin.json().error.code).toBe("TEMPORARY_PASSWORD");
   expect(temporaryLogin.cookies).toHaveLength(0);
+  await prisma.user.update({ where: { id }, data: { status: "BLOCKED" } });
+  expect((await publicPost("password/change-temporary", credentials)).statusCode).toBe(403);
+  expect((await operator.command("user.activate", id, pending.updatedAt.toISOString(), {})).json().error.code).toBe("ACCOUNT_BLOCKED");
+  const restored = await prisma.user.update({ where: { id }, data: { status: "ACTIVE" } });
   expect((await Promise.all([publicPost("password/change-temporary", credentials), publicPost("password/change-temporary", credentials)]))
     .map(reply => reply.statusCode).sort()).toEqual([204, 401]);
+  const pendingLogin = await publicPost("login", { email: input.email, password: permanent });
+  expect(pendingLogin.json().error.code).toBe("ACTIVATION_PENDING");
+  expect(pendingLogin.cookies).toHaveLength(0);
+  expect(await prisma.sessionFamily.count({ where: { userId: id } })).toBe(0);
+  expect((await operator.command("user.activate", id, restored.updatedAt.toISOString(), {})).statusCode).toBe(200);
+  expect((await operator.command("user.activate", id, restored.updatedAt.toISOString(), {})).json().result.alreadyActive).toBe(true);
   expect((await publicPost("login", { email: input.email, password: permanent })).statusCode).toBe(200);
   expect(await prisma.user.findUniqueOrThrow({ where: { id } })).toMatchObject({ emailVerifiedAt: null, activationRequired: false,
     manualActivatedAt: expect.any(Date) });
