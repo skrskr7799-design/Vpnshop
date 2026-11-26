@@ -1231,9 +1231,6 @@ def execute(args, deployment, source_factory=ReleaseSource):
         deployment.install(args.selection, args.role, source_factory(args.github_token_file), pinned=args.sha256, attest=args.attest)
         return 0
     deployment.verify_layout()
-    if args.command == "admin" and args.admin_action == "list":
-        deployment.local_admin(args)
-        return 0
     if args.command in {"status", "doctor"}:
         notify("MZT / VPNSHOP", "35")
         return deployment.status(doctor=args.command == "doctor")

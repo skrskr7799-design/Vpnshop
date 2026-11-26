@@ -15,8 +15,10 @@ def main(arguments):
     demand(project.startswith("mzt-ci-single-"), "Use only a disposable V2 Single project")
     scratch = Path(arguments[0])
     deployment = cli.Deployment(scratch / "installation", scratch / "not-installed")
-    for path in (deployment.root, deployment.state, deployment.releases, deployment.backups):
+    for path in (deployment.root, deployment.state, deployment.releases, deployment.backups,
+                 deployment.secrets, deployment.config.parent):
         path.mkdir(mode=0o700)
+    cli.atomic(deployment.config, b"# Disposable restore fixture\n")
     (deployment.state / "role").write_text("single\n")
     (deployment.state / "role").chmod(0o600)
     sha = release.git("rev-parse", "HEAD")
@@ -151,5 +153,9 @@ def main(arguments):
 if __name__ == "__main__":
     try:
         main(sys.argv[1:])
-    except cli.ReleaseError as problem:
+    except (cli.ReleaseError, AssertionError, OSError) as problem:
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            # All paths and input data in this job are disposable fixtures.
+            print("::error::V2 restore smoke: " + str(problem).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A"),
+                  file=sys.stderr)
         sys.exit(str(problem))
