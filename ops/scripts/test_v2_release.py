@@ -128,6 +128,42 @@ class ReleaseTests(ReleaseFixtures):
         self.assertEqual(set(selected), set(bundle.IMAGE_KEYS) - {"db", "migrator"})
         self.assertFalse(release.reuse(self.entries, fingerprints, lambda *_: True, lambda _: False))
 
+    def test_finalize_mixed_built_and_reused_images(self):
+        new_sha = "b" * 40
+        current = {name: item["fingerprint"] for name, item in self.entries.items()}
+        reused = {name: self.entries[name].copy() for name in ("db", "backup", "edge")}
+        for name in current.keys() - reused.keys():
+            current[name] = "c" * 64
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = root / "plan.json"
+            plan.write_text(bundle.json.dumps({
+                "source": new_sha, "current": current, "reused": reused,
+                "prior_history": self.history, "prior_source": "v2.0.0 " + self.sha,
+            }))
+            notes = root / "notes.json"
+            notes.write_text(bundle.json.dumps(self.notes | {"coordination": "coordinated"}))
+            def check_archive(archive, *_):
+                with tempfile.TemporaryDirectory() as dest:
+                    _, _, metadata = bundle.unpack(archive, Path(dest))
+                    for name, item in metadata["images"].items():
+                        self.assertEqual(item["decision"], "reused" if name in reused else "built")
+                        self.assertEqual(item["source"], self.sha if name in reused else new_sha)
+            def publish(name, sha, fingerprint):
+                return release.fixture_entries(sha, {name: fingerprint})[name]
+            with patch.object(release, "production", return_value=new_sha), \
+                 patch.object(release, "fingerprints", return_value=current), \
+                 patch.object(release, "migration_history", return_value=self.history), \
+                 patch.object(release, "scan_archive", side_effect=check_archive) as scan, \
+                 patch.object(release, "verify_registry", return_value=True) as verify, \
+                 patch.object(release, "publish_image", side_effect=publish) as push:
+                release.finalize(plan, "v2.0.1", notes, root / "output")
+            scan.assert_called_once()
+            self.assertEqual(verify.call_count, 3)
+            self.assertEqual(push.call_count, 4)
+            self.assertTrue(all(item["decision"] == "built" for item in reused.values()))
+            check_archive(root / "output/vpnshop-deploy-v2.0.1.tar.gz")
+
     def test_archive_reproducibility_and_no_source(self):
         dest = self.root / "repeat"
         again = release.make_bundle(dest, "v2.0.0", self.sha, self.entries, self.history, None, self.notes)
