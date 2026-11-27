@@ -7,8 +7,8 @@ services:
   public-api:
     extends: {file: "${V2_LEGACY_COMPOSE:-compose.yml}", service: public-api}
     environment:
-      # V2 mail is opt-in; mail.yml explicitly enables the transport.
-      MAIL_TRANSPORT_ENABLED: "false"
+      # Clear the legacy default; mail.yml enables SMTP for V2.
+      MAIL_TRANSPORT_ENABLED: !reset null
       CHECKOUT_TTL_MINUTES: ${CHECKOUT_TTL_MINUTES:-30}
   worker:
     extends: {file: "${V2_LEGACY_COMPOSE:-compose.yml}", service: worker}
