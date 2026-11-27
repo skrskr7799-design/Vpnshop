@@ -331,26 +331,34 @@ def prepare_plan(prior, output, refresh):
 
 
 def finalize(plan_path, tag, notes_path, output, scan_report=None):
+    print("Finalize: validate source and plan", flush=True)
     sha = production()
     plan = json.loads(plan_path.read_text())
     demand(plan["source"] == sha and plan["current"] == fingerprints(), "Release inputs changed after candidate tests")
     history = migration_history()
+    print("Finalize: validate notes and migration history", flush=True)
     notes = json.loads(notes_path.read_text())
     notes_text(tag, sha, history, plan["prior_history"], {}, notes)
     demand("rollback_compatible_with" not in notes or notes["rollback_compatible_with"] == plan["prior_source"],
            "Independent rollback proof must name the exact attested predecessor")
     demand(all(history.get(name) == digest for name, digest in plan["prior_history"].items()), "Published migration history was changed")
+    print("Finalize: assemble and scan preview archive", flush=True)
     # Check the deploy archive and launcher before making any registry writes.
     with tempfile.TemporaryDirectory() as directory:
-        previews = fixture_entries(sha, plan["current"]) | plan["reused"]
+        previews = fixture_entries(sha, plan["current"]) | {
+            name: item | {"decision": "reused"} for name, item in plan["reused"].items()
+        }
         archive = make_bundle(Path(directory), tag, sha, previews, history, plan["prior_history"], notes)
         scan_archive(archive, run, scan_report)
+    print("Finalize: reverify reused registry images", flush=True)
     for name, fingerprint in plan["current"].items():
         reused = plan["reused"].get(name)
         if reused:
             demand(verify_registry(name, reused), "Previously verified registry digest is no longer available")
+    print("Finalize: publish changed images", flush=True)
     entries = {name: plan["reused"][name] | {"decision": "reused"} if name in plan["reused"]
                else publish_image(name, sha, fingerprint) for name, fingerprint in plan["current"].items()}
+    print("Finalize: assemble final archive", flush=True)
     make_bundle(output, tag, sha, entries, history, plan["prior_history"], notes)
 
 
