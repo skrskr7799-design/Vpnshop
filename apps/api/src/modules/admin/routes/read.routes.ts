@@ -116,7 +116,7 @@ export const adminReadRoutes: FastifyPluginAsync = async app => {
   app.get("/users/:id", { preHandler: requireAdmin("users:read") }, async req => {
     const userId = params.parse(req.params).id;
     const row = await prisma.user.findFirst({ where: { id: userId, role: "USER" },
-      select: { ...userSelect, emailLoginDisabled: true, identities: { select: { provider: true, verifiedAt: true, passwordHash: true } },
+      select: { ...userSelect, emailLoginDisabled: true, identities: { select: { provider: true, providerId: true, verifiedAt: true, passwordHash: true } },
         subscription: { select: { id: true, revision: true, legacyUnverified: true, nextBoundaryAt: true,
           panelBinding: { select: bindingSelect },
           holds: { orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 50, select: {
@@ -129,11 +129,11 @@ export const adminReadRoutes: FastifyPluginAsync = async app => {
     if (!row) throw missing();
     const staff = can(adminOf(req).role, "users:write");
     const { subscription } = row;
-    const hasPassword = row.identities.some(identity => identity.provider === "EMAIL" && !!identity.passwordHash);
+    const password = row.identities.find(identity => identity.provider === "EMAIL" && !!identity.passwordHash);
     return { ...publicUser(row, staff),
       identities: row.identities.map(({ provider, verifiedAt }) => ({ provider, verifiedAt })), counts: row._count,
-      ...(staff && { access: { hasPassword, mailAvailable: emailAvailable && !!env.MAIL_QUEUE_KEY,
-        emailResetEligible: row.status === "ACTIVE" && !!row.emailVerifiedAt && !row.emailLoginDisabled } }),
+      ...(staff && { access: { hasPassword: !!password, mailAvailable: emailAvailable && !!env.MAIL_QUEUE_KEY,
+        emailResetEligible: row.status === "ACTIVE" && !!row.emailVerifiedAt && !row.emailLoginDisabled && password?.providerId === row.email } }),
       right: (await subscriptionOverview(userId)).subscription?.rightStatus ?? "EMPTY",
       subscription: subscription && { id: subscription.id, revision: subscription.revision, legacy: subscription.legacyUnverified,
         nextBoundaryAt: subscription.nextBoundaryAt,

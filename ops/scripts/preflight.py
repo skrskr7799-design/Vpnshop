@@ -342,8 +342,11 @@ def docker_capacity(env):
     return cpu, memory
 
 
-def resources(capacity, requested):
+def resources(capacity, requested, role="single"):
     require(requested in {"auto", *RESOURCE_PROFILES}, "RESOURCE_PROFILE must be auto, micro, small, standard or large")
+    # The Edge has no PostgreSQL and is admitted by its rendered service caps.
+    if role == "edge":
+        return {}, "edge"
     cpu, memory = capacity
     candidates = [name for name, limits in RESOURCE_PROFILES.items() if cpu >= limits[0] and memory >= limits[1]]
     require(bool(candidates), "Docker host capacity is below the smallest candidate profile (1 CPU, 1536 MiB)")
@@ -398,7 +401,9 @@ def compose(settings, role, files, secrets, release, project, disposable, *, pro
         resource_settings = read_settings(path)
     require(not (resource_settings.keys() - {"RESOURCE_PROFILE"}), "Unexpected key in resources.env")
     capacity = (2, 4096) if disposable else docker_capacity(env)
-    derived, profile = resources(capacity, resource_settings.get("RESOURCE_PROFILE", "auto"))
+    derived, profile = resources(capacity, resource_settings.get("RESOURCE_PROFILE", "auto"), role)
+    for key in ("VPNSHOP_DB_CPUS", "VPNSHOP_DB_MEMORY", "VPNSHOP_DB_SHARED_BUFFERS", "VPNSHOP_DB_WORK_MEM"):
+        env.pop(key, None)
     env.update(derived)
     env["VPNSHOP_RESOURCE_PROFILE"] = profile
     command = ["docker", "compose", "--project-directory", str(project_dir or OPS), "--env-file", "/dev/null", "-p", project, "--profile", "monitoring"]

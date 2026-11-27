@@ -182,6 +182,11 @@ class Deployment(unittest.TestCase):
             postgres["cpus"] = 1.5
             preflight.validate_resources(result, (1, 1945))
 
+    def test_edge_uses_its_service_caps_without_postgresql_admission_floor(self):
+        self.assertEqual(preflight.resources((1, 384), "auto", "edge"), ({}, "edge"))
+        result = self.render("edge", CONFIG["edge", "private"])
+        preflight.validate_resources(result, (1, 384))
+
     def test_postgresql_isolation_with_and_without_offsite_archiving(self):
         offsite = {"MZT_ENABLE_OFFSITE": "1", "LOGICAL_S3_ENDPOINT": "https://s3.example.test",
                    "LOGICAL_S3_BUCKET": "vpnshop-fixture", "LOGICAL_S3_REGION": "fixture", "LOGICAL_KEY_VERSION": "v1"}

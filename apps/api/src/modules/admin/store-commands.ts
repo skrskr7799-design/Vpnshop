@@ -70,7 +70,7 @@ async function customerPassword(ctx: CommandContext) {
   expectVersion(ctx.expectedVersion, owner.updatedAt);
   const credential = await ctx.db.authIdentity.findUnique({
     where: { userId_provider: { userId: owner.id, provider: "EMAIL" } },
-    select: { id: true, passwordHash: true },
+    select: { id: true, providerId: true, passwordHash: true },
   });
   if (!credential?.passwordHash) throw new AppError(409, "PASSWORD_NOT_CONFIGURED");
   return { owner, credential };
@@ -182,9 +182,9 @@ export const storeCommands = {
     return { id: owner.id, passwordChanged: true, sessionsRevoked: true, version: updated.updatedAt.toISOString() };
   }),
   "user.password.send_reset": command("users:write", empty, async ctx => {
-    const { owner } = await customerPassword(ctx);
+    const { owner, credential } = await customerPassword(ctx);
     if (!emailAvailable || !env.MAIL_QUEUE_KEY) throw new AppError(503, "EMAIL_UNAVAILABLE");
-    if (!owner.email || !owner.emailVerifiedAt || owner.emailLoginDisabled || owner.status !== "ACTIVE")
+    if (!owner.email || credential.providerId !== owner.email || !owner.emailVerifiedAt || owner.emailLoginDisabled || owner.status !== "ACTIVE")
       throw new AppError(409, "PASSWORD_RESET_UNAVAILABLE");
     if (!await consumeMailBudget(owner.email, "reset", ctx.db)) throw new AppError(429, "RATE_LIMIT_EXCEEDED");
     await issuePasswordReset(ctx.db, owner.id, owner.email, await dbNow(ctx.db));
