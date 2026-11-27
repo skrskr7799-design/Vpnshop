@@ -110,7 +110,7 @@ function Users() {
 }
 function UserDetails() {
   return <Detail title="Пользователь" path="/users">{row => <>
-    <section className="mz-card panel"><Facts data={row} keys={["id", "email", "displayName", "status", "activation", "emailVerified", "right", "createdAt"]} />
+    <section className="mz-card panel"><Facts data={row} keys={Object.keys(row).filter(key => key !== "access")} />
       <nav className="mz-actions" aria-label="Связанные записи пользователя">
         <Link className={buttonClass("secondary")} to={"/orders?userId=" + row.id}>Заказы</Link>
         <Link className={buttonClass("secondary")} to={"/jobs?userId=" + row.id}>Выдача</Link>
