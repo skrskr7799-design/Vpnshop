@@ -15,6 +15,8 @@ from release_bundle import (
     matches, os, Path, re, rollback_target, tarfile, tree_id, unpack, version,
 )
 
+from release_bundle_scan import scan_archive
+
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 
@@ -209,7 +211,10 @@ def make_bundle(output, tag, sha, entries, history, prior_history, notes):
     files = dict(packaging_files()) | {
         "release.env": "".join(f"{key}={value}\n" for key, value in values.items()).encode(),
         "release-images.json": (json.dumps(metadata, indent=2, sort_keys=True) + "\n").encode(),
-        "migration-history.json": (json.dumps(history, indent=2, sort_keys=True) + "\n").encode(),
+        # Keep the public SHA-256 on a separate line from migration names such
+        # as customer_auth_support. This preserves the existing JSON mapping.
+        "migration-history.json": (json.dumps(history, indent=4, sort_keys=True,
+                                              separators=(",", ":\n        ")) + "\n").encode(),
         "NOTES.md": notes_text(tag, sha, history, prior_history, entries, notes).encode(),
         "vpnshop.sh": script.read_bytes(),
     }
@@ -325,7 +330,7 @@ def prepare_plan(prior, output, refresh):
     print("Reused:", ", ".join(sorted(selected)) or "none")
 
 
-def finalize(plan_path, tag, notes_path, output):
+def finalize(plan_path, tag, notes_path, output, scan_report=None):
     sha = production()
     plan = json.loads(plan_path.read_text())
     demand(plan["source"] == sha and plan["current"] == fingerprints(), "Release inputs changed after candidate tests")
@@ -338,7 +343,8 @@ def finalize(plan_path, tag, notes_path, output):
     # Check the deploy archive and launcher before making any registry writes.
     with tempfile.TemporaryDirectory() as directory:
         previews = fixture_entries(sha, plan["current"]) | plan["reused"]
-        make_bundle(Path(directory), tag, sha, previews, history, plan["prior_history"], notes)
+        archive = make_bundle(Path(directory), tag, sha, previews, history, plan["prior_history"], notes)
+        scan_archive(archive, run, scan_report)
     for name, fingerprint in plan["current"].items():
         reused = plan["reused"].get(name)
         if reused:
@@ -357,6 +363,9 @@ def main():
     app.add_argument("output", type=Path)
     app = commands.add_parser("candidate")
     app.add_argument("output", type=Path)
+    app = commands.add_parser("scan-bundle")
+    app.add_argument("archive", type=Path)
+    app.add_argument("--report", type=Path)
     app = commands.add_parser("plan")
     app.add_argument("previous")
     app.add_argument("output", type=Path)
@@ -366,6 +375,7 @@ def main():
     app.add_argument("version", type=version)
     app.add_argument("notes", type=Path)
     app.add_argument("output", type=Path)
+    app.add_argument("--scan-report", type=Path)
     args = parser.parse_args()
     if args.command == "fingerprints":
         print(json.dumps(fingerprints(), indent=2))
@@ -378,10 +388,12 @@ def main():
         notes = dict.fromkeys(NOTE_FIELDS, "Synthetic CI artifact for release-format verification.")
         notes["coordination"] = "compatible"
         make_bundle(args.output, "v0.0.0", sha, fixture_entries(sha, fingerprints()), migration_history(), None, notes)
+    elif args.command == "scan-bundle":
+        scan_archive(args.archive, run, args.report)
     elif args.command == "plan":
         prepare_plan(args.previous, args.output, args.refresh)
     else:
-        finalize(args.plan, args.version, args.notes, args.output)
+        finalize(args.plan, args.version, args.notes, args.output, args.scan_report)
 
 
 if __name__ == "__main__":

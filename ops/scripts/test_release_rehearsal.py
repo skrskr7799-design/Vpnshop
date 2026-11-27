@@ -77,7 +77,16 @@ class ReleaseRehearsal(unittest.TestCase):
                                       "org.opencontainers.image.revision": self.sha}}}]))
         if args[:2] == ["docker", "run"]:
             self.assertIn("--redact=100", args)
-            return result()
+            folder = Path(next(arg.removesuffix(":/report") for arg in args if arg.endswith(":/report")))
+            self.assertTrue(folder.is_dir())
+            if self.fail == "scanner-failed":
+                return result("private scanner error", code=125)
+            findings = []
+            if self.fail == "bundle-secret":
+                findings = [{"File": "/release/NOTES.md", "StartLine": 7, "RuleID": "generic-api-key",
+                             "Match": "private scanner match", "Secret": "private scanner secret"}]
+            (folder / "findings.json").write_text(json.dumps(findings))
+            return result("private scanner output", code=3 if findings else 0)
         if args[:3] == ["gh", "attestation", "verify"]:
             self.assertIn(f"{bundle.REPOSITORY}/.github/workflows/release-images.yml", args)
             self.assertIn("refs/heads/main", args)
@@ -209,6 +218,30 @@ class ReleaseRehearsal(unittest.TestCase):
         with self.assertRaisesRegex(bundle.ReleaseError, "differs from tested image"):
             release.finalize(self.plan, self.tag, self.notes, self.output)
         self.assertFalse(self.output.exists())
+
+    def test_bundle_scan_blocks_registry_and_tag_writes_with_safe_evidence(self):
+        with patch.object(release, "build_images"):
+            release.prepare_plan("first-release", self.plan, False)
+        report = self.root / "diagnostics" / "scan.json"
+        self.fail = "scanner-failed"
+        with self.assertRaisesRegex(bundle.ReleaseError, "secret scan"):
+            release.finalize(self.plan, self.tag, self.notes, self.output, report)
+        self.assertEqual(json.loads(report.read_text()), {"status": "ERROR", "findings": []})
+        self.fail = "bundle-secret"
+        with self.assertRaisesRegex(bundle.ReleaseError, "secret scan"):
+            release.finalize(self.plan, self.tag, self.notes, self.output, report)
+        self.assertEqual(json.loads(report.read_text()), {"status": "FINDINGS", "findings": [
+            {"file": "NOTES.md", "line": 7, "ruleId": "generic-api-key"},
+        ]})
+        self.assertFalse(self.pushes)
+        self.assertFalse(self.output.exists())
+        self.fail = None
+        self.assemble()
+        self.fail = "bundle-secret"
+        with self.assertRaisesRegex(bundle.ReleaseError, "secret scan"):
+            v2_publish.publish(self.tag, self.output, scan_report=report)
+        self.assertIsNone(self.tag_sha)
+        self.assertIsNone(self.draft)
 
     def test_invalid_release_notes_stop_before_registry_writes(self):
         with patch.object(release, "build_images"):

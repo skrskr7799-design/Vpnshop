@@ -2,13 +2,13 @@
 """Commit the attested release assets to GitHub without replacing an existing release."""
 import argparse
 import json
-import os
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 from release_bundle import REPOSITORY, ReleaseError, checksum, demand, digest_file, unpack, version
+from release_bundle_scan import scan_extracted
 from v2_release import production, run
 
 
@@ -72,7 +72,7 @@ def draft_asset_names(draft, tag, notes, files):
     return names
 
 
-def publish(tag, directory, resume=False):
+def publish(tag, directory, resume=False, scan_report=None):
     sha, draft, tagged = check(tag, resume)
     archive = directory / f"vpnshop-deploy-{tag}.tar.gz"
     script = directory / "vpnshop.sh"
@@ -90,9 +90,7 @@ def publish(tag, directory, resume=False):
         values, _, _ = unpack(archive, extracted)
         demand(values["VPNSHOP_VERSION"] == tag and values["GIT_SHA"] == sha and
                digest_file(extracted / script.name) == digest_file(script), "Release assets do not match source and standalone CLI")
-        scan = "zricethezav/gitleaks:v8.30.0@sha256:691af3c7c5a48b16f187ce3446d5f194838f91238f27270ed36eef6359a574d9"
-        run(["docker", "run", "--rm", "--network", "none", "-u", f"{os.getuid()}:{os.getgid()}",
-             "-v", f"{extracted}:/release:ro", scan, "dir", "--no-banner", "--redact=100", "/release"])
+        scan_extracted(extracted, run, scan_report)
         files = assets + checks
         notes = extracted / "NOTES.md"
         if not tagged:
@@ -120,10 +118,11 @@ if __name__ == "__main__":
     parser.add_argument("tag", type=version)
     parser.add_argument("directory", type=Path, nargs="?")
     parser.add_argument("--resume", action="store_true", help="Resume only an exact matching unpublished attempt")
+    parser.add_argument("--scan-report", type=Path)
     args = parser.parse_args()
     try:
         if args.action == "publish":
-            publish(args.tag, args.directory, args.resume)
+            publish(args.tag, args.directory, args.resume, args.scan_report)
         else:
             check(args.tag, args.resume)
     except ReleaseError as problem:
