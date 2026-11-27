@@ -66,29 +66,50 @@ jobs:
           if [[ "$REFRESH_BASES" == true ]]; then args+=(--refresh); fi
           python3 ops/scripts/v2_release.py plan "$PREVIOUS_RELEASE" "$RUNNER_TEMP/vpnshop-plan.json" "${args[@]}"
       - name: Test the candidate images and PostgreSQL recovery
-        run: |
-          MZT_V2_SMOKE=1 MZT_V2_CLI_SMOKE=1 ops/scripts/smoke.sh
-          MZT_DRILL_REPO=s3 ops/scripts/pitr.sh
-          MZT_V2_EDGE_IMAGE="mzt-ci-edge:$GITHUB_SHA" python3 ops/scripts/v2_tls_smoke.py
+        id: runtime
+        run: bash ops/scripts/release-runtime-checks.sh
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version-file: .node-version
           package-manager-cache: false
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320
       - name: Enforce existing dependency, image and secret gates
+        id: scans
         run: ops/scripts/scan-release.sh "$RUNNER_TEMP/mzt-release-scans"
       - name: Publish verified images and assemble deploy bundle
+        id: bundle
         run: |
           python3 ops/scripts/v2_release.py finalize "$RUNNER_TEMP/vpnshop-plan.json" "$RELEASE_VERSION" \
             "$RUNNER_TEMP/vpnshop-notes.json" "$RUNNER_TEMP/vpnshop-release"
       - name: Attest the archive and standalone launcher
+        id: attest
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
         with:
           subject-path: |
             ${{ runner.temp }}/vpnshop-release/vpnshop-deploy-*.tar.gz
             ${{ runner.temp }}/vpnshop-release/vpnshop.sh
       - name: Verify provenance and publish immutable release assets
+        id: publish
         run: python3 ops/scripts/v2_publish.py publish "$RELEASE_VERSION" "$RUNNER_TEMP/vpnshop-release"
+      - name: Record safe release failure status
+        if: ${{ failure() }}
+        env:
+          OUTCOMES: ${{ format('runtime={0} scans={1} bundle={2} attest={3} publish={4}', steps.runtime.outcome, steps.scans.outcome, steps.bundle.outcome, steps.attest.outcome, steps.publish.outcome) }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/mzt-release-scans"
+          printf 'sha=%s\n%s\n' "$GITHUB_SHA" "$OUTCOMES" > "$RUNNER_TEMP/mzt-release-scans/stages.txt"
+      - name: Upload sanitized release diagnostics
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: release-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/mzt-release-scans/stages.txt
+            ${{ runner.temp }}/mzt-release-scans/scan-gates.json
+            ${{ runner.temp }}/mzt-release-scans/*.vulnerabilities.json
+            ${{ runner.temp }}/mzt-release-scans/npm-production.json
+            ${{ runner.temp }}/mzt-release-scans/npm-all.json
+          if-no-files-found: warn
       - name: Discard registry credentials
         if: always()
         run: rm -rf -- "$DOCKER_CONFIG"

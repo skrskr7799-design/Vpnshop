@@ -17,11 +17,26 @@ docker run --rm --network none -u "$(id -u):$(id -g)" -v "$PWD:/repo:ro" -v "$tm
   git --redact=100 --no-banner --gitleaks-ignore-path /repo/.gitleaksignore --log-opts=HEAD --report-format json --report-path /scan/history.json /repo || git_result=$?
 if [[ "$git_result" != 0 ]]; then decision=1; fi
 audit_result=0
-pnpm audit --json --prod --audit-level high > "$output/npm-production.json" || audit_result=$?
+pnpm audit --json --prod --audit-level high > "$tmp/npm-production.raw" || audit_result=$?
 if [[ "$audit_result" != 0 ]]; then decision=1; fi
 audit_all_result=0
-pnpm audit --json --audit-level high > "$output/npm-all.json" || audit_all_result=$?
-if ! jq -e '.metadata.vulnerabilities != null' "$output/npm-production.json" "$output/npm-all.json" >/dev/null; then decision=1; fi
+pnpm audit --json --audit-level high > "$tmp/npm-all.raw" || audit_all_result=$?
+for audit in npm-production npm-all; do
+  if ! jq -e '
+    def safe($p): if type == "string" and test($p) then . else "withheld" end;
+    def count: if type == "number" and . >= 0 then . else null end;
+    select(.metadata.vulnerabilities != null) |
+    {counts: (.metadata.vulnerabilities | {info:(.info|count),low:(.low|count),moderate:(.moderate|count),
+      high:(.high|count),critical:(.critical|count)}),
+     findings: [.advisories[]? | {package:(.module_name|safe("^[@a-zA-Z0-9_./-]{1,214}$")),
+       advisory:(.github_advisory_id|safe("^GHSA-[a-z0-9-]+$")),severity:(.severity|safe("^[a-z]+$")),
+       vulnerable:(.vulnerable_versions|safe("^[0-9a-zA-Z .+<>=|~^*-]+$")),
+       fixed:(.patched_versions|safe("^[0-9a-zA-Z .+<>=|~^*-]+$"))}]}
+  ' "$tmp/$audit.raw" > "$output/$audit.json"; then
+    decision=1
+    printf '{"status":"BLOCKED"}\n' > "$output/$audit.json"
+  fi
+done
 
 mkdir "$tmp/cache"
 scan_image() {
@@ -57,9 +72,22 @@ for image in application migrator web admin edge db backup prometheus alertmanag
     # Secret scanner matches and snippets never leave the temporary directory.
     jq '{SchemaVersion, ArtifactName, Results: [ .Results[]? | {Target, Class, Type, Licenses, Vulnerabilities: [.Vulnerabilities[]? | select(.Severity == "HIGH" or .Severity == "CRITICAL")]} ]}' "$tmp/result.json" > "$output/$image.trivy.json"
     cp "$tmp/sbom.json" "$output/$image.spdx.json"
+    jq '
+      def safe($p): if type == "string" and test($p) then . else "withheld" end;
+      [.Results[]? | .Vulnerabilities[]? | select(.Severity == "HIGH" or .Severity == "CRITICAL") |
+       {id:(.VulnerabilityID|safe("^[a-zA-Z0-9:_-]{1,100}$")), severity:.Severity,
+        package:(.PkgName|safe("^[@a-zA-Z0-9_./+-]{1,214}$")),
+        installed:(.InstalledVersion|safe("^[a-zA-Z0-9:_.+~!-]{1,128}$")),
+        fixed:(.FixedVersion|safe("^[a-zA-Z0-9:_.+~!, -]{0,256}$")),
+        status:(.Status|safe("^[a-z_]{1,32}$"))}]
+    ' "$tmp/result.json" > "$output/$image.vulnerabilities.json"
     c=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' "$tmp/result.json")
     h=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH")] | length' "$tmp/result.json")
     s=$(jq '[.Results[]?.Secrets[]?] | length' "$tmp/result.json")
+    if (( c )) && [[ "${GITHUB_ACTIONS:-}" == true ]]; then
+      printf '::notice title=Critical packages in %s::%s\n' "$image" \
+        "$(jq -c '[.[] | select(.severity == "CRITICAL")][:15]' "$output/$image.vulnerabilities.json")"
+    fi
     if [[ "$metadata_exit" == 3 ]]; then s=$((s+1)); fi
     if (( s )); then
       # Publish locations and built-in rule IDs only. Never publish matches or snippets.
@@ -103,6 +131,10 @@ fi
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   printf 'Supply chain: %s\n' "$(jq -c . "$output/scan-gates.json")" >> "$GITHUB_STEP_SUMMARY"
   printf '::notice title=Supply chain evidence::%s\n' "$(jq -c 'del(.images[].ref)' "$output/scan-gates.json")"
+  if (( audit_all_result )); then
+    printf '::notice title=Full dependency audit::%s\n' \
+      "$(jq -c '{counts, findings: [.findings[]? | select(.severity == "high" or .severity == "critical")][:12]}' "$output/npm-all.json")"
+  fi
   if (( decision )); then
     printf '::error title=Supply-chain gate blocked::%s\n' "$(jq -c '{gitleaksExit, npmProductionExit, images: (.images | map_values(del(.ref, .status)))}' "$output/scan-gates.json")"
   fi
