@@ -283,7 +283,8 @@ def production():
     sha = git("rev-parse", "HEAD")
     demand(os.environ.get("GITHUB_REF") == "refs/heads/main" and os.environ.get("GITHUB_SHA") == sha
            and os.environ.get("GITHUB_REPOSITORY") == REPOSITORY, "Registry publication requires the authorized main workflow")
-    demand(not git("status", "--porcelain", "--untracked-files=all"), "Publication requires a clean build context")
+    dirty = git("status", "--porcelain", "--untracked-files=all")
+    demand(not dirty, "Publication requires a clean build context:\n" + dirty)
     return sha
 
 
