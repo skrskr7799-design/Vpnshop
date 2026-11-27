@@ -135,9 +135,11 @@ it("keeps separate read positions and never clears an unseen concurrent message"
   const data = await read(first.sessionToken);
   expect(data.case.unread).toBe(1);
   expect((await read(second.sessionToken)).case.unread).toBe(2);
-  const replied = await as(admin, first.sessionToken).command("support.reply", id, data.case.updatedAt,
-    { publicReply: "Ответ сотрудника" }, { key: randomUUID(), reason: "Ответ в очереди поддержки" });
+  const replied = await admin.inject({ method: "POST", url: `/api/commands/support.reply/${id}`,
+    cookies: { vpn_admin: first.sessionToken }, headers: { origin: env.ADMIN_ORIGIN, "idempotency-key": randomUUID() },
+    payload: { expectedVersion: data.case.updatedAt, command: { publicReply: "Ответ сотрудника" } } });
   expect(replied.statusCode).toBe(200);
+  expect((await prisma.auditLog.findFirstOrThrow({ where: { action: "support.reply" } })).reason).toBeNull();
   const customer = (await member.get(publicUrl)).json();
   expect(customer.case).toMatchObject({ subject: "Проверка подключения", status: "WAITING_CUSTOMER", unread: 1 });
   expect((await member.post(publicUrl + "/read", { through: customer.readThrough })).statusCode).toBe(204);

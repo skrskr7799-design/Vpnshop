@@ -70,7 +70,11 @@ const server = createServer(async (req, res) => {
   }
   if (path === "/api/auth/refresh") return json({ error: { code: "INVALID_SESSION" } }, 401);
   if (path === "/api/auth/oauth/providers") return json({ providers: { google: oauthEnabled, telegram: oauthEnabled }, emailAvailable: mailEnabled });
-  if (["/api/auth/register", "/api/auth/forgot-password", "/api/auth/resend-verification"].includes(path)) { req.resume(); return json({ ok: true, emailAvailable: mailEnabled }); }
+  if (path === "/api/auth/register") {
+    req.resume();
+    return json({ ok: true, emailAvailable: mailEnabled, registrationReference: "b1d28ae0-4b81-483d-809f-a38d76b7e125" });
+  }
+  if (["/api/auth/forgot-password", "/api/auth/resend-verification"].includes(path)) { req.resume(); return json({ ok: true, emailAvailable: mailEnabled }); }
   if (["/api/auth/reset-password", "/api/auth/verify-email"].includes(path)) {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
@@ -297,7 +301,8 @@ try {
   await until(text("Пароли не совпадают"));
   await fillAuth({ confirmPassword: password });
   await click("Создать аккаунт");
-  await until(text("Проверьте почту"));
+  await until(text("Заявка на регистрацию"));
+  await until(text("b1d28ae0-4b81-483d-809f-a38d76b7e125"));
   await send("Page.navigate", { url: origin + "/forgot-password" });
   await until(text("Отправить ссылку"));
   await fillAuth({ email: "synthetic@example.invalid" });

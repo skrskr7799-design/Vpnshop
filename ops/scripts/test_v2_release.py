@@ -352,6 +352,8 @@ class CLITests(ReleaseFixtures):
         current = self.install("single")
         secrets_before = {path.name: path.read_bytes() for path in self.deploy.secrets.iterdir()}
         config = self.deploy.config.read_bytes()
+        resources = self.deploy.config.with_name("resources.env")
+        resources.write_text("RESOURCE_PROFILE=micro\n")
         self.update(self.candidate(), "--yes")
         self.assertEqual(self.deploy.pointer("current").name, "v2.1.0")
         self.assertEqual(self.deploy.pointer("previous"), current)
@@ -361,6 +363,7 @@ class CLITests(ReleaseFixtures):
         self.assertEqual(self.deploy.pointer("current"), current)
         self.assertEqual(secrets_before, {path.name: path.read_bytes() for path in self.deploy.secrets.iterdir()})
         self.assertEqual(config, self.deploy.config.read_bytes())
+        self.assertEqual(resources.read_text(), "RESOURCE_PROFILE=micro\n")
 
     def test_failed_healthcheck_retains_pending_and_resume_only_target(self):
         self.install("edge")
