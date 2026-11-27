@@ -193,15 +193,13 @@ model Session {
   @@index([familyId])
 }
 
-// Регистрация по почте: пользователь создаётся только ПОСЛЕ подтверждения ссылкой.
-// Пока почта не подтверждена, аккаунта нет, поэтому чужой email нельзя «занять заранее»
-// (pre-hijacking). Строк на один email может быть несколько: каждая ссылка
-// создаёт аккаунт со своим паролем, и кликнуть её может только владелец ящика.
+// Separate claims may exist for the same email. No claim can sign in.
 model PendingRegistration {
   id           String   @id @default(uuid())
-  email        String // lowercase
-  passwordHash String // argon2id
-  tokenHash    String   @unique
+  email        String
+  passwordHash String?  // Empty for an operator-created reservation
+  tokenHash    String?  @unique
+  approvalHash String?  // Digest of the claimant's manual approval reference
   expiresAt    DateTime
   createdAt    DateTime @default(now())
 

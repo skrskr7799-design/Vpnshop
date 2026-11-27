@@ -13,6 +13,9 @@ export function PlanCreate() {
 export function PlanActions({ plan, versions }: { plan: Row; versions: Row[] }) {
   const version = String(plan.revision);
   return <>
+    <Action title="Обновить черновик тарифа" operation="plan.update" permission="plans:write" target={plan.id} version={version}
+      fields={[{ name: "name", label: "Название", value: String(plan.name) },
+        { name: "deviceLimit", label: "Лимит устройств", type: "number", value: Number(plan.deviceLimit) }]} />
     {plan.isActive ? <Action title="Опубликовать предложение" operation="plan.publish" permission="plans:write" target={plan.id} version={version}
       baseline={body => {
         const offer = versions.find(row => !row.withdrawnAt && row.currency === body.currency && Number(row.durationMonths) === Number(body.durationMonths));
@@ -96,12 +99,33 @@ export function StaffCreate() {
     ]} />;
 }
 export function UserCreate() {
-  return <Action title="Создать аккаунт пользователя" operation="user.create" permission="users:create" target="new" version={0}
-    fields={[
-      { name: "email", label: "Электронная почта", type: "email" }, { name: "displayName", label: "Отображаемое имя", required: false },
-      { name: "temporaryPassword", label: "Временный пароль (действует 24 часа)", type: "password" },
-      { name: "active", type: "checkbox", label: "Активировать аккаунт вручную" },
-    ]} />;
+  return <Action title="Создать заявку клиента" operation="user.create" permission="users:create" target="new" version={0}
+    fields={[{ name: "email", label: "Электронная почта", type: "email" }]} />;
+}
+export function CustomerCredentials({ row }: { row: Row }) {
+  const allowed = useCan("users:write");
+  const access = row.access as { hasPassword: boolean; mailAvailable: boolean; emailResetEligible: boolean } | undefined;
+  if (!allowed || !access) return null;
+  const providers = (row.identities as { provider: string }[] | undefined) ?? [];
+  const methods = [
+    ...(access.hasPassword ? ["Email и пароль"] : []),
+    ...(providers.some(credential => credential.provider === "TELEGRAM") ? ["Telegram"] : []),
+    ...(providers.some(credential => credential.provider === "GOOGLE") ? ["Google"] : []),
+  ];
+  const target = { target: row.id, context: String(row.email ?? row.id), version: String(row.version), permission: "users:write" };
+  return <section className="mz-card panel">
+    <h2>Управление доступом</h2>
+    <p>Способы входа: {methods.join(", ") || "нет подключённых способов"}.</p>
+    {access.hasPassword ? <>
+      <p>Установка нового пароля завершит все сессии клиента и отменит прежние ссылки сброса.</p>
+      <Action {...target} title="Установить новый пароль" operation="user.password.set"
+        fields={[{ name: "password", label: "Новый постоянный пароль", type: "password" }]} />
+      {access.mailAvailable && access.emailResetEligible
+        ? <Action {...target} title="Отправить письмо для сброса пароля" operation="user.password.send_reset" />
+        : <p>{!access.mailAvailable ? "Письмо для сброса недоступно: почтовая отправка отключена."
+          : "Для отправки письма нужен подтверждённый email и доступный вход в аккаунт."}</p>}
+    </> : <p>У клиента нет пароля. Вход и восстановление выполняются через привязанный способ входа.</p>}
+  </section>;
 }
 export function StaffActions({ row }: { row: Row }) {
   const version = String(row.version);

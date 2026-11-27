@@ -37,7 +37,7 @@ export function onSessionEvent(handler: (event: SessionEvent) => void) {
 // Эндпоинты авторизации сами выдают и проверяют сессию, поэтому skipRefresh.
 const auth = { method: "POST", skipRefresh: true } as const;
 
-type EmailReceipt = { ok: true; emailAvailable?: boolean };
+type EmailReceipt = { ok: true; emailAvailable?: boolean; registrationReference?: string };
 
 export const authApi = {
   register: (body: RegisterInput) => request<EmailReceipt>("/auth/register", { ...auth, body }),

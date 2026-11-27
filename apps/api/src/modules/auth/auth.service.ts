@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { requireAdmission } from "../../config/product";
 import { emailAvailable, env } from "../../config/env";
 import { enqueueMail } from "../mail/outbox";
@@ -27,11 +28,11 @@ export type AuthContext = { log: FastifyBaseLogger; ip?: string; userAgent?: str
 
 const HOUR_MS = 60 * 60 * 1000;
 
-async function consumeMailBudget(email: string, purpose: string) {
+export async function consumeMailBudget(email: string, purpose: string, db: Prisma.TransactionClient = prisma) {
   const key = sha256(`${purpose}:${email}`);
   const now = new Date();
   const expired = new Date(+now - HOUR_MS);
-  const rows = await prisma.$queryRaw<{ count: number }[]>`
+  const rows = await db.$queryRaw<{ count: number }[]>`
     INSERT INTO "AuthMailWindow" (key, "startedAt", count) VALUES (${key}, ${now}, 1)
     ON CONFLICT (key) DO UPDATE SET
       count = CASE WHEN "AuthMailWindow"."startedAt" <= ${expired} THEN 1 ELSE "AuthMailWindow".count + 1 END,
@@ -51,37 +52,47 @@ export const toPublicUser = (user: Pick<User, "id" | "email" | "role" | "emailVe
 // ───────────── Регистрация ─────────────
 // Всегда отвечает одинаково (наружу ничего не утекает): есть такой аккаунт или нет,
 // узнать можно только из письма на этот адрес.
-export async function register({ email, password }: RegisterInput, ctx: AuthContext): Promise<void> {
+export async function register({ email, password }: RegisterInput, ctx: AuthContext): Promise<string> {
   requireAdmission(env, "registration");
-  if (!await consumeMailBudget(email, "register")) return;
-  // хэшируем всегда, чтобы время ответа не зависело от наличия аккаунта
+  const reference = randomUUID();
+  if (!await consumeMailBudget(email, "register")) return reference;
   const passwordHash = await hashPassword(password);
   const now = new Date();
-
-  // оппортунистическая чистка; позже переедет в фоновый воркер
   await prisma.pendingRegistration.deleteMany({ where: { expiresAt: { lt: now } } });
 
-  const existing = await prisma.user.findFirst({
+  const mail = await prisma.$transaction(async db => {
+    requireAdmission(env, "registration");
+    await lockRegistration(db, email);
+    if (await emailInUse(db, email)) {
+      if (!emailAvailable) return undefined;
+      const mail = accountExistsMail(email);
+      if (env.MAIL_QUEUE_KEY) await enqueueMail(db, mail, new Date(+now + VERIFY_TTL_MS));
+      else return mail;
+      return undefined;
+    }
+    const reservation = await db.pendingRegistration.findFirst({
+      where: { email, passwordHash: null, expiresAt: { gt: now } }, select: { id: true },
+    });
+    const token = emailAvailable && !reservation ? generateToken() : undefined;
+    const expiresAt = new Date(+now + VERIFY_TTL_MS);
+    await db.pendingRegistration.create({ data: {
+      email, passwordHash, approvalHash: sha256(reference), expiresAt, ...(token && { tokenHash: sha256(token) }),
+    } });
+    if (!token) return undefined;
+    const mail = verifyEmailMail(email, token);
+    if (env.MAIL_QUEUE_KEY) await enqueueMail(db, mail, expiresAt);
+    else return mail;
+    return undefined;
+  });
+  if (mail) void sendMail(ctx.log, mail);
+  return reference;
+}
+
+export function emailInUse(db: Prisma.TransactionClient, email: string) {
+  return db.user.findFirst({
     where: { OR: [{ email }, { identities: { some: { provider: "EMAIL", providerId: email } } }] },
     select: { id: true },
   });
-  if (existing) {
-    if (!emailAvailable) return;
-    const mail = accountExistsMail(email);
-    if (env.MAIL_QUEUE_KEY) await enqueueMail(prisma, mail, new Date(+now + VERIFY_TTL_MS));
-    else void sendMail(ctx.log, mail);
-    return;
-  }
-
-  const token = generateToken();
-  const mail = verifyEmailMail(email, token);
-  const expiresAt = new Date(+now + VERIFY_TTL_MS);
-  await prisma.$transaction(async db => {
-    requireAdmission(env, "registration");
-    await db.pendingRegistration.create({ data: { email, passwordHash, tokenHash: sha256(token), expiresAt } });
-    if (emailAvailable) await enqueueMail(db, mail, expiresAt);
-  });
-  if (emailAvailable && !env.MAIL_QUEUE_KEY) void sendMail(ctx.log, mail);
 }
 
 // Serialize creation by email before consuming one of several pending requests.
@@ -95,8 +106,11 @@ export async function verifyEmail(token: string, claims?: AuthClaims): Promise<v
     await prisma.$transaction(async db => {
       const now = new Date();
       const pending = await db.pendingRegistration.findUnique({ where: { tokenHash } });
-      if (pending) {
+      if (pending?.passwordHash) {
         await lockRegistration(db, pending.email);
+        if (await db.pendingRegistration.findFirst({
+          where: { email: pending.email, passwordHash: null, expiresAt: { gt: now } }, select: { id: true },
+        })) throw new AppError(400, "INVALID_TOKEN");
         const taken = await db.pendingRegistration.deleteMany({ where: { id: pending.id, expiresAt: { gt: now } } });
         if (taken.count !== 1) throw new AppError(400, "INVALID_TOKEN");
         await createEmailAccount(db, { email: pending.email, passwordHash: pending.passwordHash, emailVerifiedAt: now });
@@ -252,34 +266,34 @@ export async function login(
 }
 
 // ───────────── Сброс пароля ─────────────
+export async function invalidatePasswordResets(db: Prisma.TransactionClient, userId: string, now: Date) {
+  await db.verificationToken.updateMany({ where: { userId, type: "PASSWORD_RESET", usedAt: null }, data: { usedAt: now } });
+}
+
+// Both callers hold the customer row lock and use the same one-time recovery flow.
+export async function issuePasswordReset(db: Prisma.TransactionClient, userId: string, email: string, now: Date) {
+  const token = generateToken();
+  const expiresAt = new Date(+now + RESET_TTL_MS);
+  await invalidatePasswordResets(db, userId, now);
+  await db.verificationToken.create({
+    data: { userId, type: "PASSWORD_RESET", email, tokenHash: sha256(token), expiresAt }, select: { id: true },
+  });
+  const mail = resetPasswordMail(email, token);
+  await enqueueMail(db, mail, expiresAt);
+  return mail;
+}
+
 export async function forgotPassword({ email }: ForgotPasswordInput, ctx: AuthContext): Promise<void> {
   if (!emailAvailable || !await consumeMailBudget(email, "reset")) return;
   const candidate = await prisma.user.findUnique({ where: { email }, select: { id: true } });
   if (!candidate) return;
-  const token = generateToken();
-  const issued = await prisma.$transaction(async tx => {
-    const user = await lockIdentityOwner(tx, candidate.id);
+  const mail = await prisma.$transaction(async db => {
+    const user = await lockIdentityOwner(db, candidate.id);
     if (!user || user.role !== "USER" || user.status !== "ACTIVE" || user.email !== email ||
-        !user.emailVerifiedAt || user.emailLoginDisabled) return false;
-    // новая ссылка гасит все прежние
-    await tx.verificationToken.updateMany({
-      where: { userId: user.id, type: "PASSWORD_RESET", usedAt: null },
-      data: { usedAt: new Date() },
-    });
-    const expiresAt = new Date(Date.now() + RESET_TTL_MS);
-    await tx.verificationToken.create({
-      data: {
-        userId: user.id,
-        type: "PASSWORD_RESET",
-        email,
-        tokenHash: sha256(token),
-        expiresAt,
-      },
-    });
-    await enqueueMail(tx, resetPasswordMail(email, token), expiresAt);
-    return true;
+        !user.emailVerifiedAt || user.emailLoginDisabled) return;
+    return issuePasswordReset(db, user.id, email, new Date());
   });
-  if (issued && !env.MAIL_QUEUE_KEY) void sendMail(ctx.log, resetPasswordMail(email, token));
+  if (mail && !env.MAIL_QUEUE_KEY) void sendMail(ctx.log, mail);
 }
 
 export async function resetPassword({ token, password }: ResetPasswordInput): Promise<void> {

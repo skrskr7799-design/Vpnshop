@@ -51,6 +51,7 @@ export const states: Record<string, string> = {
   FRESH: "Актуально", STALE: "Данные устарели", UNAVAILABLE: "Источник недоступен", CONFIRMED: "Подтверждено",
   VERIFY_PENDING: "Требуется сверка", NEEDS_REVIEW: "Требует решения", SUPERSEDED: "Заменено ревизией",
   SUCCEEDED: "Платёж подтверждён", CREATED: "Создана", SUBMITTING: "Запрос отправляется", REVIEW: "Требуется проверка",
+  AWAITING_PASSWORD: "Ожидает установки пароля", AWAITING_REVIEW: "Ожидает проверки", EMAIL_CONFIRMATION: "Ожидает письма",
   PENDING: "Ожидает", ACTIVE: "Действует", BLOCKED: "Заблокирован", PAID: "Оплата подтверждена",
   FULFILLED: "Выдан", EXPIRED: "Срок истёк", CANCELED: "Отменён", REFUNDED: "Возвращён", RUNNING: "Выполняется",
   RETRY_WAIT: "Ожидает повтора", FAILED: "Ошибка", UNKNOWN: "Исход уточняется", WAITING: "Ожидает",

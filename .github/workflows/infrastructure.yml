@@ -4,7 +4,7 @@ on:
   pull_request:
     paths: ['Dockerfile', '.dockerignore', 'ops/**', 'apps/**', 'packages/**', 'pnpm*.yaml', '.github/workflows/infrastructure.yml']
   push:
-    branches: ['main', 'work/ops-*', 'work/ux-*', 'work/rel-*']
+    branches: ['main', 'work/ops-*', 'work/ux-*', 'work/rel-*', 'work/v2.0.1-acceptance']
   workflow_dispatch:
 
 permissions:

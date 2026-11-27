@@ -1,5 +1,7 @@
 # Use --env-file with a deployment manifest's image refs and nonsecret settings.
 x-hardened: &hardened
+  mem_limit: 512m
+  cpus: 0.5
   init: true
   read_only: true
   cap_drop: [ALL]
@@ -39,10 +41,10 @@ services:
     <<: *hardened
     image: ${DATABASE_IMAGE:?Set database image digest}
     user: "999:999"
-    mem_limit: 2g
-    cpus: 1.5
+    mem_limit: ${VPNSHOP_DB_MEMORY:-2g}
+    cpus: ${VPNSHOP_DB_CPUS:-1.5}
     stop_grace_period: 120s
-    command: ["postgres","-c","password_encryption=scram-sha-256","-c","max_connections=60","-c","log_statement=none","-c","log_min_error_statement=panic"]
+    command: ["postgres","-c","password_encryption=scram-sha-256","-c","max_connections=60","-c","shared_buffers=${VPNSHOP_DB_SHARED_BUFFERS:-128MB}","-c","work_mem=${VPNSHOP_DB_WORK_MEM:-4MB}","-c","log_statement=none","-c","log_min_error_statement=panic"]
     environment:
       POSTGRES_DB: vpnshop
       POSTGRES_USER: postgres

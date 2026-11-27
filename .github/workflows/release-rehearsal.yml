@@ -3,7 +3,7 @@ name: VPNShop release rehearsal
 on:
   pull_request:
   push:
-    branches: ['fix/v2-release-*']
+    branches: ['fix/v2-release-*', 'work/v2.0.1-acceptance']
   workflow_dispatch:
 
 permissions:

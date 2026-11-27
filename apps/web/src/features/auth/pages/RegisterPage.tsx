@@ -29,11 +29,13 @@ export function RegisterPage() {
   if (registration.isSuccess) {
     return (
       <AuthPage
-        title={registration.data.emailAvailable === false ? "Заявка на активацию" : "Проверьте почту"}
+        title="Заявка на регистрацию"
         lead={registration.data.emailAvailable === false
           ? "Автоматические письма недоступны. Обратитесь к оператору магазина для ручной активации."
-          : "Если для адреса нужна регистрация, письмо будет поставлено в очередь. Ссылка для подтверждения действует 24 часа."}
+          : "При регистрации по почте проверьте входящие. Для ручного подтверждения обратитесь к оператору."}
       >
+        {registration.data.registrationReference && <p>При ручной проверке сообщите оператору номер заявки:
+          {" "}<code>{registration.data.registrationReference}</code>.</p>}
         {registration.data.emailAvailable !== false &&
           <><p>Проверьте папку «Спам». Для созданного аккаунта <Link to="/activation">запросите подтверждение</Link>.</p><Button type="button" variant="secondary" onClick={() => registration.reset()}>Повторить регистрацию</Button></>}
         <ButtonLink to="/login" variant="secondary">

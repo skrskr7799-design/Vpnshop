@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from "react-router";
 import { Action } from "./commands";
-import { AccessActions, Invite, OrderActions, PlanActions, PlanCreate, Settings, StaffActions, StaffCreate, UserCreate } from "./actions";
+import { AccessActions, CustomerCredentials, Invite, OrderActions, PlanActions, PlanCreate, Settings, StaffActions, StaffCreate, UserCreate } from "./actions";
 import { api, ApiError, errorText } from "./api";
 import { Session, useCan, useSession, type Principal } from "./session";
 import { Dashboard, Detail, Facts, jobColumns, jobFilters, List, orderColumns, orderFilters, PlanDetail,
@@ -110,7 +110,7 @@ function Users() {
 }
 function UserDetails() {
   return <Detail title="Пользователь" path="/users">{row => <>
-    <section className="mz-card panel"><Facts data={row} />
+    <section className="mz-card panel"><Facts data={row} keys={Object.keys(row).filter(key => key !== "access")} />
       <nav className="mz-actions" aria-label="Связанные записи пользователя">
         <Link className={buttonClass("secondary")} to={"/orders?userId=" + row.id}>Заказы</Link>
         <Link className={buttonClass("secondary")} to={"/jobs?userId=" + row.id}>Выдача</Link>
@@ -118,6 +118,7 @@ function UserDetails() {
         <Link className={buttonClass("secondary")} to={"/users/" + row.id + "/periods"}>Периоды</Link>
       </nav>
     </section>
+    <CustomerCredentials row={row} />
     <AccessActions row={row} />
   </>}</Detail>;
 }
@@ -239,11 +240,15 @@ export default function AdminWorkspace() {
       <Route index element={<Dashboard />} />
       <Route path="users" element={<Users />} />
       <Route path="users/registrations" element={<Permit permission="users:write">
-        <List title="Ожидающие регистрации" path="/users/registrations" columns={["email", "id", "createdAt", "expiresAt"]}
-          actions={rows => rows.map(row => <Action key={row.id} title={`Активировать ${row.email}`}
-            operation="user.registration.activate" permission="users:write" target={row.id} context={String(row.email)} version={String(row.version)}
-            fields={[{ name: "temporaryPassword", label: "Пароль для проверенного получателя (24 часа)", type: "password" }]} />)}>
-          <p>Передайте временный пароль только после идентификации заявителя по защищённому каналу.</p>
+        <List title="Ожидающие регистрации" path="/users/registrations" columns={["email", "state", "createdAt", "expiresAt"]}
+          actions={rows => rows.map(row => <section key={row.id}>
+            {row.state === "AWAITING_REVIEW" && <Action title={`Подтвердить ${row.email}`}
+              operation="user.registration.activate" permission="users:write" target={row.id} context={String(row.email)} version={String(row.version)}
+              fields={[{ name: "registrationReference", label: "Номер заявки, показанный клиенту при регистрации" }]} />}
+            <Action title={`Отменить заявку ${row.email}`} operation="user.registration.cancel"
+              permission="users:write" target={row.id} version={String(row.version)} />
+          </section>)}>
+          <p>Сначала подтвердите личность клиента по доверенному каналу и сверьте номер из его формы регистрации. Пароль запрашивать не нужно.</p>
         </List>
       </Permit>} />
       <Route path="users/:id" element={<UserDetails />} />

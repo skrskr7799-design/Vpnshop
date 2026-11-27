@@ -1,7 +1,7 @@
 import { createHmac, randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { env } from "../../config/env";
-import { checkoutKeySchema } from "@vpn/shared";
+import { adminCommandPolicy, checkoutKeySchema } from "@vpn/shared";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { sha256 } from "../../lib/crypto";
@@ -28,14 +28,14 @@ const reason = z.string().trim().min(5).max(500).refine(value =>
 
 const envelope = {
   expectedVersion: z.union([z.number().int().nonnegative().transform(String), z.string().min(1).max(80)]),
-  reason,
+  reason: reason.optional(),
   command: z.unknown(),
 };
 const proofInput = z.strictObject({
   ...envelope, operation: z.string().min(1).max(80), permission: z.string().min(1).max(40),
   targetId: z.string().min(1).max(200), password: z.string().min(1).max(128), code: z.string().regex(/^\d{6}$/).optional(),
 });
-const executeInput = z.strictObject({ ...envelope, confirmationId: z.uuid() });
+const executeInput = z.strictObject({ ...envelope, confirmationId: z.uuid().optional() });
 
 export function command<T>(permission: Permission, schema: z.ZodType<T>,
   apply: (context: CommandContext, input: T) => Promise<Prisma.InputJsonObject>) {
@@ -49,7 +49,7 @@ function canonical(value: unknown): unknown {
   return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => [k, canonical(v)]));
 }
 export const commandFingerprint = (operation: string, permission: Permission, target: string, input: {
-  expectedVersion: string; reason: string; command: unknown;
+  expectedVersion: string; reason?: string; command: unknown;
 }) => createHmac("sha256", stageTokenKey()).update(JSON.stringify(canonical(
   [operation, permission, target, input.expectedVersion, input.reason, input.command],
 ))).digest("hex");
@@ -88,6 +88,8 @@ export function registerCommandProtocol(app: FastifyInstance, commands: Commands
     const actor = adminOf(req);
     if (input.permission !== entry.permission || !can(actor.role, entry.permission)) throw new AppError(403, "FORBIDDEN");
     const command = entry.parse(input.command);
+    if (adminCommandPolicy(input.operation, command).reason) reason.parse(input.reason);
+    // Older UI releases may still obtain a proof for a routine operation.
     const hash = commandFingerprint(input.operation, entry.permission, input.targetId, { ...input, command });
     const known = await prisma.staffCredential.findUnique({ where: { userId: actor.userId } });
     if (!known || !await verifyPassword(known.passwordHash, input.password)) {
@@ -116,6 +118,8 @@ export function registerCommandProtocol(app: FastifyInstance, commands: Commands
     if (!can(actor.role, entry.permission)) throw new AppError(403, "FORBIDDEN");
     const input = executeInput.parse(req.body);
     const command = entry.parse(input.command);
+    const policy = adminCommandPolicy(operation, command);
+    if (policy.reason) reason.parse(input.reason);
     const fingerprintValue = commandFingerprint(operation, entry.permission, targetId, { ...input, command });
     const keyHash = sha256(checkoutKeySchema.parse(req.headers["idempotency-key"]));
     const transient: CommandContext["transient"] = {};
@@ -128,22 +132,28 @@ export function registerCommandProtocol(app: FastifyInstance, commands: Commands
         if (prior.fingerprint !== fingerprintValue) throw new AppError(409, "IDEMPOTENCY_CONFLICT");
         return { commandId: prior.id, status: "SUCCEEDED", targetId, result: prior.result };
       }
-      const consumed = await db.adminConfirmation.updateMany({ where: {
-        id: input.confirmationId, sessionId: actor.sessionId, fingerprint: fingerprintValue,
-        version: current.credential.version, consumedAt: null, expiresAt: { gt: current.now },
-      }, data: { consumedAt: current.now } });
-      if (consumed.count !== 1) throw new AppError(403, "STEP_UP_REQUIRED");
+      let proofExpiry: Date | undefined;
+      if (policy.stepUp) {
+        if (!input.confirmationId) throw new AppError(403, "STEP_UP_REQUIRED");
+        const consumed = await db.adminConfirmation.updateMany({ where: {
+          id: input.confirmationId, sessionId: actor.sessionId, fingerprint: fingerprintValue,
+          version: current.credential.version, consumedAt: null, expiresAt: { gt: current.now },
+        }, data: { consumedAt: current.now } });
+        if (consumed.count !== 1) throw new AppError(403, "STEP_UP_REQUIRED");
+        proofExpiry = (await db.adminConfirmation.findUniqueOrThrow({
+          where: { id: input.confirmationId }, select: { expiresAt: true },
+        })).expiresAt;
+      }
 
       const commandId = randomUUID();
-      const output = await entry.run({ db, actor: current.actor, targetId, reason: input.reason,
+      const output = await entry.run({ db, actor: current.actor, targetId, reason: input.reason ?? "",
         expectedVersion: input.expectedVersion, now: current.now, commandId, transient }, input.command);
       await db.adminCommand.create({ data: { ...key, id: commandId, fingerprint: fingerprintValue, permission: entry.permission, result: output } });
       await writeAudit(db, { actorId: actor.userId, role: current.actor.role, permission: entry.permission,
         reason: input.reason, action: operation, entity: operation.split(".")[0]!, entityId: operation === "staff.create" || operation === "user.create" || operation === "user.registration.activate" ? String(output.id) : targetId,
         commandId, correlationId: req.id, outcome: "SUCCEEDED", ip: req.ip, data: output });
       // Object lock waits are included in the freshness check. Failure rolls back the effect.
-      const proof = await db.adminConfirmation.findUniqueOrThrow({ where: { id: input.confirmationId }, select: { expiresAt: true } });
-      if (proof.expiresAt <= await dbNow(db)) throw new AppError(403, "STEP_UP_REQUIRED");
+      if (proofExpiry && proofExpiry <= await dbNow(db)) throw new AppError(403, "STEP_UP_REQUIRED");
       return { commandId, status: "SUCCEEDED", targetId, result: output };
     });
     return { ...result, ...transient };

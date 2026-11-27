@@ -1,7 +1,7 @@
 # Explicit opt-in. Keep the base local rehearsals free of external storage access.
 services:
   db:
-    command: ["postgres","-c","password_encryption=scram-sha-256","-c","max_connections=60","-c","log_statement=none","-c","log_min_error_statement=panic","-c","archive_mode=on","-c","archive_timeout=300s","-c","archive_command=pgbackrest --config=/run/secrets/pgbackrest_conf --stanza=vpnshop archive-push %p"]
+    command: ["postgres","-c","password_encryption=scram-sha-256","-c","max_connections=60","-c","shared_buffers=${VPNSHOP_DB_SHARED_BUFFERS:-128MB}","-c","work_mem=${VPNSHOP_DB_WORK_MEM:-4MB}","-c","log_statement=none","-c","log_min_error_statement=panic","-c","archive_mode=on","-c","archive_timeout=300s","-c","archive_command=pgbackrest --config=/run/secrets/pgbackrest_conf --stanza=vpnshop archive-push %p"]
     secrets: [pgbackrest_conf]
     volumes: [proofs:/state/proofs]
     networks: {archive-egress: {}}
@@ -17,6 +17,7 @@ services:
     security_opt: [no-new-privileges:true]
     restart: "no"
     logging: {driver: json-file, options: {max-size: "20m", max-file: "5"}}
+    cpus: 0.75
     mem_limit: 512m
     tmpfs: ["/tmp:rw,nosuid,nodev,noexec,size=768m,mode=1777"]
     networks: [backup-db, archive-egress]

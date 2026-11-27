@@ -7,6 +7,11 @@ prefix=${MZT_TEST_IMAGE_PREFIX:-mzt-ci}
 tmp=$(mktemp -d)
 export COMPOSE_PROJECT_NAME="mzt-ops-${RANDOM}-${RANDOM}"
 stack=(-f ops/compose.yml)
+if [[ "${MZT_V2_MICRO:-0}" == 1 ]]; then
+  export VPNSHOP_DB_CPUS=1 VPNSHOP_DB_MEMORY=512m
+  export VPNSHOP_DB_SHARED_BUFFERS=64MB VPNSHOP_DB_WORK_MEM=2MB
+  printf 'RESOURCE_PROFILE=micro\n' > "$tmp/resources.env"
+fi
 if [[ "${MZT_V2_SMOKE:-0}" == 1 ]]; then
   export COMPOSE_PROJECT_NAME="mzt-ci-single-${RANDOM}-${RANDOM}"
   stack=(--project-directory ops)
@@ -227,6 +232,22 @@ wait_readiness public-api 3000 /api/ready 503
 if dc run --rm --no-deps migrator >/dev/null 2>&1; then echo "Migration gate accepted a failed migration"; exit 1; fi
 dc exec -T db psql -U postgres -d vpnshop -v ON_ERROR_STOP=1 -c   "DELETE FROM \"_prisma_migrations\" WHERE id = 'ops-smoke-failed'" >/dev/null
 wait_readiness public-api 3000 /api/ready 200
+if [[ "${MZT_V2_MICRO:-0}" == 1 ]]; then
+  {
+    echo '### Micro profile memory after deployment, synthetic activity and backup'
+    echo 'Measured on the CI host with Micro container limits.'
+    echo '```text'
+    mapfile -t containers < <(dc ps -q)
+    docker stats --no-stream --format '{{.Name}} {{.MemUsage}}' "${containers[@]}"
+    for container in "${containers[@]}"; do
+      [[ "$(docker inspect --format '{{.State.OOMKilled}}' "$container")" == false ]]
+      if peak=$(docker exec "$container" cat /sys/fs/cgroup/memory.peak 2>/dev/null) && [[ "$peak" =~ ^[0-9]+$ ]]; then
+        printf '%s peak=%s bytes\n' "$(docker inspect --format '{{index .Config.Labels "com.docker.compose.service"}}' "$container")" "$peak"
+      fi
+    done
+    echo '```'
+  } | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
+fi
 dc stop -t 25 worker public-api
 for service in worker public-api; do
   [[ "$(docker inspect --format '{{.State.ExitCode}}' "$(dc ps -aq "$service")")" == 0 ]]

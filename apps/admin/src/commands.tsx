@@ -1,4 +1,5 @@
 import { Button, Checkbox, CodeDisplay, Dialog, Input, PasswordInput, Select, StatusIndicator, Textarea } from "@vpn/ui";
+import { adminCommandPolicy } from "@vpn/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRef, useState, type FormEvent } from "react";
 import { api, ApiError, errorText } from "./api";
@@ -11,17 +12,19 @@ export type Field = {
 };
 type Command = Record<string, string | number | boolean | null>;
 type Envelope = {
-  command: Command; expectedVersion: string; reason: string; confirmationId: string;
+  command: Command; expectedVersion: string; reason?: string; confirmationId?: string;
 };
+type Preview = Omit<Envelope, "confirmationId"> & { targetId: string };
 export type Result = { commandId: string; result: Record<string, unknown>; invitationToken?: string; stageToken?: string };
 export function Action({ title, operation, permission, target, version, fields = [], payload = {}, baseline, after, context }: {
   title: string; operation: string; permission: string; target: string | ((body: Command) => string);
   version: string | number; fields?: Field[]; payload?: Command; baseline?: (command: Command) => Record<string, unknown> | undefined; after?: (response: Result) => unknown; context?: string;
 }) {
   const allowed = useCan(permission);
+  const policy = adminCommandPolicy(operation, payload);
   const needsCode = useSession()?.security?.requiresTotp ?? true;
   const cache = useQueryClient();
-  const [preview, setPreview] = useState<{ targetId: string; command: Command; expectedVersion: string; reason: string }>();
+  const [preview, setPreview] = useState<Preview>();
   const [previewOpen, setPreviewOpen] = useState(false);
   const [result, setResult] = useState<Result>();
   const [error, setError] = useState("");
@@ -45,30 +48,34 @@ export function Action({ title, operation, permission, target, version, fields =
       const control = event.currentTarget.elements.namedItem(field.name);
       if (control instanceof HTMLInputElement) control.value = "";
     }
-    setPreview({ targetId: typeof target === "function" ? target(command) : target,
-      command, expectedVersion: String(version), reason: String(values.get("reason")).trim() });
+    const prepared = { targetId: typeof target === "function" ? target(command) : target,
+      command, expectedVersion: String(version), ...(policy.reason && { reason: String(values.get("reason") ?? "").trim() }) };
+    setPreview(prepared);
     setResult(undefined);
-    setPreviewOpen(true);
     setError("");
     setConflict(false);
+    if (policy.stepUp) setPreviewOpen(true);
+    else void execute(prepared);
   }
-  async function execute(event?: FormEvent<HTMLFormElement>) {
+  async function execute(prepared = preview, event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
-    if (!preview || sending.current) return;
+    if (!prepared || sending.current) return;
     sending.current = true;
     setPending(true);
     setError("");
     try {
       if (!saved.current) {
-        if (!event) return;
-        const values = new FormData(event.currentTarget);
-        const { confirmationId } = await api<{ confirmationId: string }>("/auth/step-up", {
-          method: "POST", body: { ...preview, operation, permission, password: values.get("password"), ...(needsCode && { code: values.get("code") }) },
-        });
-        saved.current = {
-          targetId: preview.targetId, key: crypto.randomUUID(),
-          envelope: { reason: preview.reason, expectedVersion: preview.expectedVersion, command: preview.command, confirmationId },
-        };
+        const { targetId, ...envelope } = prepared;
+        if (policy.stepUp) {
+          if (!event) return;
+          const values = new FormData(event.currentTarget);
+          const { confirmationId } = await api<{ confirmationId: string }>("/auth/step-up", {
+            method: "POST", body: { ...prepared, operation, permission, password: values.get("password"), ...(needsCode && { code: values.get("code") }) },
+          });
+          saved.current = { targetId, key: crypto.randomUUID(), envelope: { ...envelope, confirmationId } };
+        } else {
+          saved.current = { targetId, key: crypto.randomUUID(), envelope };
+        }
       }
       const { targetId, key, envelope } = saved.current;
       const response = await api<Result>(`/commands/${operation}/${encodeURIComponent(targetId)}`, {
@@ -105,9 +112,11 @@ export function Action({ title, operation, permission, target, version, fields =
       {result.invitationToken && <p>Одноразовый код для защищённой передачи <CodeDisplay>{result.invitationToken}</CodeDisplay></p>}
       <Facts data={result.result} />
     </div>}
+    {!previewOpen && error && <p role="alert">{error}</p>}
     {!previewOpen && saved.current ? <div className="mz-actions">
       <p className="admin-meta">Сервер пока не подтвердил исход команды.</p>
-      <Button variant="secondary" onClick={() => setPreviewOpen(true)}>Вернуться к попытке</Button>
+      <Button variant="secondary" loading={pending} onClick={() => policy.stepUp ? setPreviewOpen(true) : void execute()}>
+        {policy.stepUp ? "Вернуться к попытке" : "Повторить тот же запрос"}</Button>
     </div> : <form onSubmit={prepare}>
       {fields.map(field => field.type === "checkbox" ? <Checkbox key={field.name} name={field.name}
         defaultChecked={field.value === "true"}>{field.label}</Checkbox> : <label key={field.name}>{field.label}
@@ -118,20 +127,20 @@ export function Action({ title, operation, permission, target, version, fields =
           : field.type === "password" ? <PasswordInput name={field.name} minLength={12} maxLength={128} autoComplete="new-password" required={field.required ?? true} />
           : <Input name={field.name} type={field.type ?? "text"} defaultValue={field.value} required={field.required ?? true} />}
       </label>)}
-      <label>Причина<Textarea name="reason" minLength={5} maxLength={500} rows={2} required /></label>
-      <Button type="submit" variant="secondary">Проверить команду</Button>
+      {policy.reason && <label>Причина<Textarea name="reason" minLength={5} maxLength={500} rows={2} required /></label>}
+      <Button type="submit" variant="secondary" loading={pending}>{policy.stepUp ? "Проверить команду" : title}</Button>
     </form>}
     <Dialog open={previewOpen} onClose={closePreview} title={title} busy={pending} className="command-confirm">
       {preview && <>
         <p>Объект <CodeDisplay>{context ?? preview.targetId}</CodeDisplay> · версия {preview.expectedVersion}</p>
         <div className={prior ? "command-comparison" : ""}>
           {prior && <section className="mz-card"><h3>Текущая версия</h3><Facts data={prior} /></section>}
-          <section className={prior ? "mz-card" : undefined}><h3>{prior ? "Новая версия" : "Изменения"}</h3><Facts data={{ ...Object.fromEntries(Object.entries(preview.command).filter(([key]) => !fields.some(field => field.name === key && field.type === "password"))), reason: preview.reason }} /></section>
+          <section className={prior ? "mz-card" : undefined}><h3>{prior ? "Новая версия" : "Изменения"}</h3><Facts data={{ ...Object.fromEntries(Object.entries(preview.command).filter(([key]) => !fields.some(field => field.name === key && field.type === "password"))), ...(preview.reason && { reason: preview.reason }) }} /></section>
         </div>
         {error && <p role="alert">{error}</p>}
         {conflict ? <Button variant="secondary" onClick={() => { closePreview(); void cache.invalidateQueries({ queryKey: ["admin"] }); }}>Обновить объект</Button>
           : saved.current ? <Button loading={pending} onClick={() => void execute()}>Повторить тот же запрос</Button>
-          : <form onSubmit={event => void execute(event)}>
+          : <form onSubmit={event => void execute(preview, event)}>
             <label>Служебный пароль<PasswordInput name="password" autoComplete="current-password" required /></label>
             {needsCode && <label>Свежий код TOTP<Input name="code" autoComplete="one-time-code" inputMode="numeric" pattern="[0-9]{6}" required /></label>}
             <div className="mz-actions">

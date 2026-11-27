@@ -1,6 +1,7 @@
 import { Prisma, type JobStatus } from "@prisma/client";
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
+import { emailAvailable, env } from "../../../config/env";
 import { AppError } from "../../../lib/errors";
 import { keysetPage, keysetQuery, keysetWhere, newestFirst } from "../../../lib/keyset";
 import { prisma } from "../../../lib/prisma";
@@ -96,8 +97,11 @@ export const adminReadRoutes: FastifyPluginAsync = async app => {
     const { cursor, limit } = keysetQuery.parse(req.query);
     const scope = "admin-pending-registration";
     const rows = await prisma.pendingRegistration.findMany({ where: { expiresAt: { gt: new Date() }, ...keysetWhere(scope, cursor) },
-      orderBy: newestFirst, take: limit + 1, select: { id: true, email: true, createdAt: true, expiresAt: true } });
-    return keysetPage(scope, rows, limit, row => ({ ...row, version: row.createdAt }));
+      orderBy: newestFirst, take: limit + 1, select: { id: true, email: true, createdAt: true, expiresAt: true, passwordHash: true, approvalHash: true } });
+    return keysetPage(scope, rows, limit, row => ({
+      id: row.id, email: row.email, createdAt: row.createdAt, expiresAt: row.expiresAt, version: row.createdAt,
+      state: !row.passwordHash ? "AWAITING_PASSWORD" : row.approvalHash ? "AWAITING_REVIEW" : "EMAIL_CONFIRMATION",
+    }));
   });
   app.post("/users/search", { preHandler: requireAdmin("users:read") }, async req => {
     const { userId, verifiedEmail } = z.strictObject({ userId: id.optional(),
@@ -112,7 +116,7 @@ export const adminReadRoutes: FastifyPluginAsync = async app => {
   app.get("/users/:id", { preHandler: requireAdmin("users:read") }, async req => {
     const userId = params.parse(req.params).id;
     const row = await prisma.user.findFirst({ where: { id: userId, role: "USER" },
-      select: { ...userSelect, identities: { select: { provider: true, verifiedAt: true } },
+      select: { ...userSelect, emailLoginDisabled: true, identities: { select: { provider: true, providerId: true, verifiedAt: true, passwordHash: true } },
         subscription: { select: { id: true, revision: true, legacyUnverified: true, nextBoundaryAt: true,
           panelBinding: { select: bindingSelect },
           holds: { orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 50, select: {
@@ -125,7 +129,11 @@ export const adminReadRoutes: FastifyPluginAsync = async app => {
     if (!row) throw missing();
     const staff = can(adminOf(req).role, "users:write");
     const { subscription } = row;
-    return { ...publicUser(row, staff), identities: row.identities, counts: row._count,
+    const password = row.identities.find(identity => identity.provider === "EMAIL" && !!identity.passwordHash);
+    return { ...publicUser(row, staff),
+      identities: row.identities.map(({ provider, verifiedAt }) => ({ provider, verifiedAt })), counts: row._count,
+      ...(staff && { access: { hasPassword: !!password, mailAvailable: emailAvailable && !!env.MAIL_QUEUE_KEY,
+        emailResetEligible: row.status === "ACTIVE" && !!row.emailVerifiedAt && !row.emailLoginDisabled && password?.providerId === row.email } }),
       right: (await subscriptionOverview(userId)).subscription?.rightStatus ?? "EMPTY",
       subscription: subscription && { id: subscription.id, revision: subscription.revision, legacy: subscription.legacyUnverified,
         nextBoundaryAt: subscription.nextBoundaryAt,
