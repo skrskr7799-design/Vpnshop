@@ -213,7 +213,7 @@ try {
     button.click();
     return true;
   })()`);
-  const fill = (name, value) => evaluate(`[...document.querySelectorAll('[name=' + ${JSON.stringify(name)} + ']')].find(node => node.checkVisibility()).value = ${JSON.stringify(value)}`);
+  const fill = (name, value) => evaluate(`[...document.querySelectorAll('[name=' + ${JSON.stringify(name)} + ']')].find(node => node.checkVisibility() && (!document.querySelector('dialog[open]') || node.closest('dialog[open]'))).value = ${JSON.stringify(value)}`);
   const menu = async value => {
     await evaluate('document.querySelector(`button[aria-label="Открыть меню"]`).click()');
     await until('Boolean(document.querySelector("dialog[open]"))');

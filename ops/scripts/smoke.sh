@@ -232,6 +232,22 @@ wait_readiness public-api 3000 /api/ready 503
 if dc run --rm --no-deps migrator >/dev/null 2>&1; then echo "Migration gate accepted a failed migration"; exit 1; fi
 dc exec -T db psql -U postgres -d vpnshop -v ON_ERROR_STOP=1 -c   "DELETE FROM \"_prisma_migrations\" WHERE id = 'ops-smoke-failed'" >/dev/null
 wait_readiness public-api 3000 /api/ready 200
+if [[ "${MZT_V2_MICRO:-0}" == 1 ]]; then
+  {
+    echo '### Micro profile memory after deployment, synthetic activity and backup'
+    echo 'Measured on the CI host with Micro container limits.'
+    echo '```text'
+    mapfile -t containers < <(dc ps -q)
+    docker stats --no-stream --format '{{.Name}} {{.MemUsage}}' "${containers[@]}"
+    for container in "${containers[@]}"; do
+      [[ "$(docker inspect --format '{{.State.OOMKilled}}' "$container")" == false ]]
+      if peak=$(docker exec "$container" cat /sys/fs/cgroup/memory.peak 2>/dev/null) && [[ "$peak" =~ ^[0-9]+$ ]]; then
+        printf '%s peak=%s bytes\n' "$(docker inspect --format '{{index .Config.Labels "com.docker.compose.service"}}' "$container")" "$peak"
+      fi
+    done
+    echo '```'
+  } | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
+fi
 dc stop -t 25 worker public-api
 for service in worker public-api; do
   [[ "$(docker inspect --format '{{.State.ExitCode}}' "$(dc ps -aq "$service")")" == 0 ]]
@@ -343,15 +359,3 @@ if [[ "${MZT_V2_CLI_SMOKE:-0}" == 1 ]]; then
     jq -e '.username == "isolated-owner" and .active == true'
 fi
 echo "Compose, TLS, origins, schema failure, Prisma/Argon2, DB grants, secret scopes and SIGTERM verified"
-
-if [[ "${MZT_V2_MICRO:-0}" == 1 ]]; then
-  echo 'Micro profile container memory after deployment, synthetic activity and backup:'
-  mapfile -t containers < <(dc ps -q)
-  docker stats --no-stream --format '{{.Name}} {{.MemUsage}}' "${containers[@]}"
-  for container in "${containers[@]}"; do
-    [[ "$(docker inspect --format '{{.State.OOMKilled}}' "$container")" == false ]]
-    if peak=$(docker exec "$container" cat /sys/fs/cgroup/memory.peak 2>/dev/null) && [[ "$peak" =~ ^[0-9]+$ ]]; then
-      printf '%s peak=%s bytes\n' "$(docker inspect --format '{{index .Config.Labels "com.docker.compose.service"}}' "$container")" "$peak"
-    fi
-  done
-fi

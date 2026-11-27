@@ -6,6 +6,8 @@ import pty
 import select
 import subprocess
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import vpnshop_cli as cli
 
@@ -71,6 +73,26 @@ class OperationsTests(unittest.TestCase):
             (b"Confirm password:", password + b"\n"),
         ], read_owner)
         self.assertNotIn(password, terminal)
+
+    def test_recovery_prompts_confirm_identity_and_hide_password(self):
+        password = b"pty-recovery-fixture-17"
+        command = cli.parser().parse_args(["admin", "recover", "--incident", "VPS-1234"])
+        deployment = SimpleNamespace(role="single", pointer=lambda _: cli.Path("v2.0.1"), log=lambda *_a, **_kw: None)
+        def recover():
+            def compose(*args, input, check):
+                data = cli.json.loads(input)
+                assert args[-2:] == ("admin-local", "recover")
+                assert data["username"] == "owner" and data["password"] == password.decode()
+                return subprocess.CompletedProcess(args, 0, b'{"username":"owner"}', b"")
+            runtime = SimpleNamespace(inventory=lambda: ({},), history={}, compose=compose)
+            with patch.object(cli, "Runtime", return_value=runtime):
+                cli.Deployment.local_admin(deployment, command)
+        transcript = self.terminal([
+            (b"Staff username:", b"owner\n"), (b"Type the username", b"owner\n"),
+            (b"New password", password + b"\n"), (b"Confirm password:", password + b"\n"),
+        ], recover)
+        self.assertNotIn(password, transcript)
+        self.assertIn(b"Administrative command committed", transcript)
 
     def test_interrupted_terminal_and_missing_terminal_fail_closed(self):
         def eof():

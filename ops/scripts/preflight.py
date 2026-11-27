@@ -392,7 +392,10 @@ def compose(settings, role, files, secrets, release, project, disposable, *, pro
     env["V2_LEGACY_COMPOSE"] = str(OPS / "compose.yml")
     env["V2_MONITORING_DIR"] = str(monitoring_dir or OPS / "monitoring")
     path = resources_path or (project_dir / "config" / "resources.env" if project_dir else None)
-    resource_settings = read_settings(path) if path and (path.exists() or path.is_symlink()) else {}
+    resource_settings = {}
+    if path and (path.exists() or path.is_symlink()):
+        require(path.is_file() and not path.is_symlink(), "resources.env must be a regular file")
+        resource_settings = read_settings(path)
     require(not (resource_settings.keys() - {"RESOURCE_PROFILE"}), "Unexpected key in resources.env")
     capacity = (2, 4096) if disposable else docker_capacity(env)
     derived, profile = resources(capacity, resource_settings.get("RESOURCE_PROFILE", "auto"))

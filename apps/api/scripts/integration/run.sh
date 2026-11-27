@@ -85,7 +85,7 @@ snapshot() {
   # Compare the original columns of tables that received additive migrations.
   {
     docker exec "$container" pg_dump -U postgres -d vpnshop_legacy --data-only --schema=public \
-      --exclude-table=public._prisma_migrations --exclude-table='public."Subscription"' --exclude-table='public."FulfillmentJob"' --exclude-table='public."AdminSession"' --exclude-table='public."Plan"' --exclude-table='public."AuditLog"' --exclude-table='public."User"' --exclude-table='public."AuthIdentity"' --exclude-table='public."Session"' --exclude-table='public."Order"' --exclude-table='public."Payment"' --exclude-table='public."WebhookEvent"' --exclude-table='public."VerificationToken"' --inserts --no-owner --no-privileges |
+      --exclude-table=public._prisma_migrations --exclude-table='public."Subscription"' --exclude-table='public."FulfillmentJob"' --exclude-table='public."AdminSession"' --exclude-table='public."Plan"' --exclude-table='public."AuditLog"' --exclude-table='public."User"' --exclude-table='public."AuthIdentity"' --exclude-table='public."PendingRegistration"' --exclude-table='public."Session"' --exclude-table='public."Order"' --exclude-table='public."Payment"' --exclude-table='public."WebhookEvent"' --exclude-table='public."VerificationToken"' --inserts --no-owner --no-privileges |
       sed -n '/^INSERT INTO /p'
     sql vpnshop_legacy <<'SQL'
 COPY (SELECT id, "userId", "tokenHash", ip, "userAgent", "createdAt", "lastSeenAt", "idleExpiresAt", "expiresAt" FROM "AdminSession") TO STDOUT;
@@ -93,6 +93,7 @@ COPY (SELECT id, code, name, "deviceLimit", "isActive", "sortOrder" FROM "Plan")
 COPY (SELECT id, "actorId", action, entity, "entityId", data, ip, "createdAt" FROM "AuditLog") TO STDOUT;
 COPY (SELECT id, email, "emailVerifiedAt", role, status, "remnawaveUserId", "createdAt", "updatedAt" FROM "User") TO STDOUT;
 COPY (SELECT id, "userId", provider, "providerId", "passwordHash", "verifiedAt", "createdAt" FROM "AuthIdentity") TO STDOUT;
+COPY (SELECT id,email,"passwordHash","tokenHash","expiresAt","createdAt" FROM "PendingRegistration") TO STDOUT;
 COPY (SELECT id, "userId", "familyId", "tokenHash", "userAgent", ip, "expiresAt", "revokedAt", "rotatedAt", "createdAt" FROM "Session") TO STDOUT;
 COPY (SELECT id, "userId", "planId", "durationMonths", "deviceLimit", currency, amount,
   status, "expiresAt", "paidAt", "fulfilledAt", "createdAt", "updatedAt" FROM "Order") TO STDOUT;
@@ -144,11 +145,13 @@ sql vpnshop_staff_legacy < scripts/integration/staff-v2-check.sql
 phase=v200-release-upgrade
 sql postgres <<< 'CREATE DATABASE vpnshop_v200 OWNER vpnshop_migrator'
 mkdir "$tmp/v200"
-git archive 594476766180425c08e7aeada6668bb4799207e2 apps/api/prisma | tar -x -C "$tmp/v200"
+git -C ../.. archive 594476766180425c08e7aeada6668bb4799207e2 apps/api/prisma | tar -x -C "$tmp/v200"
 export DATABASE_URL="$base/vpnshop_v200"
 pnpm exec prisma migrate deploy --schema "$tmp/v200/apps/api/prisma/schema.prisma"
 sql vpnshop_v200 <<'SQL'
 INSERT INTO "User" (id, role, "updatedAt") VALUES ('baseline-owner', 'OWNER', NOW());
+INSERT INTO "StaffCredential" ("userId", username, "passwordHash")
+  VALUES ('baseline-owner','baseline-owner','retained-staff-fixture-hash');
 INSERT INTO "User" (id, email, "updatedAt") VALUES ('baseline-client','old@example.invalid', NOW());
 INSERT INTO "AuthIdentity" (id, "userId", provider, "providerId", "passwordHash")
   VALUES ('baseline-identity','baseline-client','EMAIL','old@example.invalid','retained-fixture-hash');
@@ -160,7 +163,8 @@ check_schema
 sql vpnshop_v200 <<'SQL'
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT FROM "User" WHERE id = 'baseline-owner' AND role = 'OWNER') OR
+  IF NOT EXISTS (SELECT FROM "User" u JOIN "StaffCredential" s ON s."userId" = u.id
+                 WHERE u.id = 'baseline-owner' AND u.role = 'OWNER' AND s."passwordHash" = 'retained-staff-fixture-hash') OR
      NOT EXISTS (SELECT FROM "AuthIdentity" WHERE "userId" = 'baseline-client' AND "passwordHash" = 'retained-fixture-hash') OR
      NOT EXISTS (SELECT FROM "PendingRegistration" WHERE id = 'baseline-claim' AND "passwordHash" = 'pending-fixture-hash'
                  AND "tokenHash" = 'retained-fixture-token' AND "approvalHash" IS NULL) THEN
