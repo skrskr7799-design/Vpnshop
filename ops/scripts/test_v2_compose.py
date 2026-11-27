@@ -164,6 +164,32 @@ class Deployment(unittest.TestCase):
                     self.assertNotIn("smtp_url", conf["secrets"])
                     self.assertEqual(services["notifications"]["profiles"], ["mail"])
 
+    def test_postgresql_isolation_with_and_without_offsite_archiving(self):
+        offsite = {"MZT_ENABLE_OFFSITE": "1", "LOGICAL_S3_ENDPOINT": "https://s3.example.test",
+                   "LOGICAL_S3_BUCKET": "vpnshop-fixture", "LOGICAL_S3_REGION": "fixture", "LOGICAL_KEY_VERSION": "v1"}
+        for (role, link), entries in CONFIG.items():
+            for archive in ({}, offsite) if role != "edge" else ({},):
+                with self.subTest(role=role, link=link, offsite=bool(archive)):
+                    conf = self.render(role, entries | archive)
+                    services = conf["services"]
+                    for service in services.values():
+                        self.assertNotEqual(service.get("network_mode"), "host")
+                        for port in service.get("ports", ()):
+                            self.assertNotIn(5432, (port["target"], int(port["published"])))
+                    if role == "edge":
+                        self.assertNotIn("db", services)
+                        self.assertFalse(any(name.startswith("db_") for name in conf["secrets"]))
+                        continue
+                    db = services["db"]
+                    self.assertNotIn("network_mode", db)
+                    self.assertFalse(db.get("ports"))
+                    for network in db["networks"]:
+                        if network == "archive-egress" and archive:
+                            continue
+                        self.assertTrue(conf["networks"][network]["internal"], network)
+                    for ingress in ("public-edge", "admin-edge", "core-gateway"):
+                        self.assertTrue(set(db["networks"]).isdisjoint(services.get(ingress, {}).get("networks", {})))
+
     def test_single_is_compatible_with_existing_service_hardening(self):
         conf = self.render("single", CONFIG["single", "private"])
         env = preflight.os.environ | dict(CONFIG["single", "private"]) | preflight.read_settings(self.release) | {

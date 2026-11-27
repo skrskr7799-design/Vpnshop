@@ -22,7 +22,15 @@ The protected `release-registry` environment must require the repository owner's
 
 Set `coordination` to `coordinated` when Core and Edge need a specific order or a shared maintenance window. Document the affected API contracts and both rollout directions in the notes. For an independently tested rollback between two compatible releases, add `"rollback_compatible_with": "<predecessor version> <full predecessor commit SHA>"` to the release notes JSON. Release generation verifies both values against the attested predecessor and records the reverse-direction declaration inside the attested archive. Without that declaration, or when either release calls for coordination, split rollback requires an explicit order and confirmation on each host.
 
-The workflow runs Toolchain CI, computes fingerprints, builds changed targets and verifies smoke, PostgreSQL restore and PITR, then runs the existing Trivy, dependency and secret gates. It uses the existing GHCR namespaces. Both built and reused targets are tested under the exact candidate's local aliases. The workflow pushes only newly built images. It verifies registry config IDs, digest references, platform and source labels. The two primary artifacts receive GitHub Actions provenance attestations. The workflow verifies both and scans the assembled kit for secrets. It creates an exclusive tag at the tested SHA, uploads and downloads the four files on a draft, compares bytes and checks the tag again before publication. A release or tag already present fails the workflow, including an interrupted draft. Review the draft and its evidence before manually removing a failed draft or choosing a new version. Published assets and tags are never updated by this workflow.
+The workflow runs Toolchain CI, computes fingerprints, builds changed targets and verifies smoke, PostgreSQL restore and PITR, then runs the Trivy, dependency and secret gates. Both built and reused targets are tested under the candidate's local aliases. It validates the archive and launcher before writing images to the existing GHCR namespaces. Newly built images get an attempt-specific registry tag and deployment records the verified digest. The release verifies image config IDs, platform and source labels. The two primary artifacts receive GitHub provenance attestations. The workflow verifies both, scans the kit for secrets, creates a tag at the tested SHA and verifies all four draft assets after upload before publishing.
+
+The default rejects an existing tag or release. Use the explicit `resume` input after an interrupted attempt only when the tag points to the same commit. A draft must match the title, notes and checksums of every existing asset. The workflow uploads only missing files, verifies the complete draft again and then publishes it. Published releases are immutable. A mismatch, unexpected asset, or unavailable permission blocks resumption. A rebuild can produce different digests. Keep the interrupted draft for investigation and choose a fresh version if the verified bytes cannot be reproduced.
+
+## Rehearsal and diagnostics
+
+The read-only **VPNShop release rehearsal** workflow builds the seven images from the release worktree and runs the same migration, restore, PITR, TLS and scan commands as publication. Python contract tests run the production planner, registry digest verification, bundler and publication logic using memory-backed command responses. They cover the first release, permission errors, tag conflicts, partial uploads, altered assets and retries. Real GHCR permissions, GitHub attestation issuance and GitHub Release writes require separately authorized external verification.
+
+Release and rehearsal diagnostics retain stage statuses, vulnerability IDs, package versions and npm counts. Raw scanner JSON, image history, scanner matches, Docker credentials and release notes are excluded from the diagnostic artifacts. Production audit findings, image secrets and all image CRITICAL findings outside the temporary Bookworm policy block publication. Use the full dependency audit to track advisories in development tooling separately.
 
 ## Build inputs and artifacts
 
@@ -42,3 +50,11 @@ gh attestation verify vpnshop.sh --repo skrskr7799-design/Vpnshop \
   --signer-workflow skrskr7799-design/Vpnshop/.github/workflows/release-images.yml \
   --source-ref refs/heads/main --deny-self-hosted-runners
 ```
+
+### Temporary Bookworm risk policy
+
+The v2.0.0 database stays on PostgreSQL 17 and Debian Bookworm. Three exact Debian CVE, package and installed-version combinations can pass the gate only in the Linux amd64 `db` and `backup` images. This approval expires at **2027-05-27 00:00 UTC**. Trivy keeps the findings at CRITICAL and the gate reports them individually as accepted risk.
+
+Each release and rehearsal scans with a fresh Trivy cache. An exception requires advisory data issued within the last seven days with the known Debian status and no reported fixed version. It also requires the installed version to match the newest version in the live, signed Debian Bookworm, updates and security indexes. A changed package version, fix in Trivy, unexpected status, stale data or failure to verify the signed indexes blocks the exception. Packages are checked in a disposable unprivileged container without changing the pinned build inputs. All unrelated CRITICAL findings continue to block.
+
+When a fix becomes available, refresh the pinned PostgreSQL base or Bookworm snapshot as appropriate, rebuild the affected images, confirm the findings are gone, and rerun PITR and the release rehearsal. See the [release audit](V2_RELEASE_SECURITY_AUDIT.md) for the exact entries and residual risks.
