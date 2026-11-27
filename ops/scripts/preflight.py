@@ -323,7 +323,47 @@ def design(role, raw, secrets):
     return v, files, flags
 
 
-def compose(settings, role, files, secrets, release, project, disposable, *, project_dir=None, monitoring_dir=None):
+# CPU and MiB floors are admission thresholds, not workload capacity promises.
+RESOURCE_PROFILES = {
+    "micro": (1, 1536, 1, 512, 64, 2),
+    "small": (2, 3072, 1, 1024, 128, 4),
+    "standard": (2, 4096, 1.5, 2048, 128, 4),
+    "large": (4, 8192, 2, 3072, 256, 8),
+}
+
+
+def docker_capacity(env):
+    result = subprocess.run(["docker", "info", "--format", "{{json .}}"], env=env,
+                            capture_output=True, check=False, text=True, timeout=30)
+    require(result.returncode == 0, "Cannot read Docker host capacity. Check the Docker daemon and permissions")
+    info = json.loads(result.stdout)
+    cpu, memory = int(info["NCPU"]), int(info["MemTotal"]) // (1024 * 1024)
+    require(cpu > 0 and memory > 0, "Docker did not report usable host capacity")
+    return cpu, memory
+
+
+def resources(capacity, requested):
+    require(requested in {"auto", *RESOURCE_PROFILES}, "RESOURCE_PROFILE must be auto, micro, small, standard or large")
+    cpu, memory = capacity
+    candidates = [name for name, limits in RESOURCE_PROFILES.items() if cpu >= limits[0] and memory >= limits[1]]
+    require(bool(candidates), "Docker host capacity is below the smallest candidate profile (1 CPU, 1536 MiB)")
+    profile = candidates[-1] if requested == "auto" else requested
+    require(profile in candidates, f"Docker host capacity is too small for the {profile} profile")
+    _, _, db_cpu, db_memory, buffers, work_mem = RESOURCE_PROFILES[profile]
+    return {"VPNSHOP_DB_CPUS": str(db_cpu), "VPNSHOP_DB_MEMORY": f"{db_memory}m",
+            "VPNSHOP_DB_SHARED_BUFFERS": f"{buffers}MB", "VPNSHOP_DB_WORK_MEM": f"{work_mem}MB"}, profile
+
+
+def validate_resources(conf, capacity):
+    cpu, memory = capacity
+    for name, service in conf["services"].items():
+        limit = float(service.get("cpus", 0))
+        ram = int(service.get("mem_limit", 0))
+        require(0.01 <= limit <= cpu, f"Invalid or excessive CPU limit on {name} for the Docker host")
+        require(0 < ram <= memory * 1024 * 1024, f"Invalid or excessive memory limit on {name} for the Docker host")
+
+
+def compose(settings, role, files, secrets, release, project, disposable, *, project_dir=None, monitoring_dir=None, resources_path=None):
     require(re.fullmatch(r"[a-z0-9][a-z0-9_-]*", project), "Invalid Compose project")
     if project != f"vpnshop-{role}":
         require(disposable and project.startswith("mzt-ci-"), "Use the fixed Compose project for this role")
@@ -351,13 +391,22 @@ def compose(settings, role, files, secrets, release, project, disposable, *, pro
     env.update(v)
     env["V2_LEGACY_COMPOSE"] = str(OPS / "compose.yml")
     env["V2_MONITORING_DIR"] = str(monitoring_dir or OPS / "monitoring")
+    path = resources_path or (project_dir / "config" / "resources.env" if project_dir else None)
+    resource_settings = read_settings(path) if path and (path.exists() or path.is_symlink()) else {}
+    require(not (resource_settings.keys() - {"RESOURCE_PROFILE"}), "Unexpected key in resources.env")
+    capacity = (2, 4096) if disposable else docker_capacity(env)
+    derived, profile = resources(capacity, resource_settings.get("RESOURCE_PROFILE", "auto"))
+    env.update(derived)
+    env["VPNSHOP_RESOURCE_PROFILE"] = profile
     command = ["docker", "compose", "--project-directory", str(project_dir or OPS), "--env-file", "/dev/null", "-p", project, "--profile", "monitoring"]
     for name in files:
         command += ["-f", str(OPS / "compose" / (name + ".yml"))]
     result = subprocess.run(command + ["--profile", "*", "config", "--format", "json"],
                             env=env, capture_output=True, text=True, check=False)
     require(result.returncode == 0, "Docker Compose could not render the selected modules")
-    return command, env, json.loads(result.stdout)
+    conf = json.loads(result.stdout)
+    validate_resources(conf, capacity)
+    return command, env, conf
 
 
 def immutable(image, disposable):
@@ -714,7 +763,8 @@ def main():
         require(args.secrets_dir.is_absolute(), "Secrets directory must be absolute")
         v, files, flags = design(args.role, read_settings(args.env_file), args.secrets_dir)
         command, env, conf = compose(v, args.role, files, args.secrets_dir, read_settings(args.release_env),
-                                    args.project_name or f"vpnshop-{args.role}", args.disposable)
+                                    args.project_name or f"vpnshop-{args.role}", args.disposable,
+                                    resources_path=args.env_file.parent / "resources.env")
         hardened(conf, args.disposable)
         validate_topology(conf, args.role, v, flags, files)
         ownership = None if args.disposable else host_ownership(env["EDGE_IMAGE"], env)
@@ -727,7 +777,7 @@ def main():
             os.execvpe(command[0], command + operation, env)
     except Invalid as problem:
         sys.exit(str(problem))
-    except (OSError, ValueError, KeyError, TypeError, UnicodeError):
+    except (OSError, ValueError, KeyError, TypeError, UnicodeError, subprocess.TimeoutExpired):
         sys.exit("Invalid or unreadable deployment input")
 
 

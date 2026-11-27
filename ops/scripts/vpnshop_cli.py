@@ -4,6 +4,7 @@ import base64
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import getpass
+import warnings
 from uuid import uuid4
 import fcntl
 import importlib.util
@@ -45,10 +46,65 @@ def notify(message, color="32"):
     print(f"\033[{color}m{message}\033[0m" if terminal else message, flush=True)
 
 
-def call(args, *, input=None, stdin=None, stdout=subprocess.PIPE, env=None, timeout=180, check=True):
+class OperationError(ReleaseError):
+    def __init__(self, stage, service, code, detail):
+        super().__init__(f"{stage}{' [' + service + ']' if service else ''}: {detail}")
+        self.stage, self.service, self.code = stage, service, code
+
+
+def docker_failure(process, stage, services=()):
+    message = process.stderr.decode(errors="replace").lower()
+    service = next((name for name in sorted(services, key=len, reverse=True) if
+                    re.search(rf"(?:^|[\s/])(?:vpnshop-(?:single|core|edge)-)?{re.escape(name)}(?:-\d+)?(?=\s|:|$)",
+                              message)), services[0] if len(services) == 1 else None)
+    reasons = (
+        (("range of cpus", "minimum memory limit", "invalid cpu", "more cpus"),
+         "RESOURCE_LIMIT", "Docker rejected a resource limit. Check resources.env and run vpnshop doctor."),
+        (("no space left on device",), "DISK_FULL", "Docker storage is full. Free space before retrying."),
+        (("port is already allocated", "address already in use"), "PORT_IN_USE", "A required port is occupied. Check the configured bind addresses and listeners."),
+        (("pull access denied", "unauthorized", "authentication required", "denied:"),
+         "REGISTRY_AUTH", "Registry access was refused. Check Docker login and image pull permissions."),
+        (("manifest unknown", "no such image", "not found: manifest"), "IMAGE_MISSING", "The required image is unavailable. Check the release digest and registry access."),
+        (("unhealthy", "healthcheck"), "UNHEALTHY", "A container failed its readiness check. Run vpnshop doctor."),
+        (("cannot connect to the docker daemon", "permission denied while trying to connect"),
+         "DOCKER_UNAVAILABLE", "The Docker daemon is unavailable. Check service status and Docker access."),
+        (("container name", "already in use"), "CONTAINER_CONFLICT", "Docker reports a conflicting container. Inspect the Compose project."),
+    )
+    for patterns, code, detail in reasons:
+        if any(pattern in message for pattern in patterns):
+            return OperationError(stage, service, code, detail)
+    return OperationError(stage, service, "DOCKER_FAILED", f"Docker exited with code {process.returncode}. Run vpnshop doctor.")
+
+
+def tty_read(prompt):
+    try:
+        with open("/dev/tty", encoding="utf-8") as reader, open("/dev/tty", "w", encoding="utf-8") as writer:
+            writer.write(prompt)
+            writer.flush()
+            answer = reader.readline()
+            demand(answer != "", "Interactive input ended before the operation was confirmed")
+            return answer.rstrip("\r\n")
+    except OSError:
+        raise ReleaseError("An interactive terminal is required. Use the documented stdin or file options.") from None
+
+
+def tty_password():
+    try:
+        with open("/dev/tty", "w", encoding="utf-8") as writer, warnings.catch_warnings():
+            warnings.simplefilter("error", getpass.GetPassWarning)
+            password = getpass.getpass("New password (12–128 characters): ", stream=writer)
+            demand(password == getpass.getpass("Confirm password: ", stream=writer), "Passwords differ")
+            return password
+    except (OSError, EOFError, getpass.GetPassWarning):
+        raise ReleaseError("Hidden password input unavailable or interrupted. Use --password-stdin or --password-file.") from None
+
+
+def call(args, *, input=None, stdin=None, stdout=subprocess.PIPE, env=None, timeout=180, check=True, stage=None, services=()):
     process = subprocess.run(args, input=input, stdin=stdin, stdout=stdout, stderr=subprocess.PIPE, env=env,
                              timeout=timeout, check=False)
     if check and process.returncode:
+        if stage:
+            raise docker_failure(process, stage, services)
         # Docker, GitHub, psql and provider error bodies can contain private paths or credentials.
         raise ReleaseError(f"{Path(args[0]).name} operation failed with exit code {process.returncode}")
     return process
@@ -180,13 +236,18 @@ class Runtime:
         return "OK"
 
     def ensure_images(self):
-        for reference in sorted({item["image"] for item in self.config["services"].values()}):
+        definitions = self.config["services"]
+        for reference in sorted({item["image"] for item in definitions.values()}):
             if call(["docker", "image", "inspect", reference], check=False).returncode:
-                call(["docker", "pull", reference], timeout=900)
+                associated = tuple(name for name in sorted(definitions) if definitions[name]["image"] == reference)
+                try:
+                    call(["docker", "pull", reference], timeout=900, stage="pull", services=associated)
+                except OperationError as failure:
+                    raise OperationError("pull", ", ".join(associated), failure.code, str(failure).partition(": ")[2]) from None
 
-    def compose(self, *args, timeout=180, input=None, stdin=None, stdout=subprocess.PIPE, check=True):
+    def compose(self, *args, timeout=180, input=None, stdin=None, stdout=subprocess.PIPE, check=True, stage=None, services=()):
         return call(self.command + list(args), env=self.env, timeout=timeout, input=input, stdin=stdin,
-                    stdout=stdout, check=check)
+                    stdout=stdout, check=check, stage=stage, services=services)
 
     def sql(self, sql, database="vpnshop", *, exec_args=()):
         return self.compose("exec", "-T", *exec_args, "db", "psql", "-XqAt", "-v", "ON_ERROR_STOP=1",
@@ -223,7 +284,7 @@ class Runtime:
         actual = self.inventory()[0]
         migration_delta(actual, self.history)
         if actual != self.history:
-            self.compose("run", "-T", "--rm", "--no-deps", "--pull", "never", "migrator", timeout=900)
+            self.compose("run", "-T", "--rm", "--no-deps", "--pull", "never", "migrator", timeout=900, stage="migrate", services=("migrator",))
             demand(self.inventory()[0] == self.history, "Migrator completed without the expected PostgreSQL history")
 
     def active(self):
@@ -268,7 +329,7 @@ class Runtime:
             self.reconcile_inactive()
         converge = ("--remove-orphans",) if not services else ()
         self.compose("up", "-d", "--pull", "never", "--wait", "--wait-timeout", "150",
-                     *converge, *services, timeout=260)
+                     *converge, *services, timeout=260, stage="start", services=services or self.active())
 
     def stop_writers(self):
         names = [name for name in APP_WRITERS if name in self.services]
@@ -584,9 +645,11 @@ class Deployment:
             atomic(self.state / "applied-migration-tree", (manifest(release)[0]["MIGRATION_TREE"] + "\n").encode())
         self.log(operation, former.name if former else release.name, release.name, "ok", backup, changed)
 
-    def log(self, operation, source, target, result, backup=None, changed=(), reason=None):
+    def log(self, operation, source, target, result, backup=None, changed=(), reason=None, stage=None, service=None):
         entry = {"at": clock().isoformat(), "operation": operation, "from": source, "to": target,
                  "result": result, "backup": backup, "changed": list(changed), "reason": reason}
+        if stage is not None:
+            entry.update(stage=stage, service=service)
         fd = os.open(self.state / "history.log", os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, "a") as output:
             output.write(json.dumps(entry, sort_keys=True) + "\n")
@@ -983,6 +1046,8 @@ class Deployment:
             if lines:
                 event = json.loads(lines[-1])
                 safe_line("Last operation", f"{event['operation']} · {event['result']} · {event['at']}")
+                if event.get("stage"):
+                    safe_line("Failure details", " · ".join(str(event[key]) for key in ("stage", "service", "reason") if event.get(key)))
         if doctor:
             for tool in ("docker", "curl", "tar", "sha256sum", "openssl", "flock", "python3"):
                 safe_line(tool, "OK" if shutil.which(tool) else "ERROR")
@@ -995,6 +1060,8 @@ class Deployment:
             safe_line("Status", "ERROR: deployment configuration or dependencies unavailable")
             raise problem
         safe_line("Config/TLS/secret modes", "OK")
+        if runtime.env.get("VPNSHOP_RESOURCE_PROFILE"):
+            safe_line("Resource profile", runtime.env["VPNSHOP_RESOURCE_PROFILE"])
         safe_line("UID availability", "NOT CHECKED" if not doctor else runtime.check_owners_read_only())
         safe_line("Link", runtime.settings.get("LINK_MODE", "internal"))
         access = runtime.settings.get("ADMIN_ACCESS_MODE", "NOT CONFIGURED")
@@ -1094,22 +1161,16 @@ class Deployment:
         if operation != "list":
             username = args.username
             if not username:
-                with open("/dev/tty", "r+", encoding="utf-8") as terminal:
-                    terminal.write("Staff username: ")
-                    terminal.flush()
-                    username = terminal.readline().rstrip("\r\n")
+                username = tty_read("Staff username: ")
             demand(matches(r"[a-zA-Z0-9][a-zA-Z0-9._-]{2,47}", username), "Invalid staff username")
             username = username.lower()
             data = {"username": username, "correlationId": str(uuid4())}
             if operation == "bootstrap":
                 fields = {"displayName": args.display_name, "contactEmail": args.contact_email}
                 if not args.password_file and not args.password_stdin:
-                    with open("/dev/tty", "r+", encoding="utf-8") as terminal:
-                        for field, label in (("displayName", "Display name"), ("contactEmail", "Contact email")):
-                            if not fields[field]:
-                                terminal.write(f"{label} (optional): ")
-                                terminal.flush()
-                                fields[field] = terminal.readline().rstrip("\r\n")
+                    for field, label in (("displayName", "Display name"), ("contactEmail", "Contact email")):
+                        if not fields[field]:
+                            fields[field] = tty_read(f"{label} (optional): ")
                 data.update({key: value for key, value in fields.items() if value})
             else:
                 demand(matches(r"[A-Za-z0-9][A-Za-z0-9._-]{4,79}", args.incident), "Provide a nonsecret incident ID")
@@ -1132,9 +1193,7 @@ class Deployment:
                     password = sys.stdin.readline(4097).removesuffix("\n").removesuffix("\r")
                     demand(not sys.stdin.read(1), "Provide a single password line")
                 else:
-                    with open("/dev/tty", "r+", encoding="utf-8") as terminal:
-                        password = getpass.getpass("New password (12–128 characters): ", stream=terminal)
-                        demand(password == getpass.getpass("Confirm password: ", stream=terminal), "Passwords differ")
+                    password = tty_password()
                 demand(12 <= len(password) <= 128 and not any(ord(ch) < 32 for ch in password), "Invalid password length or format")
                 data["password"] = password
         response = runtime.compose("run", "-T", "--rm", "--no-deps", "--pull", "never",
@@ -1143,7 +1202,7 @@ class Deployment:
                  "STAFF_USERNAME_IN_USE", "INVALID_LOCAL_INPUT"}
         if response.returncode:
             reason = next((line for line in response.stderr.decode(errors="replace").splitlines() if line in codes), "LOCAL_ADMIN_FAILED")
-            raise ReleaseError(reason)
+            raise OperationError("admin-" + operation, "admin-local", reason, reason)
         result = json.loads(response.stdout)
         if operation == "list":
             for row in result:
@@ -1244,7 +1303,9 @@ def execute(args, deployment, source_factory=ReleaseSource):
                 deployment.log(args.command, pending["source"] if pending else source.name if source else None,
                                pending["target"] if pending else None, "failed",
                                pending.get("backup") if pending else None,
-                               pending.get("changed", ()) if pending else (), reason=type(problem).__name__)
+                               pending.get("changed", ()) if pending else (),
+                               reason=getattr(problem, "code", type(problem).__name__),
+                               stage=getattr(problem, "stage", None), service=getattr(problem, "service", None))
             raise
 
 

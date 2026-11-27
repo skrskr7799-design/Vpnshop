@@ -7,6 +7,11 @@ prefix=${MZT_TEST_IMAGE_PREFIX:-mzt-ci}
 tmp=$(mktemp -d)
 export COMPOSE_PROJECT_NAME="mzt-ops-${RANDOM}-${RANDOM}"
 stack=(-f ops/compose.yml)
+if [[ "${MZT_V2_MICRO:-0}" == 1 ]]; then
+  export VPNSHOP_DB_CPUS=1 VPNSHOP_DB_MEMORY=512m
+  export VPNSHOP_DB_SHARED_BUFFERS=64MB VPNSHOP_DB_WORK_MEM=2MB
+  printf 'RESOURCE_PROFILE=micro\n' > "$tmp/resources.env"
+fi
 if [[ "${MZT_V2_SMOKE:-0}" == 1 ]]; then
   export COMPOSE_PROJECT_NAME="mzt-ci-single-${RANDOM}-${RANDOM}"
   stack=(--project-directory ops)
@@ -338,3 +343,15 @@ if [[ "${MZT_V2_CLI_SMOKE:-0}" == 1 ]]; then
     jq -e '.username == "isolated-owner" and .active == true'
 fi
 echo "Compose, TLS, origins, schema failure, Prisma/Argon2, DB grants, secret scopes and SIGTERM verified"
+
+if [[ "${MZT_V2_MICRO:-0}" == 1 ]]; then
+  echo 'Micro profile container memory after deployment, synthetic activity and backup:'
+  mapfile -t containers < <(dc ps -q)
+  docker stats --no-stream --format '{{.Name}} {{.MemUsage}}' "${containers[@]}"
+  for container in "${containers[@]}"; do
+    [[ "$(docker inspect --format '{{.State.OOMKilled}}' "$container")" == false ]]
+    if peak=$(docker exec "$container" cat /sys/fs/cgroup/memory.peak 2>/dev/null) && [[ "$peak" =~ ^[0-9]+$ ]]; then
+      printf '%s peak=%s bytes\n' "$(docker inspect --format '{{index .Config.Labels "com.docker.compose.service"}}' "$container")" "$peak"
+    fi
+  done
+fi

@@ -164,6 +164,24 @@ class Deployment(unittest.TestCase):
                     self.assertNotIn("smtp_url", conf["secrets"])
                     self.assertEqual(services["notifications"]["profiles"], ["mail"])
 
+    def test_micro_profile_renders_limits_before_start(self):
+        selection, profile = preflight.resources((1, 1945), "auto")
+        self.assertEqual(profile, "micro")
+        self.assertEqual(selection["VPNSHOP_DB_MEMORY"], "512m")
+        settings(self.root / "resources.env", {"RESOURCE_PROFILE": "micro"})
+        result = self.render("single", CONFIG["single", "private"] | {"MZT_ENABLE_LOCAL_BACKUP": "1"})
+        preflight.validate_resources(result, (1, 1945))
+        postgres = result["services"]["db"]
+        self.assertEqual(float(postgres["cpus"]), 1)
+        self.assertEqual(int(postgres["mem_limit"]), 512 * 1024 * 1024)
+        self.assertIn("shared_buffers=64MB", postgres["command"])
+        self.assertIn("work_mem=2MB", postgres["command"])
+        with self.assertRaisesRegex(preflight.Invalid, "too small"):
+            preflight.resources((1, 1945), "large")
+        with self.assertRaisesRegex(preflight.Invalid, "CPU limit on db"):
+            postgres["cpus"] = 1.5
+            preflight.validate_resources(result, (1, 1945))
+
     def test_postgresql_isolation_with_and_without_offsite_archiving(self):
         offsite = {"MZT_ENABLE_OFFSITE": "1", "LOGICAL_S3_ENDPOINT": "https://s3.example.test",
                    "LOGICAL_S3_BUCKET": "vpnshop-fixture", "LOGICAL_S3_REGION": "fixture", "LOGICAL_KEY_VERSION": "v1"}
