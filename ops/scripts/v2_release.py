@@ -265,7 +265,10 @@ def is_ancestor(older, newer):
 
 def publish_image(name, sha, fingerprint):
     source = f"mzt-ci-{name}:{sha}"
-    tag = f"{REGISTRY}/{name}:{sha}"
+    run_id, attempt = (os.environ.get(key) for key in ("GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT"))
+    demand(all(matches(r"[1-9][0-9]*", value) for value in (run_id, attempt)),
+           "Registry push requires a distinct GitHub run and attempt")
+    tag = f"{REGISTRY}/{name}:{sha}-{run_id}-{attempt}"
     run(["docker", "tag", source, tag])
     pushed = run(["docker", "push", tag], capture_output=True)
     candidates = re.findall(r"\bdigest: (sha256:[a-f0-9]{64})\b", pushed.stdout)
@@ -332,6 +335,10 @@ def finalize(plan_path, tag, notes_path, output):
     demand("rollback_compatible_with" not in notes or notes["rollback_compatible_with"] == plan["prior_source"],
            "Independent rollback proof must name the exact attested predecessor")
     demand(all(history.get(name) == digest for name, digest in plan["prior_history"].items()), "Published migration history was changed")
+    # Check the deploy archive and launcher before making any registry writes.
+    with tempfile.TemporaryDirectory() as directory:
+        previews = fixture_entries(sha, plan["current"]) | plan["reused"]
+        make_bundle(Path(directory), tag, sha, previews, history, plan["prior_history"], notes)
     for name, fingerprint in plan["current"].items():
         reused = plan["reused"].get(name)
         if reused:

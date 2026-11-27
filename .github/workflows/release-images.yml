@@ -18,6 +18,10 @@ on:
         description: 'Rebuild all images from the checked-in inputs, including the pinned system packages'
         type: boolean
         default: false
+      resume:
+        description: 'Resume an unpublished tag/draft only if its commit and any existing files match'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -45,6 +49,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       RELEASE_VERSION: ${{ inputs.version }}
       PREVIOUS_RELEASE: ${{ inputs.previous }}
+      RESUME_RELEASE: ${{ inputs.resume }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -53,8 +58,13 @@ jobs:
       - name: Isolate the registry credential directory
         run: printf 'DOCKER_CONFIG=%s/vpnshop-registry\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Reject a preexisting release or tag
-        run: python3 ops/scripts/v2_publish.py check "$RELEASE_VERSION"
+        id: precheck
+        run: |
+          args=()
+          if [[ "$RESUME_RELEASE" == true ]]; then args+=(--resume); fi
+          python3 ops/scripts/v2_publish.py check "$RELEASE_VERSION" "${args[@]}"
       - name: Plan, fetch immutable prior images and build changed targets
+        id: plan
         env:
           REFRESH_BASES: ${{ inputs.refresh }}
           RELEASE_NOTES: ${{ inputs.notes }}
@@ -90,11 +100,14 @@ jobs:
             ${{ runner.temp }}/vpnshop-release/vpnshop.sh
       - name: Verify provenance and publish immutable release assets
         id: publish
-        run: python3 ops/scripts/v2_publish.py publish "$RELEASE_VERSION" "$RUNNER_TEMP/vpnshop-release"
+        run: |
+          args=()
+          if [[ "$RESUME_RELEASE" == true ]]; then args+=(--resume); fi
+          python3 ops/scripts/v2_publish.py publish "$RELEASE_VERSION" "$RUNNER_TEMP/vpnshop-release" "${args[@]}"
       - name: Record safe release failure status
         if: ${{ failure() }}
         env:
-          OUTCOMES: ${{ format('runtime={0} scans={1} bundle={2} attest={3} publish={4}', steps.runtime.outcome, steps.scans.outcome, steps.bundle.outcome, steps.attest.outcome, steps.publish.outcome) }}
+          OUTCOMES: ${{ format('precheck={0} plan={1} runtime={2} scans={3} bundle={4} attest={5} publish={6}', steps.precheck.outcome, steps.plan.outcome, steps.runtime.outcome, steps.scans.outcome, steps.bundle.outcome, steps.attest.outcome, steps.publish.outcome) }}
         run: |
           mkdir -p "$RUNNER_TEMP/mzt-release-scans"
           printf 'sha=%s\n%s\n' "$GITHUB_SHA" "$OUTCOMES" > "$RUNNER_TEMP/mzt-release-scans/stages.txt"

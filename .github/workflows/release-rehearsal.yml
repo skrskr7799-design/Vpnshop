@@ -30,7 +30,9 @@ jobs:
           fetch-depth: 0
       - name: Exercise release contracts
         id: contracts
-        run: python3 ops/scripts/test_v2_release.py -v
+        run: |
+          python3 ops/scripts/test_v2_release.py -v
+          python3 ops/scripts/test_release_rehearsal.py -v
       - name: Build all seven images from the release worktree
         id: build
         run: |

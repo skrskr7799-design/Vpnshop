@@ -48,16 +48,28 @@ critical=0
 secret_count=0
 scan_failed=0
 findings='{}'
+record_blocked() {
+  scan_failed=1
+  findings=$(jq -c --arg name "$1" --arg stage "$2" \
+    '. + {($name): {status:"BLOCKED",stage:$stage}}' <<<"$findings")
+}
 for image in application migrator web admin edge db backup prometheus alertmanager; do
   ref="mzt-ci-$image:$revision"
   if [[ "$image" == prometheus || "$image" == alertmanager ]]; then
     ref=$(awk -v name="$image" '$1 == "image:" && $2 ~ "^prom/" name ":.*@sha256:" {print $2}' ops/compose.yml)
-    [[ "$ref" =~ @sha256:[a-f0-9]{64}$ ]]
-    if ! docker image inspect "$ref" >/dev/null 2>&1; then docker pull "$ref"; fi
+    if [[ ! "$ref" =~ @sha256:[a-f0-9]{64}$ ]] ||
+       ! { docker image inspect "$ref" >/dev/null 2>&1 || docker pull "$ref"; }; then
+      record_blocked "$image" resolve
+      continue
+    fi
   fi
   printf 'Scanning release image %s\n' "$image"
-  docker image save "$ref" -o "$tmp/image.tar"
-  docker image history --no-trunc --format '{{json .CreatedBy}}' "$ref" > "$tmp/image-history.ndjson"
+  if ! docker image save "$ref" -o "$tmp/image.tar" ||
+     ! docker image history --no-trunc --format '{{json .CreatedBy}}' "$ref" > "$tmp/image-history.ndjson"; then
+    record_blocked "$image" export
+    rm -f "$tmp/image.tar" "$tmp/image-history.ndjson"
+    continue
+  fi
   history_lines=$(wc -l < "$tmp/image-history.ndjson")
   metadata_exit=0
   {
@@ -78,7 +90,8 @@ for image in application migrator web admin edge db backup prometheus alertmanag
        {id:(.VulnerabilityID|safe("^[a-zA-Z0-9:_-]{1,100}$")), severity:.Severity,
         package:(.PkgName|safe("^[@a-zA-Z0-9_./+-]{1,214}$")),
         installed:(.InstalledVersion|safe("^[a-zA-Z0-9:_.+~!-]{1,128}$")),
-        fixed:(.FixedVersion|safe("^[a-zA-Z0-9:_.+~!, -]{0,256}$")),
+        fixed:(if (.FixedVersion // "") == "" then null
+               else (.FixedVersion|safe("^[a-zA-Z0-9:_.+~!, -]{1,256}$")) end),
         status:(.Status|safe("^[a-z_]{1,32}$"))}]
     ' "$tmp/result.json" > "$output/$image.vulnerabilities.json"
     c=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' "$tmp/result.json")
@@ -115,8 +128,7 @@ for image in application migrator web admin edge db backup prometheus alertmanag
     findings=$(jq -c --arg name "$image" --arg ref "$ref" --arg status "$image_status" --argjson critical "$c" --argjson high "$h" --argjson secrets "$s" \
       '. + {($name): {status:$status,ref:$ref,critical:$critical,high:$high,secrets:$secrets}}' <<<"$findings")
   else
-    scan_failed=1
-    findings=$(jq -c --arg name "$image" '. + {($name): {status:"BLOCKED"}}' <<<"$findings")
+    record_blocked "$image" scan
   fi
   rm -f "$tmp/image.tar" "$tmp/result.json" "$tmp/sbom.json" "$tmp/image-history.ndjson" "$tmp/image-gitleaks.json"
 done

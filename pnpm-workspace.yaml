@@ -2,6 +2,10 @@ packages:
   - apps/*
   - packages/*
 
+overrides:
+  '@prisma/config@6.19.3>deepmerge-ts': 8.0.0
+  '@prisma/config@6.19.3>effect': 3.22.1
+
 allowBuilds:
   '@prisma/client': true
   '@prisma/engines': true
