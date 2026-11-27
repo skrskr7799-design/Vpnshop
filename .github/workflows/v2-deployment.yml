@@ -37,8 +37,10 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
-      - name: Build local candidates
-        run: ops/scripts/build.sh
+      - name: Build local candidates using the release worktree
+        run: |
+          umask 077
+          PYTHONDONTWRITEBYTECODE=1 python3 ops/scripts/v2_release.py build-candidate
       - name: Exercise the built TLS edge and gateway
         env:
           MZT_V2_EDGE_IMAGE: mzt-ci-edge:${{ github.sha }}
