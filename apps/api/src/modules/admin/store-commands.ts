@@ -1,11 +1,13 @@
 import type { Prisma } from "@prisma/client";
 import { createPlanSchema, emailField, updatePlanSchema } from "@vpn/shared";
 import { z } from "zod";
+import { emailAvailable, env } from "../../config/env";
 import { isUniqueViolation } from "../../lib/db-errors";
 import { AppError } from "../../lib/errors";
-import { createEmailAccount, lockRegistration } from "../auth/auth.service";
+import { consumeMailBudget, createEmailAccount, emailInUse, invalidatePasswordResets, issuePasswordReset, lockRegistration } from "../auth/auth.service";
 import { hashPassword } from "../auth/password";
-import { TEMPORARY_PASSWORD_MS } from "./auth/admin-auth.service";
+import { sha256 } from "../../lib/crypto";
+import { VERIFY_TTL_MS } from "../auth/auth.constants";
 import { lockIdentityOwner, revokeAllUserSessions } from "../auth/session.service";
 import { dbNow, lockPlanForEdit, publishOffer, withdrawOffer } from "../commerce/offers";
 import { scheduleRevisionVerification } from "../fulfillment/revision.queue";
@@ -61,6 +63,19 @@ function refundDto(row: { id: string; amountMinor: bigint; currency: string; exp
     status: row.approvedAt ? "APPROVED_WAITING_PROVIDER" : "AWAITING_APPROVAL" };
 }
 
+async function customerPassword(ctx: CommandContext) {
+  const owner = await lockIdentityOwner(ctx.db, versionTarget(ctx));
+  if (!owner || owner.role !== "USER" || await ctx.db.staffCredential.findUnique({ where: { userId: owner.id } }))
+    throw new AppError(404, "NOT_FOUND");
+  expectVersion(ctx.expectedVersion, owner.updatedAt);
+  const credential = await ctx.db.authIdentity.findUnique({
+    where: { userId_provider: { userId: owner.id, provider: "EMAIL" } },
+    select: { id: true, passwordHash: true },
+  });
+  if (!credential?.passwordHash) throw new AppError(409, "PASSWORD_NOT_CONFIGURED");
+  return { owner, credential };
+}
+
 export const storeCommands = {
   "plan.create": command("plans:write", createPlanSchema.strict(), async (ctx, input) => {
     expectVersion(ctx.expectedVersion, 0);
@@ -105,21 +120,18 @@ export const storeCommands = {
     return { id: plan.id, version: plan.revision };
   }),
 
-  "user.create": command("users:create", z.strictObject({
-    email: emailField, displayName: z.string().trim().min(1).max(80).regex(/^[^\p{Cc}\p{Cf}]+$/u).optional(),
-    temporaryPassword: z.string().min(12).max(128), active: z.boolean(),
-  }), async (ctx, input) => {
+  "user.create": command("users:create", z.strictObject({ email: emailField }), async (ctx, input) => {
     expectVersion(ctx.expectedVersion, 0);
     if (ctx.targetId !== "new") throw new AppError(400, "INVALID_TARGET");
-    try {
-      const user = await createEmailAccount(ctx.db, { email: input.email, displayName: input.displayName,
-        passwordHash: await hashPassword(input.temporaryPassword), activationRequired: !input.active,
-        manualActivatedAt: input.active ? ctx.now : undefined, temporaryPasswordExpiresAt: new Date(+ctx.now + TEMPORARY_PASSWORD_MS) });
-      return { id: user.id, active: input.active, emailVerified: false };
-    } catch (error) {
-      if (isUniqueViolation(error)) throw new AppError(409, "USER_EMAIL_IN_USE");
-      throw error;
-    }
+    await lockRegistration(ctx.db, input.email);
+    if (await emailInUse(ctx.db, input.email)) throw new AppError(409, "USER_EMAIL_IN_USE");
+    const existing = await ctx.db.pendingRegistration.findFirst({
+      where: { email: input.email, passwordHash: null, expiresAt: { gt: ctx.now } }, select: { id: true },
+    });
+    const request = existing ?? await ctx.db.pendingRegistration.create({
+      data: { email: input.email, expiresAt: new Date(+ctx.now + VERIFY_TTL_MS) }, select: { id: true },
+    });
+    return { id: request.id, active: false };
   }),
   "user.activate": command("users:write", empty, async ctx => {
     const owner = await lockIdentityOwner(ctx.db, versionTarget(ctx));
@@ -130,21 +142,53 @@ export const storeCommands = {
     await ctx.db.user.update({ where: { id: owner.id }, data: { activationRequired: false, manualActivatedAt: ctx.now } });
     return { id: owner.id, active: true, method: "MANUAL", activatedAt: ctx.now.toISOString() };
   }),
-  "user.registration.activate": command("users:write", z.strictObject({ temporaryPassword: z.string().min(12).max(128) }), async (ctx, input) => {
+  "user.registration.activate": command("users:write", z.strictObject({ registrationReference: z.uuid() }), async (ctx, input) => {
     const pending = await ctx.db.pendingRegistration.findFirst({ where: { id: versionTarget(ctx), expiresAt: { gt: ctx.now } } });
     if (!pending) throw new AppError(404, "NOT_FOUND");
     expectVersion(ctx.expectedVersion, pending.createdAt);
+    if (!pending.passwordHash || pending.approvalHash !== sha256(input.registrationReference.toLowerCase()))
+      throw new AppError(409, "REGISTRATION_REFERENCE_MISMATCH");
     await lockRegistration(ctx.db, pending.email);
-    const consumed = await ctx.db.pendingRegistration.deleteMany({ where: { id: pending.id, expiresAt: { gt: ctx.now } } });
+    if (await emailInUse(ctx.db, pending.email)) throw new AppError(409, "USER_EMAIL_IN_USE");
+    const consumed = await ctx.db.pendingRegistration.deleteMany({ where: { id: pending.id, expiresAt: { gt: await dbNow(ctx.db) } } });
     if (consumed.count !== 1) throw new AppError(409, "VERSION_CONFLICT");
     try {
-      const user = await createEmailAccount(ctx.db, { email: pending.email, passwordHash: await hashPassword(input.temporaryPassword),
-        manualActivatedAt: ctx.now, temporaryPasswordExpiresAt: new Date(+ctx.now + TEMPORARY_PASSWORD_MS) });
+      const user = await createEmailAccount(ctx.db, { email: pending.email, passwordHash: pending.passwordHash, manualActivatedAt: ctx.now });
+      await ctx.db.pendingRegistration.deleteMany({ where: { email: pending.email } });
       return { id: user.id, active: true, method: "MANUAL", activatedAt: ctx.now.toISOString() };
     } catch (error) {
       if (isUniqueViolation(error)) throw new AppError(409, "USER_EMAIL_IN_USE");
       throw error;
     }
+  }),
+  "user.registration.cancel": command("users:write", empty, async ctx => {
+    const pending = await ctx.db.pendingRegistration.findUnique({ where: { id: versionTarget(ctx) } });
+    if (!pending) throw new AppError(404, "NOT_FOUND");
+    expectVersion(ctx.expectedVersion, pending.createdAt);
+    await lockRegistration(ctx.db, pending.email);
+    const cancelled = await ctx.db.pendingRegistration.deleteMany({ where: { id: pending.id } });
+    if (!cancelled.count) throw new AppError(409, "VERSION_CONFLICT");
+    return { id: pending.id, cancelled: true };
+  }),
+  "user.password.set": command("users:write", z.strictObject({ password: z.string().min(10).max(128) }), async (ctx, input) => {
+    const { owner, credential } = await customerPassword(ctx);
+    await ctx.db.authIdentity.update({ where: { id: credential.id },
+      data: { passwordHash: await hashPassword(input.password), temporaryPasswordExpiresAt: null }, select: { id: true } });
+    await invalidatePasswordResets(ctx.db, owner.id, ctx.now);
+    await ctx.db.identityProof.deleteMany({ where: { userId: owner.id } });
+    await revokeAllUserSessions(owner.id, ctx.db);
+    const updated = await ctx.db.user.update({ where: { id: owner.id },
+      data: { updatedAt: new Date(Math.max(+ctx.now, +owner.updatedAt + 1)) }, select: { updatedAt: true } });
+    return { id: owner.id, passwordChanged: true, sessionsRevoked: true, version: updated.updatedAt.toISOString() };
+  }),
+  "user.password.send_reset": command("users:write", empty, async ctx => {
+    const { owner } = await customerPassword(ctx);
+    if (!emailAvailable || !env.MAIL_QUEUE_KEY) throw new AppError(503, "EMAIL_UNAVAILABLE");
+    if (!owner.email || !owner.emailVerifiedAt || owner.emailLoginDisabled || owner.status !== "ACTIVE")
+      throw new AppError(409, "PASSWORD_RESET_UNAVAILABLE");
+    if (!await consumeMailBudget(owner.email, "reset", ctx.db)) throw new AppError(429, "RATE_LIMIT_EXCEEDED");
+    await issuePasswordReset(ctx.db, owner.id, owner.email, await dbNow(ctx.db));
+    return { id: owner.id, resetQueued: true };
   }),
   "user.account_status": command("users:write", z.strictObject({ status: z.enum(["ACTIVE", "BLOCKED"]) }), async (ctx, input) => {
     const owner = await lockIdentityOwner(ctx.db, versionTarget(ctx));

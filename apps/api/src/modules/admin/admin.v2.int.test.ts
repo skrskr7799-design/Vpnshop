@@ -7,6 +7,7 @@ import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { resetDatabase } from "../../test/db";
 import { createUser } from "../../test/factories";
+import { sha256 } from "../../lib/crypto";
 import { hashPassword } from "../auth/password";
 import { isUniqueViolation } from "../../lib/db-errors";
 import { adminLogin, changeTemporaryStaffPassword, confirmEnrollment, startEnrollment } from "./auth/admin-auth.service";
@@ -34,6 +35,12 @@ afterEach(async () => {
 const local = { username: "first-owner", password: PASSWORD, correlationId: randomUUID() };
 const publicPost = (path: string, payload: object) => publicApp.inject({ method: "POST", url: "/api/auth/" + path,
   headers: { origin: env.WEB_ORIGIN }, payload });
+const direct = (session: string, operation: string, target: string, version: string | number,
+  command: object, confirmationId?: string) => adminApp.inject({
+  method: "POST", url: `/api/commands/${operation}/${encodeURIComponent(target)}`,
+  headers: { origin: env.ADMIN_ORIGIN, "idempotency-key": randomUUID() }, cookies: { vpn_admin: session },
+  payload: { expectedVersion: version, command, ...(confirmationId && { confirmationId }) },
+});
 async function passwordSession(username: string, password = PASSWORD) {
   const response = await adminApp.inject({ method: "POST", url: "/api/auth/login", headers: { origin: env.ADMIN_ORIGIN },
     payload: { username, password } });
@@ -76,7 +83,7 @@ it("enforces OWNER grants on direct commands, consumes temporary staff password 
   const support = await createEnrolledAdmin("support@example.invalid", "SUPPORT");
   const own = as(adminApp, owner.sessionToken);
   const staff = { username: "New.Staff", role: "ADMIN", temporaryPassword: temp };
-  const customer = { email: "customer@example.invalid", active: true, temporaryPassword: temp };
+  const customer = { email: "customer@example.invalid" };
   for (const actor of [admin, support]) {
     const api = as(adminApp, actor.sessionToken);
     expect((await api.command("staff.create", "new", 0, staff)).statusCode).toBe(403);
@@ -98,63 +105,100 @@ it("enforces OWNER grants on direct commands, consumes temporary staff password 
   expect(JSON.stringify(await prisma.auditLog.findMany())).not.toContain(temp);
 });
 
-it("activates only eligible customers, without proving email, charging or provisioning", async () => {
+it("reserves email without a credential and approves only the independently verified claim", async () => {
   const owner = await createEnrolledAdmin("owner@example.invalid", "OWNER");
   const admin = await createEnrolledAdmin("admin@example.invalid");
   const existing = await createUser({ email: "occupied@example.invalid" });
-  const own = as(adminApp, owner.sessionToken);
-  const operator = as(adminApp, admin.sessionToken);
-  const input = { email: "new-user@example.invalid", temporaryPassword: temp, active: false };
-  expect((await own.command("user.create", "new", 0, { ...input, email: existing.email })).json().error.code).toBe("USER_EMAIL_IN_USE");
-  const created = await own.command("user.create", "new", 0, input);
-  expect(created.statusCode).toBe(200);
-  const id = created.json().result.id;
-  const pending = await prisma.user.findUniqueOrThrow({ where: { id } });
-  expect(pending).toMatchObject({ emailVerifiedAt: null, activationRequired: true, status: "ACTIVE" });
-  const credentials = { email: input.email, temporaryPassword: temp, password: permanent };
-  const temporaryLogin = await publicPost("login", { email: input.email, password: temp });
-  expect(temporaryLogin.json().error.code).toBe("TEMPORARY_PASSWORD");
-  expect(temporaryLogin.cookies).toHaveLength(0);
-  await prisma.user.update({ where: { id }, data: { status: "BLOCKED" } });
-  expect((await publicPost("password/change-temporary", credentials)).statusCode).toBe(403);
-  expect((await operator.command("user.activate", id, pending.updatedAt.toISOString(), {})).json().error.code).toBe("ACCOUNT_BLOCKED");
-  const restored = await prisma.user.update({ where: { id }, data: { status: "ACTIVE" } });
-  expect((await Promise.all([publicPost("password/change-temporary", credentials), publicPost("password/change-temporary", credentials)]))
-    .map(reply => reply.statusCode).sort()).toEqual([204, 401]);
-  const pendingLogin = await publicPost("login", { email: input.email, password: permanent });
-  expect(pendingLogin.json().error.code).toBe("ACTIVATION_PENDING");
-  expect(pendingLogin.cookies).toHaveLength(0);
-  expect(await prisma.sessionFamily.count({ where: { userId: id } })).toBe(0);
-  expect((await operator.command("user.activate", id, restored.updatedAt.toISOString(), {})).statusCode).toBe(200);
-  expect((await operator.command("user.activate", id, restored.updatedAt.toISOString(), {})).json().result.alreadyActive).toBe(true);
+  const input = { email: "new-user@example.invalid" };
+  const create = (email: string) => direct(owner.sessionToken, "user.create", "new", 0, { email });
+  expect((await create(existing.email!)).json().error.code).toBe("USER_EMAIL_IN_USE");
+  const reservations = await Promise.all([create(input.email), create(input.email)]);
+  expect(reservations.map(reply => reply.statusCode)).toEqual([200, 200]);
+  expect(reservations[0]!.json().result).toEqual(reservations[1]!.json().result);
+  expect(await prisma.pendingRegistration.count({ where: { email: input.email, passwordHash: null } })).toBe(1);
+  const attacker = await publicPost("register", { email: input.email, password: temp });
+  const claimant = await publicPost("register", { email: input.email, password: permanent });
+  const reference = claimant.json().registrationReference as string;
+  const request = await prisma.pendingRegistration.findFirstOrThrow({ where: { approvalHash: sha256(reference) } });
+  expect(request.tokenHash).toBeNull();
+  expect(await prisma.notificationOutbox.count()).toBe(0);
+  expect(await prisma.user.findUnique({ where: { email: input.email } })).toBeNull();
+  const login = await publicPost("login", { email: input.email, password: permanent });
+  expect(login.statusCode).toBe(401);
+  expect(login.cookies).toHaveLength(0);
+  const activate = (registrationReference: string) => direct(admin.sessionToken, "user.registration.activate",
+    request.id, request.createdAt.toISOString(), { registrationReference });
+  expect((await activate(attacker.json().registrationReference)).json().error.code).toBe("REGISTRATION_REFERENCE_MISMATCH");
+  const replies = await Promise.all([activate(reference), activate(reference)]);
+  expect(replies.map(result => result.statusCode).sort()).toEqual([200, 404]);
+  expect(await prisma.pendingRegistration.count({ where: { email: input.email } })).toBe(0);
+  const user = await prisma.user.findUniqueOrThrow({ where: { email: input.email }, include: { identities: true } });
+  expect(user).toMatchObject({ emailVerifiedAt: null, activationRequired: false, manualActivatedAt: expect.any(Date) });
+  expect(user.identities[0]).toMatchObject({ passwordHash: request.passwordHash, temporaryPasswordExpiresAt: null });
+  expect((await publicPost("login", { email: input.email, password: temp })).statusCode).toBe(401);
   expect((await publicPost("login", { email: input.email, password: permanent })).statusCode).toBe(200);
-  expect(await prisma.user.findUniqueOrThrow({ where: { id } })).toMatchObject({ emailVerifiedAt: null, activationRequired: false,
-    manualActivatedAt: expect.any(Date) });
   expect(await prisma.order.count()).toBe(0);
   expect(await prisma.paymentTransaction.count()).toBe(0);
   expect(await prisma.subscription.count()).toBe(0);
   expect(await prisma.panelBinding.count()).toBe(0);
+  expect(JSON.stringify(await prisma.auditLog.findMany())).not.toContain(reference);
 });
 
-it("finishes a pending registration with a new temporary credential instead of the unverified submitted password", async () => {
+it("cancels a mismatched request and preserves the original self-registration password", async () => {
   const admin = await createEnrolledAdmin("operator@example.invalid");
-  const request = await prisma.pendingRegistration.create({ data: {
-    email: "pending-registration@example.invalid", tokenHash: randomUUID(), passwordHash: await hashPassword(PASSWORD),
-    expiresAt: new Date(Date.now() + 60_000),
-  } });
-  const api = as(adminApp, admin.sessionToken);
-  const rows = (await api.get("/api/users/registrations")).json();
-  expect(rows.items).toEqual([expect.objectContaining({ id: request.id, email: request.email })]);
-  expect(JSON.stringify(rows)).not.toContain(request.passwordHash);
-  const reply = await api.command("user.registration.activate", request.id, request.createdAt.toISOString(), { temporaryPassword: temp });
-  expect(reply.statusCode).toBe(200);
-  expect(await prisma.pendingRegistration.count()).toBe(0);
-  expect((await publicPost("login", { email: request.email, password: PASSWORD })).statusCode).toBe(401);
-  expect((await publicPost("login", { email: request.email, password: temp })).json().error.code).toBe("TEMPORARY_PASSWORD");
-  expect(await prisma.user.findUniqueOrThrow({ where: { email: request.email } })).toMatchObject({
-    emailVerifiedAt: null, manualActivatedAt: expect.any(Date),
-  });
-  expect(await prisma.notificationOutbox.count()).toBe(0);
+  const email = "pending-registration@example.invalid";
+  const register = () => publicPost("register", { email, password: permanent });
+  const wrong = (await register()).json().registrationReference;
+  const right = (await register()).json().registrationReference;
+  const rows = (await as(adminApp, admin.sessionToken).get("/api/users/registrations")).json();
+  expect(rows.items).toHaveLength(2);
+  expect(JSON.stringify(rows)).not.toContain("approvalHash");
+  expect(JSON.stringify(rows)).not.toContain("passwordHash");
+  const current = await prisma.pendingRegistration.findFirstOrThrow({ where: { approvalHash: sha256(right) } });
+  const other = await prisma.pendingRegistration.findFirstOrThrow({ where: { approvalHash: sha256(wrong) } });
+  expect((await direct(admin.sessionToken, "user.registration.cancel", other.id, other.createdAt.toISOString(), {})).statusCode).toBe(200);
+  expect((await direct(admin.sessionToken, "user.registration.activate", current.id, current.createdAt.toISOString(),
+    { registrationReference: right })).statusCode).toBe(200);
+  expect((await publicPost("login", { email, password: permanent })).statusCode).toBe(200);
+  const user = await prisma.user.findUniqueOrThrow({ where: { email }, include: { identities: true } });
+  expect(user.emailVerifiedAt).toBeNull();
+  expect(user.identities[0]).toMatchObject({ passwordHash: current.passwordHash, temporaryPasswordExpiresAt: null });
+  const blocked = await prisma.user.update({ where: { id: user.id }, data: { status: "BLOCKED", activationRequired: true } });
+  expect((await direct(admin.sessionToken, "user.activate", blocked.id, blocked.updatedAt.toISOString(), {})).json().error.code)
+    .toBe("ACCOUNT_BLOCKED");
+});
+
+it("requires step-up for a permanent password change and invalidates customer sessions and reset proofs", async () => {
+  const admin = await createEnrolledAdmin("operator@example.invalid");
+  const support = await createEnrolledAdmin("support@example.invalid", "SUPPORT");
+  const email = "access@example.invalid";
+  const user = await prisma.user.create({ data: { email, emailVerifiedAt: new Date(),
+    identities: { create: { provider: "EMAIL", providerId: email, passwordHash: await hashPassword(temp) } } } });
+  const token = randomUUID();
+  const reset = await prisma.verificationToken.create({ data: { userId: user.id, email, type: "PASSWORD_RESET",
+    expiresAt: new Date(Date.now() + 60_000), tokenHash: sha256(token) } });
+  const previousLogin = await publicPost("login", { email, password: temp });
+  expect(previousLogin.statusCode).toBe(200);
+  const version = user.updatedAt.toISOString();
+  expect((await direct(support.sessionToken, "user.password.set", user.id, version, { password: permanent })).statusCode).toBe(403);
+  const noProof = await direct(admin.sessionToken, "user.password.set", user.id, version, { password: permanent });
+  expect(noProof.json().error.code).toBe("STEP_UP_REQUIRED");
+  await prisma.adminTotp.update({ where: { userId: admin.userId }, data: { lastUsedStep: null } });
+  const proof = await as(adminApp, admin.sessionToken).post("/api/auth/step-up", { operation: "user.password.set",
+    permission: "users:write", targetId: user.id, expectedVersion: version, command: { password: permanent },
+    password: PASSWORD, code: currentCode(admin.secret) });
+  expect(proof.statusCode).toBe(200);
+  expect((await direct(admin.sessionToken, "user.password.set", user.id, version, { password: permanent },
+    proof.json().confirmationId)).statusCode).toBe(200);
+  expect(await prisma.sessionFamily.count({ where: { userId: user.id, revokedAt: null } })).toBe(0);
+  expect((await prisma.verificationToken.findUniqueOrThrow({ where: { id: reset.id } })).usedAt).toBeTruthy();
+  expect((await publicPost("reset-password", { token, password: temp })).json().error.code).toBe("INVALID_TOKEN");
+  expect((await publicPost("login", { email, password: temp })).statusCode).toBe(401);
+  expect((await publicPost("login", { email, password: permanent })).statusCode).toBe(200);
+  expect(JSON.stringify(await prisma.auditLog.findMany())).not.toContain(permanent);
+  const oauth = await prisma.user.create({ data: { identities: { create: { provider: "GOOGLE", providerId: randomUUID() } } } });
+  expect((await as(adminApp, admin.sessionToken).command("user.password.set", oauth.id, oauth.updatedAt.toISOString(),
+    { password: permanent })).json().error.code).toBe("PASSWORD_NOT_CONFIGURED");
 });
 
 it("distinguishes all policies and requires current factors for session and step-up", async () => {

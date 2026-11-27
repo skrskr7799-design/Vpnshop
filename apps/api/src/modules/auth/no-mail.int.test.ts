@@ -22,8 +22,8 @@ it("accepts a pending signup without SMTP, keeps the reset response neutral and 
     const send = (url: string, payload: object) => api.inject({ method: "POST", url, payload, headers: { origin: env.WEB_ORIGIN } });
     const queued = await send("/api/auth/register", { email, password });
     expect(queued.statusCode).toBe(202);
-    expect(queued.json()).toEqual({ ok: true, emailAvailable: false });
-    expect(await prisma.pendingRegistration.count({ where: { email } })).toBe(1);
+    expect(queued.json()).toEqual({ ok: true, emailAvailable: false, registrationReference: expect.any(String) });
+    expect(await prisma.pendingRegistration.count({ where: { email, tokenHash: null } })).toBe(1);
     expect(await prisma.user.count({ where: { email } })).toBe(0);
 
     const verified = "verified-mail@example.com";

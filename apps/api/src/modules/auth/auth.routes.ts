@@ -42,9 +42,9 @@ export async function authRoutes(app: FastifyInstance) {
     reply.header("Cache-Control", "private, no-store").header("Referrer-Policy", "no-referrer");
   });
   app.post("/register", limit(5, "1 hour"), async (req, reply) => {
-    await register(registerSchema.parse(req.body), ctxOf(req));
+    const registrationReference = await register(registerSchema.parse(req.body), ctxOf(req));
     // одинаковый ответ независимо от того, есть ли уже аккаунт
-    return reply.code(202).send({ ok: true, emailAvailable });
+    return reply.code(202).send({ ok: true, emailAvailable, registrationReference });
   });
 
   app.post("/verify-email", limit(20, "1 hour"), async (req, reply) => {

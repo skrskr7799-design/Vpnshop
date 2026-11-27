@@ -35,35 +35,36 @@ const send = (staff: EnrolledAdmin, operation: string, target: string, payload: 
 
 it("issues a fresh TOTP proof, rejects cross-session use and returns one command after lost response", async () => {
   await prisma.adminTotp.update({ where: { userId: alice.userId }, data: { lastUsedStep: null } });
-  const input = { operation: "plan.create", targetId: "fixture", permission: "plans:write", expectedVersion: "0", reason, command: bodyOf };
+  const plan = await prisma.plan.create({ data: bodyOf });
+  const input = { operation: "plan.publish", targetId: plan.id, permission: "plans:write", expectedVersion: "0", reason, command: offer };
   const proof = await first.post("/api/auth/step-up", { ...input, password: PASSWORD, code: currentCode(alice.secret) });
   expect(proof.statusCode).toBe(200);
-  const body = { command: bodyOf, confirmationId: proof.json().confirmationId, expectedVersion: "0", reason };
-  expect((await send(bob, "plan.create", "fixture", body)).json().error.code).toBe("STEP_UP_REQUIRED");
+  const body = { command: offer, confirmationId: proof.json().confirmationId, expectedVersion: "0", reason };
+  expect((await send(bob, "plan.publish", plan.id, body)).json().error.code).toBe("STEP_UP_REQUIRED");
 
   const key = randomUUID();
-  const requests = await Promise.all([send(alice, "plan.create", "fixture", body, key), send(alice, "plan.create", "fixture", body, key)]);
+  const requests = await Promise.all([send(alice, "plan.publish", plan.id, body, key), send(alice, "plan.publish", plan.id, body, key)]);
   expect(requests.map(reply => reply.statusCode)).toEqual([200, 200]);
   expect(requests[0]!.json()).toEqual(requests[1]!.json());
-  expect((await send(alice, "plan.create", "fixture", body)).json().error.code).toBe("STEP_UP_REQUIRED");
-  expect((await send(alice, "plan.create", "fixture", { ...body, command: { ...bodyOf, name: "Unexpected" } }, key)).json().error.code)
+  expect((await send(alice, "plan.publish", plan.id, body)).json().error.code).toBe("STEP_UP_REQUIRED");
+  expect((await send(alice, "plan.publish", plan.id, { ...body, command: { ...offer, name: "Unexpected" } }, key)).json().error.code)
     .toBe("IDEMPOTENCY_CONFLICT");
-  expect(await prisma.plan.count()).toBe(1);
-  const audit = await prisma.auditLog.findFirstOrThrow({ where: { action: "plan.create" } });
+  expect(await prisma.offerVersion.count()).toBe(1);
+  const audit = await prisma.auditLog.findFirstOrThrow({ where: { action: "plan.publish" } });
   expect(audit).toMatchObject({ role: "OWNER", permission: "plans:write", reason, commandId: requests[0]!.json().commandId });
   expect(JSON.stringify(audit)).not.toContain(PASSWORD);
   await expect(prisma.auditLog.update({ where: { id: audit.id }, data: { action: "rewrite" } })).rejects.toBeTruthy();
 });
 
 it("rejects stale/expired proofs and rolls back the local effect on failed audit", async () => {
-  expect((await first.command("plan.create", "fixture", 0, bodyOf, { expired: true })).json().error.code).toBe("STEP_UP_REQUIRED");
-  const broken = await prepareCommand(alice.sessionToken, "plan.create", "fixture", 0, bodyOf, { reason: "fixture audit insert failure" });
-  expect((await send(alice, "plan.create", "fixture", broken)).statusCode).toBe(500);
-  expect(await prisma.plan.count()).toBe(0);
+  const plan = await prisma.plan.create({ data: bodyOf });
+  expect((await first.command("plan.publish", plan.id, 0, offer, { expired: true })).json().error.code).toBe("STEP_UP_REQUIRED");
+  const broken = await prepareCommand(alice.sessionToken, "plan.publish", plan.id, 0, offer, { reason: "fixture audit insert failure" });
+  expect((await send(alice, "plan.publish", plan.id, broken)).statusCode).toBe(500);
+  expect(await prisma.offerVersion.count()).toBe(0);
   expect(await prisma.adminCommand.count()).toBe(0);
   expect((await prisma.adminConfirmation.findUniqueOrThrow({ where: { id: broken.confirmationId } })).consumedAt).toBeNull();
 
-  const plan = await prisma.plan.create({ data: bodyOf });
   const proof = await prepareCommand(alice.sessionToken, "plan.publish", plan.id, 0, offer);
   let unblock!: () => void;
   let locked!: () => void;

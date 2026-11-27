@@ -6,3 +6,5 @@ export * from "./schemas/account";
 
 export * from "./schemas/support";
 export * from "./schemas/product";
+
+export * from "./admin-command-policy";
