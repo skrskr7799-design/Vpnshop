@@ -1,13 +1,15 @@
-import { Badge, BrandMark, Button, Drawer, EmptyState, Icon, IconButton, LabyrinthBackground, MobileNavigation, PageHeader, SignatureScene, StatusIndicator, Timeline, buttonClass, type IconName } from "@vpn/ui";
+import { useProductBrand } from "./config";
+import { Badge, BrandMark, Button, CodeDisplay, Drawer, EmptyState, Icon, IconButton, Input, LabyrinthBackground, MobileNavigation, PageHeader, SignatureScene, StatusIndicator, Timeline, buttonClass, type IconName } from "@vpn/ui";
+import { supportStatus } from "@vpn/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from "react-router";
 import { Action } from "./commands";
-import { AccessActions, Invite, OrderActions, PlanActions, PlanCreate, Settings, StaffActions } from "./actions";
+import { AccessActions, Invite, OrderActions, PlanActions, PlanCreate, Settings, StaffActions, StaffCreate, UserCreate } from "./actions";
 import { api, ApiError, errorText } from "./api";
 import { Session, useCan, useSession, type Principal } from "./session";
 import { Dashboard, Detail, Facts, jobColumns, jobFilters, List, orderColumns, orderFilters, PlanDetail,
-  RequestState, SupportDetail, ticketColumns, ticketFilters, states, useAdmin, valueText, type Row } from "./views";
+  RequestState, SupportDetail, ticketColumns, ticketFilters, states, useAdmin, valueText } from "./views";
 
 const groups: { title: string; links: [path: string, title: string, permission: string, icon: IconName][] }[] = [
   { title: "Рабочая область", links: [["/", "Обзор", "dashboard:read", "grid"], ["/users", "Пользователи", "users:read", "users"],
@@ -33,6 +35,7 @@ function Guard() {
 
 function Shell() {
   const session = useSession()!;
+  const brand = useProductBrand();
   const cache = useQueryClient();
   const navigate = useNavigate();
   const [hidden, hide] = useState(false);
@@ -46,8 +49,8 @@ function Shell() {
   const active = visibleLinks.find(([path]) => path !== "/" && location.pathname.startsWith(path))?.[1] ?? "Обзор";
   useEffect(() => {
     main.current?.focus({ preventScroll: true });
-    document.title = active + " — MZT";
-  }, [active, location.pathname]);
+    document.title = active + " — " + brand;
+  }, [active, location.pathname, brand]);
   async function logout() {
     hide(true); setError("");
     await cache.cancelQueries({ queryKey: ["admin"] });
@@ -71,12 +74,12 @@ function Shell() {
   </SignatureScene> : <div className={`shell${location.pathname === "/" ? " shell--overview" : ""}`}>
     <LabyrinthBackground />
     <a className="skip" href="#main">Перейти к содержимому</a>
-    <aside className="sidebar"><div className="admin-brand"><Link to="/" className="mz-brand-home"><BrandMark /></Link><span>Администрирование</span></div>{navigation()}</aside>
+    <aside className="sidebar"><div className="admin-brand"><Link to="/" className="mz-brand-home"><BrandMark /></Link><span className="admin-product-brand">{brand === "MZT" ? "Администрирование" : brand}</span></div>{navigation()}</aside>
     <div className="body"><header className="admin-topbar">
       <div className="admin-topbar__mobile"><IconButton icon="menu" label="Открыть меню" aria-expanded={menu} onClick={() => setMenu(true)} />
         <Link to="/" className="mz-brand-home"><BrandMark /></Link></div>
       <span className="admin-topbar__context">{active}</span>
-      <div className="admin-topbar__identity"><span className="admin-topbar__email">{session.user.email}</span>
+      <div className="admin-topbar__identity"><span className="admin-topbar__email">{session.user.username ?? session.user.email}</span>
         <Badge tone="accent">{session.user.role}</Badge>
         <Button variant="quiet" onClick={() => void logout()}><Icon name="out" size={16} />Выйти</Button></div>
     </header>
@@ -96,6 +99,14 @@ function Permit({ permission, children }: { permission: string; children: ReactN
     <EmptyState title="Недостаточно прав"><p>У вашей роли нет разрешения.</p>
       <Link to="/" className={buttonClass("secondary")}>Вернуться к обзору</Link>
     </EmptyState></>;
+}
+function Users() {
+  const canActivate = useCan("users:write");
+  return <List title="Пользователи" path="/users" columns={["email", "id", "status", "activation", "emailVerified", "createdAt"]}
+    filters={[["status", "Статус", ["ACTIVE", "BLOCKED"]]]} destination={row => "/users/" + row.id}>
+    <UserCreate />
+    {canActivate && <Link className={buttonClass("secondary")} to="/users/registrations">Ожидающие регистрации</Link>}
+  </List>;
 }
 function UserDetails() {
   return <Detail title="Пользователь" path="/users">{row => <>
@@ -135,17 +146,60 @@ function ForId({ render }: { render: (id: string) => ReactNode }) {
 }
 function OwnSessions() {
   const [issue, setIssue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [setup, setSetup] = useState<{ token: string; secret: string }>();
+  const [codes, setCodes] = useState<string[]>([]);
   const cache = useQueryClient();
-  async function revoke(row: Row) {
-    setIssue("");
-    try { await api("/auth/sessions/" + row.id, { method: "DELETE" }); await cache.invalidateQueries(); }
+  const me = useSession()!;
+  async function change(path: string, method: "POST" | "DELETE") {
+    setIssue(""); setBusy(true);
+    try { await api(path, { method }); await cache.invalidateQueries(); }
     catch (error) { setIssue(errorText(error)); }
+    finally { setBusy(false); }
   }
-  return <List title="Административные сессии" path="/auth/sessions"
-    columns={["id", "userAgent", "lastSeenAt", "expiresAt", "revokedAt", "current"]}
-    actions={rows => <><div className="actions">{rows.filter(row => !row.revokedAt).map(row =>
-      <Button variant="secondary" key={row.id} onClick={() => void revoke(row)}>{row.current ? "Завершить текущую сессию" : "Отозвать " + row.id.slice(0, 8)}</Button>)}</div>
-      {issue && <p role="alert">{issue}</p>}</>} />;
+  async function confirm(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!setup || busy) return;
+    const code = new FormData(event.currentTarget).get("code");
+    setIssue(""); setBusy(true);
+    try {
+      const result = await api<{ recoveryCodes: string[] }>("/auth/2fa/enroll/confirm",
+        { method: "POST", body: { stageToken: setup.token, code } });
+      setSetup(undefined); setCodes(result.recoveryCodes); await cache.invalidateQueries();
+    } catch (error) { setIssue(errorText(error)); }
+    finally { setBusy(false); }
+  }
+  const policies = { required: "Обязательна", optional: "По выбору", disabled: "Отключена" };
+  return <List title="Безопасность и сессии" path="/auth/sessions"
+    columns={["id", "userAgent", "createdAt", "lastSeenAt", "expiresAt", "state", "current"]}
+    actions={rows => <><div className="actions">{rows.filter(row => !row.revokedAt && row.state !== "EXPIRED").map(row =>
+      <Button variant="secondary" disabled={busy} key={row.id} onClick={() => void change("/auth/sessions/" + row.id, "DELETE")}>
+        {row.current ? "Завершить текущую сессию" : "Отозвать " + row.id.slice(0, 8)}</Button>)}</div>
+      <Button variant="secondary" disabled={busy} onClick={() => void change("/auth/sessions/revoke-others", "POST")}>Завершить остальные сессии</Button>
+      {issue && <p role="alert">{issue}</p>}</>}>
+    {me.security && <section className="mz-card panel"><h2>Двухфакторная аутентификация</h2>
+      <p>Политика: {policies[me.security.policy]}. Ключ {me.security.enrolled ? "подключён" : "не подключён"}.</p>
+      {me.security.policy === "optional" && !setup && codes.length === 0 && (me.security.enrolled ?
+        <Action title="Отключить собственную 2FA и завершить сеанс" operation="staff.self.totp.disable"
+          permission="security:self" target={me.user.id} version={me.security.version}
+          after={() => cache.invalidateQueries({ queryKey: ["admin-me"] })} /> :
+        <Action title="Подключить 2FA" operation="staff.self.totp.enroll" permission="security:self" target={me.user.id} version={me.security.version}
+          after={async result => {
+            if (!result.stageToken) return;
+            const response = await api<{ secret: string }>("/auth/2fa/enroll/start", { method: "POST", body: { stageToken: result.stageToken } });
+            setSetup({ token: result.stageToken, secret: response.secret });
+          }} />)}
+      {setup && <form onSubmit={event => void confirm(event)}>
+        <p>Добавьте ключ в приложение-аутентификатор. <CodeDisplay>{setup.secret}</CodeDisplay></p>
+        <label>Код приложения<Input name="code" required autoComplete="one-time-code" inputMode="numeric" pattern="[0-9]{6}" /></label>
+        <Button type="submit" loading={busy}>Подключить</Button>
+        <Button variant="quiet" onClick={() => setSetup(undefined)}>Отмена</Button>
+      </form>}
+      {codes.length > 0 && <><p>Сохраните резервные коды. Они показаны один раз.</p>
+        <ul>{codes.map(code => <li key={code}><CodeDisplay>{code}</CodeDisplay></li>)}</ul>
+        <Button onClick={() => setCodes([])}>Коды сохранены</Button></>}
+    </section>}
+  </List>;
 }
 type ServiceStatus = {
   key: string; state: "FRESH" | "STALE" | "UNAVAILABLE"; observedAt: string | null; reasonCode: string | null;
@@ -153,16 +207,21 @@ type ServiceStatus = {
 };
 const serviceTitle: Record<string, string> = { panel: "Remnawave", worker: "Воркер выдачи" };
 const serviceReason: Record<string, string> = {
+  PANEL_DISABLED: "Выдача через Remnawave приостановлена оператором.",
   PANEL_PROBE_FAILED: "Панель не ответила на последнюю проверку.", PANEL_UNAVAILABLE: "Наблюдений панели пока нет.",
   NO_HEARTBEAT: "Сигнал воркера ещё не получен.", WORKER_STALE: "Сигнал воркера устарел.", WORKER_NOT_READY: "Воркер не готов к обработке.",
 };
 
 function Operations() {
-  const service = useAdmin<{ asOf: string; services: ServiceStatus[] }>("/operations/status", 30_000);
+  const service = useAdmin<{ asOf: string; services: ServiceStatus[]; product?: Record<string, unknown> }>("/operations/status", 30_000);
   return <><PageHeader title="Сервисы" description="Состояние фоновых процессов и внешних зависимостей." />
     <RequestState state={service} />
     {service.data && <><p className="admin-meta">Снимок {valueText(service.data.asOf)}</p>
       {!service.data.services.length && <EmptyState title="Наблюдений пока нет" />}
+      {service.data.product && <section className="mz-card panel"><h2>Конфигурация продукта</h2>
+        <p>Настройки применяются через конфигурацию установки. Доступность внешних сервисов проверяется отдельно.</p>
+        <Facts data={service.data.product} />
+      </section>}
       <div className="grid">{service.data.services.map(source => <section className="mz-card panel" key={source.key}>
         <div className="dashboard-source-heading"><h2>{serviceTitle[source.key] ?? source.key}</h2>
           <StatusIndicator status={source.state}>{states[source.state]}</StatusIndicator></div>
@@ -178,8 +237,15 @@ export default function AdminWorkspace() {
   return <Routes>
     <Route element={<Guard />}>
       <Route index element={<Dashboard />} />
-      <Route path="users" element={<List title="Пользователи" path="/users" columns={["email", "id", "status", "createdAt"]}
-        filters={[["status", "Статус", ["ACTIVE", "BLOCKED"]]]} destination={row => "/users/" + row.id} />} />
+      <Route path="users" element={<Users />} />
+      <Route path="users/registrations" element={<Permit permission="users:write">
+        <List title="Ожидающие регистрации" path="/users/registrations" columns={["email", "id", "createdAt", "expiresAt"]}
+          actions={rows => rows.map(row => <Action key={row.id} title={`Активировать ${row.email}`}
+            operation="user.registration.activate" permission="users:write" target={row.id} context={String(row.email)} version={String(row.version)}
+            fields={[{ name: "temporaryPassword", label: "Пароль для проверенного получателя (24 часа)", type: "password" }]} />)}>
+          <p>Передайте временный пароль только после идентификации заявителя по защищённому каналу.</p>
+        </List>
+      </Permit>} />
       <Route path="users/:id" element={<UserDetails />} />
       <Route path="users/:id/periods" element={<ForId render={id => <List title="Периоды доступа" path={`/users/${id}/periods`}
         columns={["orderId", "serial", "startAt", "endAt", "deviceLimit", "adjustment"]} />} />} />
@@ -215,13 +281,8 @@ export default function AdminWorkspace() {
       <Route path="plans" element={<List title="Тарифы" path="/plans" columns={["name", "code", "revision", "deviceLimit", "isActive"]}
         filters={[["active", "Активен", ["true", "false"]]]} destination={row => "/plans/" + row.id}><PlanCreate /></List>} />
       <Route path="plans/:id" element={<PlanDetail actions={(plan, versions) => <PlanActions plan={plan} versions={versions} />} />} />
-      <Route path="support" element={<List title="Обращения" path="/support/cases" columns={ticketColumns} filters={ticketFilters}
-        destination={row => "/support/" + row.id} />} />
-      <Route path="support/:id" element={<SupportDetail command={ticket => <Action title="Ответить или изменить статус" operation="support.action" permission="support:write"
-        target={ticket.id} version={String(ticket.updatedAt)} fields={[
-          { name: "status", label: "Новый статус", options: ["OPEN", "WAITING_CUSTOMER", "RESOLVED"], required: false },
-          { name: "publicReply", label: "Публичный ответ", type: "textarea", required: false },
-        ]} />} />} />
+      <Route path="support" element={<SupportQueue />} />
+      <Route path="support/:id" element={<SupportDetail command={ticket => <SupportActions ticket={ticket} />} />} />
       <Route path="audit" element={<Permit permission="audit:read"><List title="Аудит" path="/audit"
         columns={["action", "actorId", "permission", "entityId", "reason", "commandId", "createdAt"]}
         filters={[["action", "Действие"], ["entity", "Объект"], ["actorId", "ID сотрудника"], ["entityId", "ID объекта"]]} destination={row => "/audit/" + row.id} /></Permit>} />
@@ -229,14 +290,15 @@ export default function AdminWorkspace() {
         {row => <section className="mz-card panel"><Facts data={row} /></section>}
       </Detail></Permit>} />
       <Route path="staff" element={<Permit permission="staff:read"><List title="Сотрудники" path="/staff"
-        columns={["email", "role", "status", "enrollmentState", "version"]} filters={[["role", "Роль", ["ADMIN", "SUPPORT"]]]}
-        destination={row => "/staff/" + row.id}><Invite /></List></Permit>} />
+        columns={["username", "displayName", "role", "status", "enrollmentState", "createdAt", "lastLoginAt", "activeSessions"]}
+        filters={[["q", "Имя пользователя"], ["role", "Роль", ["OWNER", "ADMIN", "SUPPORT"]], ["status", "Статус", ["ACTIVE", "BLOCKED", "DEACTIVATED"]]]}
+        destination={row => "/staff/" + row.id}><StaffCreate /><Invite /></List></Permit>} />
       <Route path="staff/:id" element={<Permit permission="staff:read"><Detail title="Сотрудник" path="/staff">{row => <>
         <section className="mz-card panel"><Facts data={row} /></section><StaffActions row={row} />
       </>}</Detail></Permit>} />
       <Route path="staff/:id/sessions" element={<Permit permission="staff:read">
         <Detail title="Сессии сотрудника" path="/staff">{staff => <List title="Устройства" nested path={`/staff/${staff.id}/sessions`}
-          columns={["id", "userAgent", "lastSeenAt", "expiresAt", "revokedAt"]} actions={rows => rows.filter(row => !row.revokedAt).map(row =>
+          columns={["id", "userAgent", "createdAt", "lastSeenAt", "expiresAt", "state"]} actions={rows => rows.filter(row => !row.revokedAt).map(row =>
             <Action key={row.id} title={"Отозвать сессию · " + row.id.slice(0, 8)} operation="staff.session.revoke"
               permission="staff:write" version={String(staff.version)} target={staff.id} payload={{ sessionId: row.id }} />)} />}
         </Detail></Permit>} />
@@ -247,4 +309,42 @@ export default function AdminWorkspace() {
       </EmptyState></>} />
     </Route>
   </Routes>;
+}
+
+
+function useAssignees() {
+  return useAdmin<{ items: { id: string; username: string }[] }>("/support/assignees");
+}
+
+function SupportQueue() {
+  const staff = useAssignees();
+  const options = [{ value: "unassigned", label: "Без назначения" },
+    ...(staff.data?.items ?? []).map(row => ({ value: row.id, label: row.username }))];
+  return <List title="Обращения" path="/support/cases" columns={ticketColumns}
+    filters={[...ticketFilters, ["assigneeId", "Ответственный", options]]} destination={row => "/support/" + row.id}>
+    {staff.isError && <RequestState state={staff} />}
+  </List>;
+}
+
+function SupportActions({ ticket }: { ticket: { id: string; [key: string]: unknown } }) {
+  const staff = useAssignees();
+  const assigned = typeof ticket.assigneeId === "string" ? ticket.assigneeId : "";
+  const options = (staff.data?.items ?? []).map(row => ({ value: row.id, label: row.username }));
+  const canManage = useCan("support:write");
+  const common = { target: ticket.id, version: String(ticket.updatedAt), context: String(ticket.subject ?? ticket.id) };
+  return <>
+    {ticket.status !== "CLOSED" && (canManage ?
+      <Action {...common} title="Ответить или изменить статус" operation="support.action" permission="support:write" fields={[
+        { name: "status", label: "Новый статус", options: supportStatus.options, required: false },
+        { name: "publicReply", label: "Публичный ответ", type: "textarea", required: false },
+      ]} /> : ticket.status !== "RESOLVED" &&
+      <Action {...common} title="Ответить" operation="support.reply" permission="support:reply"
+        fields={[{ name: "publicReply", label: "Публичный ответ", type: "textarea" }]} />)}
+    {canManage && <><Action {...common} title="Изменить приоритет" operation="support.action" permission="support:write"
+      fields={[{ name: "priority", label: "Приоритет", options: [{ value: "LOW", label: "Низкий" }, { value: "NORMAL", label: "Обычный" },
+        { value: "HIGH", label: "Высокий" }, { value: "URGENT", label: "Срочный" }], value: String(ticket.priority ?? "NORMAL") }]} />
+    <RequestState state={staff} />
+    {staff.data && <Action key={assigned} {...common} title="Назначить ответственного" operation="support.action" permission="support:write"
+      fields={[{ name: "assigneeId", label: "Ответственный", options, required: false, clearable: true, value: assigned }]} />}</>}
+  </>;
 }

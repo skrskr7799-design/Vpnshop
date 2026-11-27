@@ -6,11 +6,17 @@ revision=$(git rev-parse HEAD)
 prefix=${MZT_TEST_IMAGE_PREFIX:-mzt-ci}
 tmp=$(mktemp -d)
 export COMPOSE_PROJECT_NAME="mzt-ops-${RANDOM}-${RANDOM}"
+stack=(-f ops/compose.yml)
+if [[ "${MZT_V2_SMOKE:-0}" == 1 ]]; then
+  export COMPOSE_PROJECT_NAME="mzt-ci-single-${RANDOM}-${RANDOM}"
+  stack=(--project-directory ops)
+  for module in core admin edge mode.single mail backup.local; do stack+=(-f "ops/compose/$module.yml"); done
+fi
 dc() {
   if [[ "${GITHUB_ACTIONS:-}" == true && "$1" =~ ^(up|run|stop)$ ]]; then
     local output status
     output=$(mktemp)
-    docker compose --env-file "$tmp/settings" --profile migration --profile monitoring -f ops/compose.yml "$@" >"$output" 2>&1 || status=$?
+    docker compose --env-file "$tmp/settings" --profile migration --profile monitoring "${stack[@]}" "$@" >"$output" 2>&1 || status=$?
     cat "$output"
     if [[ -n "${status:-}" ]]; then
       printf '::error::Compose %s: %s\n' "$*" "$(tail -12 "$output" | tr '\n%' '  ' | cut -c1-1100)"
@@ -18,7 +24,7 @@ dc() {
     rm "$output"
     return "${status:-0}"
   fi
-  docker compose --env-file "$tmp/settings" --profile migration --profile monitoring -f ops/compose.yml "$@"
+  docker compose --env-file "$tmp/settings" --profile migration --profile monitoring "${stack[@]}" "$@"
 }
 cleanup() {
   if [[ -e "$tmp/settings" ]]; then dc down -v --remove-orphans >/dev/null 2>&1 || true; fi
@@ -46,8 +52,8 @@ for zone in public admin; do
   openssl x509 -req -in "$tmp/$zone.csr" -CA "$tmp/ca.crt" -CAkey "$tmp/ca.key" -CAcreateserial -days 1     -extfile "$tmp/$zone.ext" -out "$tmp/${zone}_cert" 2>/dev/null
 done
 rm "$tmp/ca.key"
-# Test-only permissions. The parent directory remains private to the runner.
-chmod a+r "$tmp"/db_* "$tmp"/*_url "$tmp"/*_key "$tmp"/*_cert "$tmp"/web_* "$tmp/ca.crt"
+# The CA is public material used by the synthetic ACL probe.
+chmod a+r "$tmp/ca.crt"
 cat > "$tmp/settings" <<SETTINGS
 APPLICATION_IMAGE=$prefix-application:$revision
 MIGRATOR_IMAGE=$prefix-migrator:$revision
@@ -66,9 +72,40 @@ ADMIN_BIND_IP=127.0.0.1
 ADMIN_TLS_PORT=18444
 ADMIN_CLIENT_CIDRS=127.0.0.1/32,172.30.74.1/32
 SETTINGS
-dc config --format json | python3 ops/scripts/preflight.py --disposable
-if ADMIN_BIND_IP=0.0.0.0 dc config --format json | python3 ops/scripts/preflight.py --disposable >/dev/null 2>&1; then
-  echo "Unsafe admin publish accepted" >&2; exit 1
+if [[ "${MZT_V2_SMOKE:-0}" == 1 ]]; then
+  sed -i "s@^SECRETS_DIR=.*@SECRETS_DIR=$tmp/secrets@" "$tmp/settings"
+  cat >> "$tmp/settings" <<SETTINGS
+ADMIN_ACCESS_MODE=local
+MZT_DEPLOY_ENV=staging
+MZT_ENABLE_SMTP_EGRESS=1
+MAIL_FROM=Smoke <fixture@example.invalid>
+MZT_ENABLE_LOCAL_BACKUP=1
+BACKUP_IMAGE=$prefix-backup:$revision
+SETTINGS
+  sed -n '/^[A-Z_]*_IMAGE=/p' "$tmp/settings" > "$tmp/release.env"
+  sed -E '/^[A-Z_]*_IMAGE=|^SECRETS_DIR=/d' "$tmp/settings" > "$tmp/operator.env"
+  mkdir -m 700 "$tmp/secrets"
+  cp "$tmp/admin_cert" "$tmp/monitor_admin_cert"
+  cp "$tmp/public_cert" "$tmp/monitor_public_cert"
+  openssl rand -base64 32 > "$tmp/logical_key"
+  while IFS='|' read -r name roles condition source format owner mode consumers; do
+    [[ "$name" && "$name" != '#'* ]] || continue
+    [[ -f "$tmp/$name" ]] || continue
+    install -m "$mode" "$tmp/$name" "$tmp/secrets/$name"
+  done < ops/templates/secrets.list
+  python3 ops/scripts/preflight.py --role single --disposable --project-name "$COMPOSE_PROJECT_NAME" \
+    --env-file "$tmp/operator.env" --release-env "$tmp/release.env" --secrets-dir "$tmp/secrets"
+  while IFS='|' read -r name roles condition source format owner mode consumers; do
+    [[ "$name" && "$name" != '#'* ]] || continue
+    if [[ -f "$tmp/secrets/$name" ]]; then sudo -n chown "$owner" "$tmp/secrets/$name"; fi
+  done < ops/templates/secrets.list
+else
+  # Legacy smoke fixtures only. Production and V2 require per-consumer ownership above.
+  chmod a+r "$tmp"/db_* "$tmp"/*_url "$tmp"/*_key "$tmp"/*_cert "$tmp"/web_*
+  dc config --format json | python3 ops/scripts/preflight.py --disposable
+  if ADMIN_BIND_IP=0.0.0.0 dc config --format json | python3 ops/scripts/preflight.py --disposable >/dev/null 2>&1; then
+    echo "Unsafe admin publish accepted" >&2; exit 1
+  fi
 fi
 dc up -d --wait db
 dc up -d --no-deps public-api
@@ -130,6 +167,14 @@ request public 18443 -fsS https://public.mzt.test:18443/api/plans | jq -e '.offe
 dc exec -T db psql -U postgres -d vpnshop -Atc '
 SELECT count(*)=1 FROM "NotificationOutbox" WHERE payload NOT LIKE '"'"'%synthetic@example.invalid%'"'"'
 ' | grep -qx t
+if [[ "${MZT_V2_SMOKE:-0}" == 1 ]]; then
+  dc run --rm --no-deps logical-local
+  dc run --rm --no-deps --entrypoint sh logical-local -ec 'cd /state/proofs; set -- */SHA256SUMS; [ "$#" = 1 ]; cd "${1%/*}"; sha256sum -c SHA256SUMS'
+  if [[ "${MZT_V2_CLI_SMOKE:-0}" == 1 ]]; then
+    PYTHONDONTWRITEBYTECODE=1 python3 ops/scripts/v2_cli_pg_smoke.py "$tmp" \
+      --env-file "$tmp/settings" --profile monitoring "${stack[@]}"
+  fi
+fi
 dc exec -T db psql -U postgres -d vpnshop -Atc '
 SELECT NOT has_schema_privilege('"'"'mzt_public'"'"','"'"'public'"'"','"'"'CREATE'"'"')
 AND NOT has_table_privilege('"'"'mzt_public'"'"','"'"'"StaffCredential"'"'"','"'"'SELECT'"'"')
@@ -220,17 +265,13 @@ SQL
   offer=$(request public 18443 -fsS "$origin/api/plans" | jq -er '.offers[0].id')
   key=$(cat /proc/sys/kernel/random/uuid)
   order_request=$(jq -nc --arg offer "$offer" '{offerVersionId:$offer}')
-  checkout_order() {
-    request public 18443 -fsS -b "$tmp/customer.cookies" -H "Origin: $origin" -H 'Content-Type: application/json' \
-      -H "Idempotency-Key: $key" --data-binary "$order_request" "$origin/api/orders" | jq -er '.orderId'
-  }
-  order=$(checkout_order)
-  [[ "$(checkout_order)" == "$order" ]]
-  [[ "$(request public 18443 -sS -w '%{http_code}' -o /dev/null -b "$tmp/customer.cookies" -H "Origin: $origin" \
-    -H 'Content-Type: application/json' -H "Idempotency-Key: $key" --data '{"channel":"SBP"}' "$origin/api/orders/$order/payments")" == 503 ]]
-  dc exec -T db psql -U postgres -d vpnshop -Atc 'SELECT count(*)=1 AND NOT EXISTS (SELECT 1 FROM "Payment") FROM "Order"' | grep -qx t
+  request public 18443 -fsS "$origin/api/config" | jq -e '.version == 1 and .availability.payments == false' >/dev/null
+  [[ "$(request public 18443 -sS -w '%{http_code}' -o "$tmp/checkout.json" -b "$tmp/customer.cookies" -H "Origin: $origin" \
+    -H 'Content-Type: application/json' -H "Idempotency-Key: $key" --data-binary "$order_request" "$origin/api/orders")" == 503 ]]
+  jq -e '.error.code == "PAYMENTS_DISABLED"' "$tmp/checkout.json" >/dev/null
+  dc exec -T db psql -U postgres -d vpnshop -Atc 'SELECT count(*)=0 AND NOT EXISTS (SELECT 1 FROM "Payment") FROM "Order"' | grep -qx t
   request public 18443 -fsS -b "$tmp/customer.cookies" -H "Origin: $origin" -X POST "$origin/api/auth/logout" >/dev/null
-  [[ "$(request public 18443 -sS -w '%{http_code}' -o /dev/null -b "$tmp/customer.cookies" "$origin/api/orders/$order")" == 401 ]]
+  [[ "$(request public 18443 -sS -w '%{http_code}' -o /dev/null -b "$tmp/customer.cookies" "$origin/api/orders")" == 401 ]]
   token=$(jq -er .token "$tmp/verify.json")
   if dc logs --no-color public-api admin-api public-edge admin-edge notifications | grep -F "$token" >/dev/null; then
     echo "Synthetic verification token appeared in logs"; exit 1
@@ -270,5 +311,30 @@ SQL
     [[ "$(docker inspect --format '{{.Image}}' "$(dc ps -q public-api)")" != "$old" ]]
     printf 'Prior runtime compatibility (config digest %s); database controls unchanged: %s\n' "$old" "$before"
   fi
+fi
+if [[ "${MZT_V2_CLI_SMOKE:-0}" == 1 ]]; then
+  # Synthetic credentials go only through stdin, never Docker argv or service logs.
+  correlation=$(cat /proc/sys/kernel/random/uuid)
+  local_admin=(docker compose --env-file "$tmp/settings" --profile monitoring "${stack[@]}"
+    run -T --rm --no-deps admin-local)
+  local_identity() {
+    local operation=$1
+    if ! "${local_admin[@]}" "$operation" 2>"$tmp/local-admin.stderr"; then
+      local code
+      code=$(grep -m1 -E '^(LOCAL_ADMIN_[A-Z0-9_]+|STAFF_[A-Z_]+|INVALID_LOCAL_INPUT|OWNER_[A-Z_]+)$' "$tmp/local-admin.stderr" || true)
+      printf '::error::Isolated admin %s failed (%s)\n' "$operation" "${code:-container execution failed}" >&2
+      return 1
+    fi
+  }
+  jq -n --arg id "$correlation" '{username:"isolated-owner",password:("synthetic-"+$id),correlationId:$id}' |
+    local_identity bootstrap |
+    jq -e '.username == "isolated-owner" and .role == "OWNER"'
+  local_identity list |
+    jq -e 'any(.[]; .username == "isolated-owner" and .role == "OWNER")'
+  dc stop -t 25 admin-api
+  jq -n --arg id "$correlation" '{username:"isolated-owner",password:("different-"+$id),incident:"SMOKE-RECOVERY",
+    correlationId:$id,resetTotp:true,restoreStatus:false}' |
+    local_identity recover |
+    jq -e '.username == "isolated-owner" and .active == true'
 fi
 echo "Compose, TLS, origins, schema failure, Prisma/Argon2, DB grants, secret scopes and SIGTERM verified"

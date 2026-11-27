@@ -11,8 +11,9 @@ datasource db {
 
 enum UserRole {
   USER
-  ADMIN // полный доступ к админке
-  SUPPORT // только просмотр (права см. admin.permissions.ts)
+  ADMIN // операционный доступ
+  SUPPORT // ограниченный просмотр
+  OWNER // управление персоналом и операционный доступ
 }
 
 enum UserStatus {
@@ -28,6 +29,7 @@ enum AuthProvider {
 
 enum TokenType {
   PASSWORD_RESET
+  VERIFY_EMAIL
 }
 
 // Деньги везде храним целым числом в минимальных единицах:
@@ -112,9 +114,12 @@ enum JobStatus {
 
 model User {
   id              String     @id @default(uuid())
-  email           String?    @unique // lowercase, только подтверждённый
+  email           String?    @unique // lowercase, владение определяется emailVerifiedAt
   emailVerifiedAt DateTime?
   emailLoginDisabled Boolean @default(false)
+  activationRequired Boolean @default(false)
+  manualActivatedAt DateTime?
+  displayName String?
   role            UserRole   @default(USER)
   status          UserStatus @default(ACTIVE)
 
@@ -139,6 +144,8 @@ model User {
   tokens     VerificationToken[]
   orders     Order[]
   supportCases SupportCase[]
+  assignedCases SupportCase[] @relation("SupportAssignee")
+  supportReads SupportReadCursor[]
   @@index([role, createdAt, id])
 }
 
@@ -150,6 +157,7 @@ model AuthIdentity {
   provider     AuthProvider
   providerId   String // email (lowercase) / Google sub / Telegram user id
   passwordHash String? // только для EMAIL, argon2id
+  temporaryPasswordExpiresAt DateTime?
   verifiedAt   DateTime?
   createdAt    DateTime     @default(now())
 
@@ -209,6 +217,8 @@ model VerificationToken {
   tokenHash String    @unique
   expiresAt DateTime
   usedAt    DateTime?
+  email     String?
+  familyId  String?
   createdAt DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -259,6 +269,9 @@ model AdminSession {
   revokedAt     DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  policy String @default("required")
+  factorVerified Boolean @default(false)
 
   confirmations AdminConfirmation[]
 
@@ -761,12 +774,18 @@ enum SupportCategory {
   DELIVERY
   ACCESS
   OTHER
+  GENERAL
+  SUBSCRIPTION
+  TECHNICAL
+  ACCOUNT
 }
 
 enum SupportStatus {
   OPEN
   WAITING_CUSTOMER
   RESOLVED
+  IN_PROGRESS
+  CLOSED
 }
 
 enum SupportAuthor {
@@ -774,10 +793,20 @@ enum SupportAuthor {
   STAFF
 }
 
+enum SupportPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
 model SupportCase {
   id             String          @id @default(uuid())
   userId         String
   orderId        String?
+  subject        String?
+  assigneeId     String?
+  priority       SupportPriority @default(NORMAL)
   category       SupportCategory
   status         SupportStatus   @default(OPEN)
   requestKeyHash String
@@ -787,19 +816,23 @@ model SupportCase {
 
   user     User             @relation(fields: [userId], references: [id], onDelete: Restrict)
   order    Order?           @relation(fields: [orderId, userId], references: [id, userId], onDelete: Restrict)
+  assignee User? @relation("SupportAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   messages SupportMessage[]
   events   SupportEvent[]
+  reads    SupportReadCursor[]
 
   @@unique([userId, requestKeyHash])
   @@index([userId, createdAt, id])
   @@index([status, createdAt, id])
   @@index([orderId])
+  @@index([assigneeId, createdAt, id])
 }
 
 model SupportMessage {
   id             String        @id @default(uuid())
   caseId         String
   author         SupportAuthor
+  actorId        String?
   text           String
   requestKeyHash String?
   createdAt      DateTime      @default(now())
@@ -815,6 +848,7 @@ model SupportEvent {
   caseId         String
   author         SupportAuthor
   fromStatus     SupportStatus
+  customerVisible Boolean @default(true)
   toStatus       SupportStatus
   requestKeyHash String?
   fingerprint    String?
@@ -827,8 +861,26 @@ model SupportEvent {
   @@index([caseId, createdAt, id])
 }
 
+model SupportReadCursor {
+  caseId    String
+  readerId  String
+  seenAt    DateTime
+
+  ticket SupportCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  reader User @relation(fields: [readerId], references: [id], onDelete: Cascade)
+
+  @@id([caseId, readerId])
+  @@index([readerId])
+}
+
 model StaffCredential {
   userId       String @id
+  username     String @unique
+  displayName  String?
+  contactEmail String?
+  temporaryUntil DateTime?
+  lastLoginAt DateTime?
+  deactivatedAt DateTime?
   passwordHash String
   version      Int @default(1)
   user         User @relation(fields: [userId], references: [id], onDelete: Restrict)
@@ -839,6 +891,7 @@ model StaffChallenge {
   userId       String
   version      Int
   stage        String
+  policy       String @default("required")
   expiresAt    DateTime
   consumedAt   DateTime?
   user         User @relation(fields: [userId], references: [id], onDelete: Restrict)
@@ -847,6 +900,7 @@ model StaffChallenge {
 }
 
 model StaffInvite {
+  issuedBy   String?
   id         String @id @default(uuid())
   email      String
   role       UserRole
@@ -923,6 +977,7 @@ model RefundIntent {
 }
 
 model AdminOperationalSettings {
+  twoFactorPolicy String?
   id                       String @id
   version                  Int @default(0)
   fulfillmentLagWarnSeconds Int @default(900)

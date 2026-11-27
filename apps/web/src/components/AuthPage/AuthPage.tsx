@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
-import { APP_NAME } from "../../config";
+import { useProductConfig } from "../../config";
 import "./AuthPage.css";
 
 type AuthPageProps = { title: string; lead?: ReactNode; children: ReactNode };
@@ -7,12 +7,13 @@ type AuthPageProps = { title: string; lead?: ReactNode; children: ReactNode };
 // Заголовок + содержимое страницы. При смене экрана переносит фокус на заголовок
 // и обновляет title вкладки: так переход слышат пользователи скринридеров.
 export function AuthPage({ title, lead, children }: AuthPageProps) {
+  const brand = useProductConfig().data?.product.brandName ?? "MZT";
   const headingRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
-    document.title = `${title} — ${APP_NAME}`;
+    document.title = `${title} — ${brand}`;
     headingRef.current?.focus({ preventScroll: true });
-  }, [title]);
+  }, [title, brand]);
 
   return (
     <section className="auth-page">

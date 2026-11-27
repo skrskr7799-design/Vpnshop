@@ -1,0 +1,46 @@
+# Shared service definitions come from the installed-stack Compose contract.
+x-admin-settings: &admin-settings
+  ADMIN_ACCESS_MODE: ${ADMIN_ACCESS_MODE:-private}
+  ADMIN_IDLE_MINUTES: ${ADMIN_IDLE_MINUTES:-30}
+  ADMIN_SESSION_HOURS: ${ADMIN_SESSION_HOURS:-12}
+
+services:
+  admin-api:
+    extends: {file: "${V2_LEGACY_COMPOSE:-compose.yml}", service: admin-api}
+    environment: *admin-settings
+  admin-local:
+    extends: {file: "${V2_LEGACY_COMPOSE:-compose.yml}", service: admin-api}
+    profiles: [admin-cli]
+    entrypoint: [node, dist/admin-local.js]
+    command: []
+    depends_on: !reset {}
+    healthcheck: !override {disable: true}
+    restart: "no"
+    environment: *admin-settings
+    networks: !override
+      admin-db: {}
+  admin:
+    extends: {file: "${V2_LEGACY_COMPOSE:-compose.yml}", service: admin}
+  admin-edge:
+    user: "101:101"
+    extends: {file: "${V2_LEGACY_COMPOSE:-compose.yml}", service: admin-edge}
+    environment: {EDGE_ADMIN_MODE: "${ADMIN_ACCESS_MODE:-private}"}
+
+networks:
+  admin-ingress:
+    ipam: {config: [{subnet: 172.30.74.0/28}]}
+  admin-assets: {internal: true}
+  admin-api-edge:
+    internal: true
+    ipam: {config: [{subnet: 172.30.73.0/28, ip_range: 172.30.73.8/29}]}
+  admin-db: {internal: true}
+  admin-metrics:
+    internal: true
+    ipam: {config: [{subnet: 172.30.77.0/27, ip_range: 172.30.77.16/28}]}
+
+secrets:
+  admin_url: {file: "${SECRETS_DIR}/admin_url"}
+  admin_key: {file: "${SECRETS_DIR}/admin_key"}
+  admin_cert: {file: "${SECRETS_DIR}/admin_cert"}
+  admin_tls_key: {file: "${SECRETS_DIR}/admin_tls_key"}
+  monitor_admin_cert: {file: "${SECRETS_DIR}/monitor_admin_cert"}

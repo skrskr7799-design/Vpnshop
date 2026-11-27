@@ -25,6 +25,9 @@
 !packages/*/src/
 !packages/*/src/**
 !ops/
+!ops/build/
+!ops/build/*.sources
+!ops/build/apt-install.sh
 !ops/db/
 !ops/db/*.sql
 !ops/db/*.sh

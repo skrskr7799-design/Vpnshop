@@ -3,8 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { buildApp } from "../app";
 import { env } from "../config/env";
 import { prisma } from "../lib/prisma";
-import { as, buildTestAdminApp, PASSWORD } from "../modules/admin/admin.test-helpers";
-import { createAdminUser } from "../modules/admin/auth/admin-auth.service";
+import { as, buildTestAdminApp, createAdminUser, PASSWORD } from "../modules/admin/admin.test-helpers";
 import { currentCode } from "../modules/admin/auth/totp";
 import { ACCESS_COOKIE, REFRESH_COOKIE } from "../modules/auth/auth.constants";
 import { createSession } from "../modules/auth/session.service";
@@ -45,8 +44,8 @@ it("rehearses customer and staff journeys through public/admin HTTP with durable
     adminApi.inject({ method: "POST", url, payload, headers: { origin: env.ADMIN_ORIGIN } });
 
   async function staff(email: string, role: "ADMIN" | "SUPPORT") {
-    await createAdminUser({ email, password: PASSWORD, role });
-    const password = await adminPost("/api/auth/login", { email, password: PASSWORD });
+    const { username } = await createAdminUser({ email, password: PASSWORD, role });
+    const password = await adminPost("/api/auth/login", { username, password: PASSWORD });
     expect(password.statusCode).toBe(200);
     expect(password.cookies).toHaveLength(0);
     const { stageToken } = password.json();

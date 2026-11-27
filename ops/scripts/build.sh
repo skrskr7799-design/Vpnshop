@@ -3,6 +3,8 @@ set -Eeuo pipefail
 cd "$(dirname "$0")/../.."
 revision=$(git rev-parse HEAD)
 prefix=${1:-mzt-ci}
+if (( $# )); then shift; fi
+if (( $# == 0 )); then set -- application migrator web admin edge db backup; fi
 build() {
   local output
   output=$(mktemp)
@@ -21,11 +23,14 @@ build() {
 }
 build_args=()
 if [[ -n "${MZT_BUILD_CA_FILE:-}" ]]; then build_args+=(--secret "id=proxy_ca,src=$MZT_BUILD_CA_FILE"); fi
-for target in application migrator web admin edge; do
-  build "${build_args[@]}" --target "$target" --build-arg "REVISION=$revision" -t "$prefix-$target:$revision" .
-done
-for target in database backup; do
-  name=$target
-  if [[ "$target" == database ]]; then name=db; fi
-  build "${build_args[@]}" -f ops/db/Dockerfile --target "$target" --build-arg "REVISION=$revision" -t "$prefix-$name:$revision" .
+if [[ -n "${MZT_BUILD_PLATFORM:-}" ]]; then build_args+=(--platform "$MZT_BUILD_PLATFORM"); fi
+for name in "$@"; do
+  target=$name
+  case "$name" in
+    application|migrator|web|admin|edge) dockerfile=Dockerfile ;;
+    db) dockerfile=ops/db/Dockerfile; target=database ;;
+    backup) dockerfile=ops/db/Dockerfile ;;
+    *) printf 'Unknown image target\n' >&2; exit 64 ;;
+  esac
+  build "${build_args[@]}" -f "$dockerfile" --target "$target" --build-arg "REVISION=$revision" -t "$prefix-$name:$revision" .
 done

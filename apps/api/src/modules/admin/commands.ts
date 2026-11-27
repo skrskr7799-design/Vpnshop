@@ -1,5 +1,6 @@
 import { createHmac, randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
+import { env } from "../../config/env";
 import { checkoutKeySchema } from "@vpn/shared";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -14,12 +15,13 @@ import { stageTokenKey } from "./admin.keys";
 import { adminOf, requireAdmin } from "./admin.middleware";
 import { can, isAdminRole, type Permission } from "./admin.permissions";
 import { acceptStaffTotp, lockStaffWrites } from "./auth/admin-auth.service";
+import { assertCurrentPolicy, requiresFactor } from "./auth/policy";
 import type { AdminContext } from "./auth/admin-session.service";
 
 type Db = Prisma.TransactionClient;
 export type CommandContext = {
   db: Db; actor: AdminContext; targetId: string; expectedVersion: string; reason: string;
-  now: Date; commandId: string; transient: { invitationToken?: string };
+  now: Date; commandId: string; transient: { invitationToken?: string; stageToken?: string };
 };
 const reason = z.string().trim().min(5).max(500).refine(value =>
   !/https?:\/\/|otpauth:|bearer\s|(?:password|token|пароль)\s*[:=]/i.test(value));
@@ -31,7 +33,7 @@ const envelope = {
 };
 const proofInput = z.strictObject({
   ...envelope, operation: z.string().min(1).max(80), permission: z.string().min(1).max(40),
-  targetId: z.string().min(1).max(200), password: z.string().min(1).max(128), code: z.string().regex(/^\d{6}$/),
+  targetId: z.string().min(1).max(200), password: z.string().min(1).max(128), code: z.string().regex(/^\d{6}$/).optional(),
 });
 const executeInput = z.strictObject({ ...envelope, confirmationId: z.uuid() });
 
@@ -59,12 +61,16 @@ export function expectVersion(expected: string, current: number | string | Date)
 export async function lockActor(db: Db, actor: AdminContext, permission?: Permission) {
   const user = await lockIdentityOwner(db, actor.userId);
   if (!user || user.status !== "ACTIVE" || !isAdminRole(user.role)) throw new AppError(401, "UNAUTHENTICATED");
-  const [session, credential] = await Promise.all([
+  await assertCurrentPolicy(db);
+  const [session, credential, factor] = await Promise.all([
     db.adminSession.findFirst({ where: { id: actor.sessionId, userId: user.id, revokedAt: null } }),
     db.staffCredential.findUnique({ where: { userId: user.id } }),
+    db.adminTotp.findUnique({ where: { userId: user.id }, select: { confirmedAt: true } }),
   ]);
   const now = await dbNow(db);
-  if (!session || !credential || session.expiresAt <= now || session.idleExpiresAt <= now) throw new AppError(401, "UNAUTHENTICATED");
+  if (!session || !credential || credential.temporaryUntil || credential.deactivatedAt ||
+      session.policy !== env.ADMIN_2FA_POLICY || requiresFactor(!!factor?.confirmedAt) && (!factor?.confirmedAt || !session.factorVerified) ||
+      session.expiresAt <= now || session.idleExpiresAt <= now) throw new AppError(401, "UNAUTHENTICATED");
   if (permission && !can(user.role, permission)) throw new AppError(403, "FORBIDDEN");
   return { now, actor: { ...actor, role: user.role }, credential };
 }
@@ -90,10 +96,12 @@ export function registerCommandProtocol(app: FastifyInstance, commands: Commands
       throw new AppError(401, "INVALID_CREDENTIALS");
     }
     const proof = await prisma.$transaction(async db => {
+      await lockStaffWrites(db);
       const current = await lockActor(db, actor, entry.permission);
       if (current.credential.version !== known.version) throw new AppError(403, "STEP_UP_REQUIRED");
       const factor = await db.adminTotp.findUnique({ where: { userId: actor.userId } });
-      if (!factor?.confirmedAt || !await acceptStaffTotp(db, factor, input.code, current.now)) return null;
+      if (requiresFactor(!!factor?.confirmedAt) &&
+          (!factor?.confirmedAt || !input.code || !await acceptStaffTotp(db, factor, input.code, current.now))) return null;
       return db.adminConfirmation.create({ data: {
         sessionId: actor.sessionId, fingerprint: hash, version: known.version, expiresAt: new Date(+current.now + 5 * 60_000),
       }, select: { id: true, expiresAt: true } });
@@ -131,10 +139,10 @@ export function registerCommandProtocol(app: FastifyInstance, commands: Commands
         expectedVersion: input.expectedVersion, now: current.now, commandId, transient }, input.command);
       await db.adminCommand.create({ data: { ...key, id: commandId, fingerprint: fingerprintValue, permission: entry.permission, result: output } });
       await writeAudit(db, { actorId: actor.userId, role: current.actor.role, permission: entry.permission,
-        reason: input.reason, action: operation, entity: operation.split(".")[0]!, entityId: targetId,
+        reason: input.reason, action: operation, entity: operation.split(".")[0]!, entityId: operation === "staff.create" || operation === "user.create" || operation === "user.registration.activate" ? String(output.id) : targetId,
         commandId, correlationId: req.id, outcome: "SUCCEEDED", ip: req.ip, data: output });
       // Object lock waits are included in the freshness check. Failure rolls back the effect.
-      const proof = await db.adminConfirmation.findUniqueOrThrow({ where: { id: input.confirmationId } });
+      const proof = await db.adminConfirmation.findUniqueOrThrow({ where: { id: input.confirmationId }, select: { expiresAt: true } });
       if (proof.expiresAt <= await dbNow(db)) throw new AppError(403, "STEP_UP_REQUIRED");
       return { commandId, status: "SUCCEEDED", targetId, result: output };
     });

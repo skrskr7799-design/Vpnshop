@@ -293,3 +293,48 @@ it("finds a missing webhook through due lookup, detects unknown status and stops
   expect(await prisma.paymentTransaction.count()).toBe(1);
   expect(await prisma.paymentCase.count({ where: { kind: "CAPTURE_DISCOVERED_BY_LOOKUP" } })).toBe(1);
 });
+
+it("closes only new payment admissions and still settles a prior attempt during maintenance", async () => {
+  const acceptedOrder = await order();
+  const blockedOrder = await order();
+  const previousPayments = env.PAYMENTS_ENABLED;
+  const previousMaintenance = env.MAINTENANCE_MODE;
+  const key = randomUUID();
+  try {
+    const first = await create(acceptedOrder.id, key);
+    expect(first.statusCode).toBe(201);
+    const payment = await fetchPayment(first.json().attempt.id);
+    env.PAYMENTS_ENABLED = false;
+    expect((await create(blockedOrder.id)).json().error.code).toBe("PAYMENTS_DISABLED");
+    env.MAINTENANCE_MODE = true;
+    expect((await create(blockedOrder.id)).json().error.code).toBe("MAINTENANCE_MODE");
+    expect((await create(acceptedOrder.id, key)).json().attempt.id).toBe(payment.id);
+    const event = capture(payment);
+    expect((await post("already-accepted", event)).statusCode).toBe(200);
+    await processInbox(account);
+    expect((await fetchPayment(payment.id)).status).toBe("SUCCEEDED");
+    expect(await prisma.paymentTransaction.count()).toBe(1);
+    expect(fixture.sent).toHaveLength(1);
+  } finally {
+    env.PAYMENTS_ENABLED = previousPayments;
+    env.MAINTENANCE_MODE = previousMaintenance;
+  }
+});
+
+it("rejects checkout and payment admission when the configured product cannot be provisioned", async () => {
+  const local = await order();
+  const previous = env.PAYMENTS_ENABLED;
+  try {
+    env.PAYMENTS_ENABLED = true;
+    expect((await create(local.id)).json().error.code).toBe("PROVISIONING_UNAVAILABLE");
+    const checkoutRequest = (key: string) => app.inject({
+      method: "POST", url: "/api/orders", cookies: buyer.cookies,
+      payload: { offerVersionId: local.offerVersionId }, headers: { origin: env.WEB_ORIGIN, "idempotency-key": key },
+    });
+    expect((await checkoutRequest(randomUUID())).json().error.code).toBe("PROVISIONING_UNAVAILABLE");
+    expect(fixture.sent).toHaveLength(0);
+    expect(await prisma.order.count()).toBe(1);
+  } finally {
+    env.PAYMENTS_ENABLED = previous;
+  }
+});

@@ -61,16 +61,16 @@ export async function projectAssignment(db: Db, subscription: Subscription, now:
     where: { subscriptionId: subscription.id, releasedAt: null }, select: { id: true },
   });
   const projected = active && !held ? active : null;
+  const previous = subscription.revision ? await db.desiredAssignment.findUniqueOrThrow({
+    where: { subscriptionId_revision: { subscriptionId: subscription.id, revision: subscription.revision } },
+  }) : undefined;
   const data = {
-    internalSquads: projected ? stagingPanelSettings()?.REMNAWAVE_STAGING_SQUADS ?? [] : [],
+    internalSquads: projected ? stagingPanelSettings()?.REMNAWAVE_STAGING_SQUADS ?? previous?.internalSquads ?? [] : [],
     subscriptionId: subscription.id, enabled: projected !== null,
     grantId: projected?.grant.id ?? null, deviceLimit: projected?.grant.deviceLimit ?? null,
     expiresAt: projected?.end ?? null, nextBoundaryAt,
   };
-  if (subscription.revision && !force) {
-    const previous = await db.desiredAssignment.findUniqueOrThrow({
-      where: { subscriptionId_revision: { subscriptionId: subscription.id, revision: subscription.revision } },
-    });
+  if (previous && !force) {
     if (previous.grantId === data.grantId && previous.enabled === data.enabled &&
         previous.deviceLimit === data.deviceLimit && previous.internalSquads.join(",") === data.internalSquads.join(",") &&
         instantEquals(previous.expiresAt, data.expiresAt) &&
@@ -87,13 +87,17 @@ export async function projectAssignment(db: Db, subscription: Subscription, now:
 }
 
 // A missed tick projects the current interval directly; history retains earlier revisions.
-export async function refreshDueAssignments(limit = 20) {
+export async function refreshDueAssignments(limit = 20, recoverPausedAssignments = false) {
   let processed = 0;
   for (; processed < limit; processed++) {
     const changed = await subscriptionTransaction(async db => {
       const [subscription] = await db.$queryRaw<Subscription[]>`
-        SELECT * FROM "Subscription" WHERE "nextBoundaryAt" <= (clock_timestamp() AT TIME ZONE 'UTC')
-        ORDER BY "nextBoundaryAt", id LIMIT 1 FOR UPDATE SKIP LOCKED`;
+        SELECT s.* FROM "Subscription" s WHERE s."nextBoundaryAt" <= (clock_timestamp() AT TIME ZONE 'UTC')
+        OR (${recoverPausedAssignments} AND EXISTS (
+          SELECT 1 FROM "DesiredAssignment" a WHERE a."subscriptionId" = s.id AND a.revision = s.revision
+            AND a.enabled AND cardinality(a."internalSquads") = 0
+        ))
+        ORDER BY s."nextBoundaryAt", s.id LIMIT 1 FOR UPDATE SKIP LOCKED`;
       if (!subscription) return false;
       await projectAssignment(db, subscription, await dbNow(db), "PERIOD_BOUNDARY");
       return true;

@@ -20,14 +20,14 @@ export async function requireLiveFamily(claims: AuthClaims, db: Db = prisma) {
     id: claims.sid, userId: claims.userId, revokedAt: null, expiresAt: { gt: new Date() },
   }, include: { user: true } });
   if (!family) throw new AppError(401, "UNAUTHENTICATED");
-  if (family.user.status !== "ACTIVE" || family.user.role !== "USER") throw new AppError(403, "ACCOUNT_BLOCKED");
+  if (family.user.status !== "ACTIVE" || family.user.role !== "USER" || family.user.activationRequired) throw new AppError(403, "ACCOUNT_BLOCKED");
   return family;
 }
 
 export async function createSession(user: { id: string }, meta: SessionMeta, db?: Db): Promise<IssuedTokens> {
   async function issue(tx: Db) {
     const owner = await lockIdentityOwner(tx, user.id);
-    if (!owner || owner.status !== "ACTIVE" || owner.role !== "USER") throw new AppError(403, "ACCOUNT_BLOCKED");
+    if (!owner || owner.status !== "ACTIVE" || owner.role !== "USER" || owner.activationRequired) throw new AppError(403, "ACCOUNT_BLOCKED");
     const sid = randomUUID();
     const expiresAt = new Date(Date.now() + REFRESH_TTL_MS);
     const refreshToken = generateToken();
@@ -50,7 +50,7 @@ export async function rotateSession(refreshToken: string, meta: SessionMeta): Pr
     const token = await db.session.findUniqueOrThrow({ where: { tokenHash }, include: { family: true } });
     const now = new Date();
     const family = token.family;
-    if (!owner || owner.status !== "ACTIVE" || owner.role !== "USER" || !family ||
+    if (!owner || owner.status !== "ACTIVE" || owner.role !== "USER" || owner.activationRequired || !family ||
         family.revokedAt || family.expiresAt <= now || token.expiresAt <= now) return "INVALID_SESSION";
     if (token.revokedAt) {
       if (token.rotatedAt && +now - +token.rotatedAt <= REFRESH_REUSE_GRACE_MS) return "REFRESH_RACE";

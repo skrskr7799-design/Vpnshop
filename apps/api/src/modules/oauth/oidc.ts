@@ -81,6 +81,8 @@ export async function verifyIdToken(
     clockTolerance: 60,
   });
   if (typeof payload.iat !== "number" || payload.iat > Date.now() / 1000 + 60) throw new Error("Invalid ID token issue time");
+  if ((Array.isArray(payload.aud) && payload.aud.length > 1 || payload.azp !== undefined) && payload.azp !== provider.clientId)
+    throw new Error("Invalid authorized party");
   if (!payload.sub) throw new Error("id_token has no sub");
   if (provider.useNonce && (!opts.nonce || payload.nonce !== opts.nonce)) throw new Error("nonce mismatch");
   return payload;

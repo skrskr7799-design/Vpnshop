@@ -19,7 +19,7 @@ DROP POLICY IF EXISTS mzt_order_checkout ON "Order";
 CREATE POLICY mzt_order_checkout ON "Order" FOR INSERT TO mzt_public WITH CHECK (
   status = 'PENDING' AND "paidAt" IS NULL AND "fulfilledAt" IS NULL AND "offerVersionId" IS NOT NULL
 );
-GRANT UPDATE ("email","emailVerifiedAt","emailLoginDisabled","updatedAt") ON "User" TO mzt_public;
+GRANT UPDATE ("email","emailVerifiedAt","emailLoginDisabled","activationRequired","updatedAt") ON "User" TO mzt_public;
 ALTER TABLE "User" ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS mzt_public_user_read ON "User";
 CREATE POLICY mzt_public_user_read ON "User" FOR SELECT TO mzt_public USING (true);
@@ -37,9 +37,14 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON "AuthIdentity","Session","SessionFamily"
   "PendingRegistration","AuthMailWindow","VerificationToken" TO mzt_public;
 GRANT SELECT, INSERT, UPDATE ON "SupportCase" TO mzt_public;
 GRANT SELECT, INSERT ON "SupportMessage","SupportEvent" TO mzt_public;
+GRANT SELECT, INSERT, UPDATE ON "SupportReadCursor" TO mzt_public, mzt_admin;
+GRANT INSERT ON "NotificationOutbox" TO mzt_admin;
+GRANT SELECT (id) ON "NotificationOutbox" TO mzt_admin;
 GRANT INSERT ON "NotificationOutbox" TO mzt_public;
 GRANT SELECT (id) ON "NotificationOutbox" TO mzt_public;
 
+GRANT SELECT, DELETE ON "PendingRegistration" TO mzt_admin;
+GRANT INSERT ON "AuthIdentity" TO mzt_admin;
 GRANT SELECT ON "AuthIdentity","Order","MerchantAccount","PaymentTransaction","OrderAllocation","PanelBinding","PanelObservation",
   "WorkerHeartbeat","DesiredAssignment","FulfillmentLease" TO mzt_admin;
 GRANT SELECT,INSERT,UPDATE ON "User","StaffCredential","StaffChallenge","StaffInvite","StaffReset","AdminConfirmation","AdminSession",

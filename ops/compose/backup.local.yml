@@ -1,0 +1,25 @@
+services:
+  logical-local:
+    image: ${BACKUP_IMAGE:?Set backup image digest}
+    profiles: [backup]
+    user: "999:999"
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: "no"
+    logging: {driver: json-file, options: {max-size: "20m", max-file: "5"}}
+    mem_limit: 512m
+    tmpfs: ["/tmp:rw,nosuid,nodev,noexec,size=768m,mode=1777"]
+    networks: [backup-db]
+    volumes: [local-backups:/state/proofs]
+    environment:
+      MZT_LOGICAL_LOCAL: "1"
+    secrets: [backup_url, logical_key]
+
+secrets:
+  backup_url: {file: "${SECRETS_DIR}/backup_url"}
+  logical_key: {file: "${SECRETS_DIR}/logical_key"}
+
+volumes:
+  local-backups:

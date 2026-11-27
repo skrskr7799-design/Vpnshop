@@ -82,21 +82,23 @@ sql vpnshop_legacy <<< 'DROP INDEX fnd02_drift_probe'
 legacy_diff
 
 snapshot() {
-  # Project Order onto its legacy columns. The new nullable fields are checked separately.
+  # Compare the original columns of tables that received additive migrations.
   {
     docker exec "$container" pg_dump -U postgres -d vpnshop_legacy --data-only --schema=public \
-      --exclude-table=public._prisma_migrations --exclude-table='public."Subscription"' --exclude-table='public."FulfillmentJob"' --exclude-table='public."AdminSession"' --exclude-table='public."Plan"' --exclude-table='public."AuditLog"' --exclude-table='public."User"' --exclude-table='public."Session"' --exclude-table='public."Order"' --exclude-table='public."Payment"' --exclude-table='public."WebhookEvent"' --inserts --no-owner --no-privileges |
+      --exclude-table=public._prisma_migrations --exclude-table='public."Subscription"' --exclude-table='public."FulfillmentJob"' --exclude-table='public."AdminSession"' --exclude-table='public."Plan"' --exclude-table='public."AuditLog"' --exclude-table='public."User"' --exclude-table='public."AuthIdentity"' --exclude-table='public."Session"' --exclude-table='public."Order"' --exclude-table='public."Payment"' --exclude-table='public."WebhookEvent"' --exclude-table='public."VerificationToken"' --inserts --no-owner --no-privileges |
       sed -n '/^INSERT INTO /p'
     sql vpnshop_legacy <<'SQL'
 COPY (SELECT id, "userId", "tokenHash", ip, "userAgent", "createdAt", "lastSeenAt", "idleExpiresAt", "expiresAt" FROM "AdminSession") TO STDOUT;
 COPY (SELECT id, code, name, "deviceLimit", "isActive", "sortOrder" FROM "Plan") TO STDOUT;
 COPY (SELECT id, "actorId", action, entity, "entityId", data, ip, "createdAt" FROM "AuditLog") TO STDOUT;
 COPY (SELECT id, email, "emailVerifiedAt", role, status, "remnawaveUserId", "createdAt", "updatedAt" FROM "User") TO STDOUT;
+COPY (SELECT id, "userId", provider, "providerId", "passwordHash", "verifiedAt", "createdAt" FROM "AuthIdentity") TO STDOUT;
 COPY (SELECT id, "userId", "familyId", "tokenHash", "userAgent", ip, "expiresAt", "revokedAt", "rotatedAt", "createdAt" FROM "Session") TO STDOUT;
 COPY (SELECT id, "userId", "planId", "durationMonths", "deviceLimit", currency, amount,
   status, "expiresAt", "paidAt", "fulfilledAt", "createdAt", "updatedAt" FROM "Order") TO STDOUT;
 COPY (SELECT id, "orderId", provider, "externalId", status, amount, currency, "providerData",
   "paidAt", "createdAt", "updatedAt" FROM "Payment") TO STDOUT;
+COPY (SELECT id, "userId", type, "tokenHash", "expiresAt", "usedAt", "createdAt" FROM "VerificationToken") TO STDOUT;
 COPY (SELECT id, provider, "eventKey", payload, "signatureValid", "receivedAt", "processedAt", error
   FROM "WebhookEvent") TO STDOUT;
 COPY (SELECT id, "orderId", status, attempts, "nextAttemptAt", "targetExpireAt", "lockedAt",
@@ -124,6 +126,22 @@ for pass in 1 2; do
   cmp "$tmp/before" "$tmp/after"
   echo "Legacy pass $pass: 15 fixture rows preserved, sha256 $(sha256sum "$tmp/after" | cut -d' ' -f1)" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
 done
+phase=staff-v2-legacy-cutover
+sql postgres <<< 'CREATE DATABASE vpnshop_staff_legacy OWNER vpnshop_migrator'
+mkdir -p "$tmp/staff-base/migrations"
+git show db4624ad6d9899bb4cde0f07801309165d8f215b:apps/api/prisma/schema.prisma > "$tmp/staff-base/schema.prisma"
+cp prisma/migrations/migration_lock.toml "$tmp/staff-base/migrations/"
+for migration in prisma/migrations/2026112[1-3]*; do
+  cp -R "$migration" "$tmp/staff-base/migrations/"
+done
+export DATABASE_URL="$base/vpnshop_staff_legacy"
+pnpm exec prisma migrate deploy --schema "$tmp/staff-base/schema.prisma"
+sql vpnshop_staff_legacy < scripts/integration/staff-v2.sql
+pnpm exec prisma migrate deploy
+pnpm exec prisma migrate deploy
+sql vpnshop_staff_legacy < scripts/integration/staff-v2-check.sql
+
+export MAIL_TRANSPORT_ENABLED=true
 phase=suite-grants
 # Only the runtime schema is writable, with DML privileges on application tables.
 sql vpnshop_suite <<SQL
@@ -151,7 +169,7 @@ GRANT SELECT, INSERT, UPDATE, TRUNCATE ON "RefundIntent" TO vpnshop_suite;
 GRANT SELECT, INSERT, UPDATE, DELETE ON "AdminOperationalSettings", "WorkerHeartbeat" TO vpnshop_suite;
 GRANT SELECT, INSERT, TRUNCATE ON "AuditLog" TO vpnshop_suite;
 GRANT SELECT, INSERT, UPDATE, DELETE ON "StaffCredential","StaffChallenge","StaffInvite","StaffReset","AdminConfirmation","AdminCommand" TO vpnshop_suite;
-GRANT SELECT, INSERT, UPDATE, DELETE ON "SupportCase" TO vpnshop_suite;
+GRANT SELECT, INSERT, UPDATE, DELETE ON "SupportCase", "SupportReadCursor" TO vpnshop_suite;
 GRANT SELECT, INSERT, DELETE ON "SupportMessage", "SupportEvent" TO vpnshop_suite;
 -- TRUNCATE permits guarded suite reset without allowing ledger UPDATE/DELETE.
 GRANT SELECT, INSERT, TRUNCATE ON "PaymentTransaction", "OrderAllocation", "PeriodGrant",

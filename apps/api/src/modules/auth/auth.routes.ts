@@ -1,4 +1,5 @@
 import {
+  emailField,
   forgotPasswordSchema,
   loginSchema,
   registerSchema,
@@ -6,15 +7,19 @@ import {
   verifyEmailSchema,
 } from "@vpn/shared";
 import type { FastifyInstance, FastifyRequest } from "fastify";
+import { emailAvailable } from "../../config/env";
 import { AppError } from "../../lib/errors";
 import { z } from "zod";
 import { verifyAccessToken } from "./jwt";
 import { ACCESS_COOKIE, REFRESH_COOKIE } from "./auth.constants";
 import {
+  changeTemporaryUserPassword,
   forgotPassword,
   getCurrentUser,
   login,
   register,
+  requestEmailVerification,
+  setEmailPassword,
   resetPassword,
   verifyEmail,
   type AuthContext,
@@ -39,11 +44,30 @@ export async function authRoutes(app: FastifyInstance) {
   app.post("/register", limit(5, "1 hour"), async (req, reply) => {
     await register(registerSchema.parse(req.body), ctxOf(req));
     // одинаковый ответ независимо от того, есть ли уже аккаунт
-    return reply.code(202).send({ ok: true });
+    return reply.code(202).send({ ok: true, emailAvailable });
   });
 
   app.post("/verify-email", limit(20, "1 hour"), async (req, reply) => {
-    await verifyEmail(verifyEmailSchema.parse(req.body).token);
+    const access = req.cookies[ACCESS_COOKIE];
+    await verifyEmail(verifyEmailSchema.parse(req.body).token, access ? await verifyAccessToken(access) ?? undefined : undefined);
+    return reply.code(204).send();
+  });
+
+  app.post("/resend-verification", limit(5, "1 hour"), async (req, reply) => {
+    await requestEmailVerification(forgotPasswordSchema.parse(req.body).email, ctxOf(req));
+    return reply.code(202).send({ ok: true, emailAvailable });
+  });
+
+  app.post("/email/verify", { ...limit(8, "1 hour"), preHandler: authenticate }, async (req, reply) => {
+    const { email, confirmationId } = z.strictObject({ email: emailField, confirmationId: z.uuid() }).parse(req.body);
+    await requestEmailVerification(email, ctxOf(req), { claims: req.auth!, id: confirmationId });
+    return reply.code(202).send({ ok: true });
+  });
+
+  app.post("/email/password", { ...limit(8, "1 hour"), preHandler: authenticate }, async (req, reply) => {
+    const { confirmationId, password } = z.strictObject({ confirmationId: z.uuid(), password: z.string().min(12).max(128) }).parse(req.body);
+    await setEmailPassword(req.auth!, confirmationId, password);
+    clearAuthCookies(reply);
     return reply.code(204).send();
   });
 
@@ -51,6 +75,13 @@ export async function authRoutes(app: FastifyInstance) {
     const { user, ...tokens } = await login(loginSchema.parse(req.body), ctxOf(req));
     setAuthCookies(reply, tokens);
     return { user, sessionId: (await verifyAccessToken(tokens.accessToken))!.sid };
+  });
+
+  app.post("/password/change-temporary", limit(10, "15 minutes"), async (req, reply) => {
+    const input = z.strictObject({ email: emailField, temporaryPassword: z.string().min(12).max(128),
+      password: z.string().min(12).max(128) }).parse(req.body);
+    await changeTemporaryUserPassword(input.email, input.temporaryPassword, input.password);
+    return reply.code(204).send();
   });
 
   app.post("/refresh", limit(30, "1 minute"), async (req, reply) => {
@@ -80,7 +111,7 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.post("/forgot-password", limit(5, "1 hour"), async (req, reply) => {
     await forgotPassword(forgotPasswordSchema.parse(req.body), ctxOf(req));
-    return reply.code(202).send({ ok: true });
+    return reply.code(202).send({ ok: true, emailAvailable });
   });
 
   app.post("/reset-password", limit(10, "1 hour"), async (req, reply) => {

@@ -5,6 +5,8 @@ import { createUser } from "../../test/factories";
 import { linkProfile, listLinkedProviders, loginWithProfile } from "./oauth.service";
 import { createSession } from "../auth/session.service";
 import { verifyAccessToken } from "../auth/jwt";
+import { setEmailPassword } from "../auth/auth.service";
+import { createGoogleProvider } from "./providers/google";
 import type { ProviderProfile } from "./oauth.types";
 
 const google = (sub: string, email: string | null, emailVerified = true): ProviderProfile => ({
@@ -13,6 +15,7 @@ const google = (sub: string, email: string | null, emailVerified = true): Provid
   emailVerified,
 });
 const telegram = (id: string): ProviderProfile => ({ providerId: id, email: null, emailVerified: false });
+const googleProvider = createGoogleProvider({ clientId: "fixture-client", clientSecret: "fixture-value" });
 
 beforeEach(resetDatabase);
 const family = async (id: string) => (await verifyAccessToken((await createSession({ id }, {})).accessToken))!;
@@ -46,20 +49,21 @@ describe("вход через внешний сервис", () => {
     expect(await listLinkedProviders(existing.id)).toEqual(["EMAIL"]);
   });
 
-  it("Google с НЕподтверждённой почтой: отказ, ничего не создаётся", async () => {
-    await expect(loginWithProfile("GOOGLE", google("g-3", "x@gmail.com", false))).rejects.toMatchObject({
-      code: "EMAIL_NOT_VERIFIED",
-    });
-    expect(await prisma.user.count()).toBe(0);
-    expect(await prisma.authIdentity.count()).toBe(0);
+  it("Google с неподтверждённой почтой активирует identity по sub без записи адреса", async () => {
+    const first = await loginWithProfile("GOOGLE", google("g-3", "x@gmail.com", false));
+    expect(first).toMatchObject({ email: null, emailVerifiedAt: null, activationRequired: false });
+    expect((await loginWithProfile("GOOGLE", google("g-3", null, false))).id).toBe(first.id);
+    const session = await family(first.id);
+    await expect(setEmailPassword(session, session.sid, "test-password")).rejects.toMatchObject({ code: "EMAIL_NOT_VERIFIED" });
   });
 
-  it("неподтверждённый Google email не позволяет «подцепиться» к чужому аккаунту", async () => {
-    const victim = await createUser({ email: "victim@example.com" });
-    await expect(loginWithProfile("GOOGLE", google("evil", "victim@example.com", false))).rejects.toMatchObject({
-      code: "EMAIL_NOT_VERIFIED",
-    });
-    expect(await prisma.authIdentity.count({ where: { userId: victim.id } })).toBe(0);
+  it("сторонний Google email не присваивается и не объединяет профили при совпадении", async () => {
+    const existing = await createUser({ email: "existing@example.com" });
+    const profile = googleProvider.toProfile({ sub: "other-sub", email: existing.email, email_verified: true });
+    const user = await loginWithProfile("GOOGLE", profile);
+    expect(user.id).not.toBe(existing.id);
+    expect(user).toMatchObject({ email: null, emailVerifiedAt: null });
+    expect(await prisma.authIdentity.count({ where: { userId: existing.id } })).toBe(0);
   });
 
   it("заблокированный пользователь не входит ни через существующую привязку, ни при автопривязке", async () => {
@@ -140,6 +144,16 @@ describe("привязка к вошедшему пользователю", () =
     const user = await createUser({ email: "mine@example.com" });
     await linkFor(user.id, "GOOGLE", google("g-11", "other@gmail.com"));
     expect((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).email).toBe("mine@example.com");
+  });
+
+  it("совпавший сторонний адрес при привязке требует локального подтверждения", async () => {
+    const user = await createUser({ email: "mine@example.com" });
+    await prisma.user.update({ where: { id: user.id }, data: { emailVerifiedAt: null } });
+    const profile = googleProvider.toProfile({ sub: "g-12", email: user.email, email_verified: true });
+    await linkFor(user.id, "GOOGLE", profile);
+    expect(await prisma.user.findUniqueOrThrow({ where: { id: user.id } }))
+      .toMatchObject({ email: user.email, emailVerifiedAt: null });
+    expect(await listLinkedProviders(user.id)).toEqual(["GOOGLE"]);
   });
 
   it("заблокированный пользователь ничего не привязывает", async () => {

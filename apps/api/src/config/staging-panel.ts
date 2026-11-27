@@ -8,7 +8,11 @@ const httpsOrigin = z.url().transform(value => new URL(value)).refine(url =>
 ).transform(url => url.origin);
 
 export function stagingPanelSettings() {
-  if (process.env.REMNAWAVE_REVISION_MODE !== "staging") return undefined;
+  if (process.env.REMNAWAVE_ENABLED === "false") return undefined;
+  if (process.env.REMNAWAVE_REVISION_MODE !== "staging") {
+    if (process.env.REMNAWAVE_ENABLED === "true") throw new Error("Remnawave requires the isolated staging profile");
+    return undefined;
+  }
   const result = z.object({
     REMNAWAVE_STAGING_ORIGIN: httpsOrigin,
     REMNAWAVE_STAGING_LINK_ORIGIN: httpsOrigin,

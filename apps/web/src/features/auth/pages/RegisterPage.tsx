@@ -1,6 +1,8 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { Link } from "react-router";
+import { useProductConfig } from "../../../config";
+import { ProductLinks } from "../../../components/ProductLinks";
 import { Alert } from "../../../components/Alert/Alert";
 import { AuthPage } from "../../../components/AuthPage/AuthPage";
 import { Button } from "../../../components/Button/Button";
@@ -14,6 +16,7 @@ import { registerFormSchema, type RegisterForm } from "../schemas";
 
 export function RegisterPage() {
   const registration = useRegister();
+  const availability = useProductConfig().data?.availability;
   const {
     register,
     handleSubmit,
@@ -26,16 +29,24 @@ export function RegisterPage() {
   if (registration.isSuccess) {
     return (
       <AuthPage
-        title="Проверьте почту"
-        lead={`Мы отправили письмо на ${registration.variables.email}. Откройте ссылку из него в течение 24 часов, чтобы завершить регистрацию.`}
+        title={registration.data.emailAvailable === false ? "Заявка на активацию" : "Проверьте почту"}
+        lead={registration.data.emailAvailable === false
+          ? "Автоматические письма недоступны. Обратитесь к оператору магазина для ручной активации."
+          : "Если для адреса нужна регистрация, письмо будет поставлено в очередь. Ссылка для подтверждения действует 24 часа."}
       >
-        <p>Письма нет? Посмотрите в папке «Спам» или зарегистрируйтесь ещё раз с тем же адресом.</p>
+        {registration.data.emailAvailable !== false &&
+          <><p>Проверьте папку «Спам». Для созданного аккаунта <Link to="/activation">запросите подтверждение</Link>.</p><Button type="button" variant="secondary" onClick={() => registration.reset()}>Повторить регистрацию</Button></>}
         <ButtonLink to="/login" variant="secondary">
           Вернуться ко входу
         </ButtonLink>
       </AuthPage>
     );
   }
+
+  if (availability?.registration === false) return <AuthPage title="Регистрация закрыта"
+    lead="Если у вас уже есть аккаунт, воспользуйтесь входом.">
+    <ButtonLink to="/login">Войти</ButtonLink><ProductLinks kind="support" />
+  </AuthPage>;
 
   return (
     <AuthPage title="Создать аккаунт">
@@ -73,6 +84,7 @@ export function RegisterPage() {
         </Button>
       </form>
       <OAuthButtons />
+      <ProductLinks kind="legal" />
       <p>
         Уже есть аккаунт? <Link to="/login">Войти</Link>
       </p>

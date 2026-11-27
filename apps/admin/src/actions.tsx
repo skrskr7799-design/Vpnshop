@@ -34,6 +34,9 @@ export function AccessActions({ row }: { row: Row }) {
   const subscription = row.subscription as { id: string; revision: number; binding: { blockedReason?: string } | null; holds: Row[] } | null;
   const revision = subscription?.revision ?? 0;
   return <>
+    {row.activation === "PENDING" && row.status === "ACTIVE" && <Action title="Активировать аккаунт вручную"
+      operation="user.activate" permission="users:write" target={row.id} version={String(row.version)}
+      context={String(row.email ?? row.id)} />}
     <Action title={row.status === "BLOCKED" ? "Восстановить вход" : "Заблокировать вход"} operation="user.account_status"
       permission="users:write" target={row.id} version={String(row.version)} payload={{ status: row.status === "BLOCKED" ? "ACTIVE" : "BLOCKED" }} />
     <Action title="Удержать VPN-доступ" operation="user.hold" permission="access:write" target={row.id} version={revision}
@@ -83,20 +86,54 @@ export function Invite() {
     target={body => String(body.email).toLowerCase()} fields={[{ name: "email", label: "Служебная почта", type: "email" },
       { name: "role", label: "Роль", options: ["SUPPORT", "ADMIN"] }]} />;
 }
+export function StaffCreate() {
+  return <Action title="Создать сотрудника" operation="staff.create" permission="staff:write" target="new" version={0}
+    fields={[
+      { name: "username", label: "Имя пользователя" }, { name: "displayName", label: "Отображаемое имя", required: false },
+      { name: "contactEmail", label: "Контактная почта", type: "email", required: false },
+      { name: "role", label: "Роль", options: ["SUPPORT", "ADMIN", "OWNER"] },
+      { name: "temporaryPassword", label: "Временный пароль (действует 24 часа)", type: "password" },
+    ]} />;
+}
+export function UserCreate() {
+  return <Action title="Создать аккаунт пользователя" operation="user.create" permission="users:create" target="new" version={0}
+    fields={[
+      { name: "email", label: "Электронная почта", type: "email" }, { name: "displayName", label: "Отображаемое имя", required: false },
+      { name: "temporaryPassword", label: "Временный пароль (действует 24 часа)", type: "password" },
+      { name: "active", type: "checkbox", label: "Активировать аккаунт вручную" },
+    ]} />;
+}
 export function StaffActions({ row }: { row: Row }) {
   const version = String(row.version);
   const current = useSession()!.user.id;
+  const context = String(row.username ?? row.id);
+  const identity = { permission: "staff:write", target: row.id, version, context };
+  const mutable = row.version !== null && row.status !== "DEACTIVATED";
   return <>
-    {row.id !== current && row.version !== null && <Action title="Изменить роль или доступ сотрудника" operation="staff.role"
-      permission="staff:write" target={row.id} version={version}
-      fields={[{ name: "role", label: "Новый статус", options: ["SUPPORT", "ADMIN", "DISABLED"] }]} />}
+    {mutable && <Action {...identity} title="Изменить профиль сотрудника и завершить сессии" operation="staff.profile"
+      fields={[
+        { name: "username", label: "Имя пользователя", value: context },
+        { name: "displayName", label: "Отображаемое имя", value: String(row.displayName ?? ""), required: false, clearable: true },
+        { name: "contactEmail", label: "Контактная почта", type: "email", value: String(row.email ?? ""), required: false, clearable: true },
+      ]} />}
+    {row.id !== current && mutable && <>
+      <Action {...identity} title="Изменить роль и завершить сессии" operation="staff.role"
+        fields={[{ name: "role", label: "Роль", options: ["SUPPORT", "ADMIN", "OWNER"], value: String(row.role) }]} />
+      <Action {...identity} title={row.status === "BLOCKED" ? "Разблокировать сотрудника" : "Заблокировать сотрудника и завершить сессии"}
+        operation="staff.status" payload={{ status: row.status === "BLOCKED" ? "ACTIVE" : "BLOCKED" }} />
+      <Action {...identity} title="Деактивировать сотрудника и завершить сессии" operation="staff.status" payload={{ status: "DEACTIVATED" }} />
+      <Action {...identity} title="Назначить временный пароль и завершить сессии" operation="staff.password.reset"
+        fields={[{ name: "temporaryPassword", label: "Временный пароль (действует 24 часа)", type: "password" }]} />
+      <Action {...identity} title="Сбросить TOTP и завершить сессии" operation="staff.totp.reset" />
+      <Action {...identity} title="Запросить сброс TOTP с вторым подтверждением" operation="staff.totp.request"
+        fields={[{ name: "recoveryCaseId", label: "ID подтверждённого дела восстановления" }]} />
+      <Action {...identity} title="Завершить все сессии сотрудника" operation="staff.sessions.revoke" />
+    </>}
     <div className="actions"><Link to={`/staff/${row.id}/sessions`}>Сессии сотрудника</Link>
       <Link to={`/audit?entityId=${row.id}`}>История действий</Link></div>
-    {row.version !== null && <Action title="Запросить сброс TOTP" operation="staff.totp.request" permission="staff:write"
-      target={row.id} version={version} fields={[{ name: "recoveryCaseId", label: "ID подтверждённого дела восстановления" }]} />}
     {(row.resets as Row[] | undefined)?.filter(reset => !reset.approvedBy && reset.actorId !== current && row.id !== current).map(reset =>
-      <Action key={reset.id} title={"Одобрить сброс TOTP · " + reset.id.slice(0, 8)} operation="staff.totp.approve"
-        permission="staff:write" target={row.id} version={version} payload={{ requestId: reset.id }} />)}
+      <Action key={reset.id} {...identity} title={"Одобрить сброс TOTP · " + reset.id.slice(0, 8)} operation="staff.totp.approve"
+        payload={{ requestId: reset.id }} />)}
   </>;
 }
 export function Settings() {

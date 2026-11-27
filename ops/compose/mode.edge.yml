@@ -1,0 +1,3 @@
+services:
+  public-edge:
+    environment: {EDGE_APP: "${CORE_API_ADDR:?Set the Core address}"}

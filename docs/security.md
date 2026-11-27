@@ -117,3 +117,7 @@ Admin требует отдельный HTTPS origin, положительный
 | REL-S07 | Блокер поставки | Trivy видит CRITICAL advisories в системных пакетах Bookworm и унаследованном gosu. Node build и runtime используют одинаковый pinned Trixie при прежней версии Node. Переход на Trixie меняет glibc, поэтому PostgreSQL пока оставлен на прежней базе, а неиспользуемый gosu исключён из non-root образа. | Prisma/Argon2 проверяются через Compose. Открытые критические записи оцениваются по фактическому выполнению в образе, и остаются в строгом gate до исправления или отдельного формального решения с доказательством недостижимости. |
 
 [Матрица релизных проверок](release-acceptance.md)
+
+### PASS 03 fixture scan
+
+The four V2 browser fixture fingerprints added to `.gitleaksignore` are synthetic values from the loopback Chromium mock server. The rule is `generic-api-key`. Each exception names one historical commit, path and line. Current browser fixtures do not trigger those findings. No credentials were used by the API, deployment or an external service. The scanner and its remaining rules stay active.

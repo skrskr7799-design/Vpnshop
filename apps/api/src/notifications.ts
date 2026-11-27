@@ -1,7 +1,7 @@
 import nodemailer from "nodemailer";
 import { env } from "./config/env";
 import { runPeriodic } from "./lib/periodic";
-import { deliverNext } from "./modules/mail/outbox";
+import { deliverNext, PermanentMailError } from "./modules/mail/outbox";
 
 if (env.MZT_PROCESS !== "notifications" || !env.SMTP_URL || !env.MAIL_QUEUE_KEY) throw new Error("Invalid notification process configuration");
 const url = new URL(env.SMTP_URL);
@@ -12,5 +12,12 @@ const transport = nodemailer.createTransport({
   auth: url.username ? { user: decodeURIComponent(url.username), pass: decodeURIComponent(url.password) } : undefined,
 });
 await runPeriodic("notifications", 3004, () => deliverNext(async (mail, id) => {
-  await transport.sendMail({ from: env.MAIL_FROM, ...mail, messageId: `<${id}@vpnshop.local>` });
+  try {
+    const info = await transport.sendMail({ from: env.MAIL_FROM, ...mail, messageId: `<${id}@vpnshop.local>` });
+    if (info.accepted.length === 0) throw new Error("No recipient accepted by mail relay");
+  } catch (error) {
+    const code = (error as { responseCode?: number } | null)?.responseCode;
+    if (code && code >= 500 && code < 600) throw new PermanentMailError();
+    throw error;
+  }
 }));

@@ -2,23 +2,24 @@ import { Button, Checkbox, CodeDisplay, Dialog, Input, PasswordInput, Select, St
 import { useQueryClient } from "@tanstack/react-query";
 import { useRef, useState, type FormEvent } from "react";
 import { api, ApiError, errorText } from "./api";
-import { useCan } from "./session";
+import { useCan, useSession } from "./session";
 import { Facts, states } from "./views";
 
 export type Field = {
-  name: string; label: string; type?: "number" | "email" | "textarea" | "checkbox";
-  options?: string[]; value?: string | number; required?: boolean;
+  name: string; label: string; type?: "number" | "email" | "textarea" | "checkbox" | "password";
+  options?: readonly (string | { value: string; label: string })[]; value?: string | number; required?: boolean; clearable?: boolean;
 };
-type Command = Record<string, string | number | boolean>;
+type Command = Record<string, string | number | boolean | null>;
 type Envelope = {
   command: Command; expectedVersion: string; reason: string; confirmationId: string;
 };
-type Result = { commandId: string; result: Record<string, unknown>; invitationToken?: string };
-export function Action({ title, operation, permission, target, version, fields = [], payload = {}, baseline, after }: {
+export type Result = { commandId: string; result: Record<string, unknown>; invitationToken?: string; stageToken?: string };
+export function Action({ title, operation, permission, target, version, fields = [], payload = {}, baseline, after, context }: {
   title: string; operation: string; permission: string; target: string | ((body: Command) => string);
-  version: string | number; fields?: Field[]; payload?: Command; baseline?: (command: Command) => Record<string, unknown> | undefined; after?: () => unknown;
+  version: string | number; fields?: Field[]; payload?: Command; baseline?: (command: Command) => Record<string, unknown> | undefined; after?: (response: Result) => unknown; context?: string;
 }) {
   const allowed = useCan(permission);
+  const needsCode = useSession()?.security?.requiresTotp ?? true;
   const cache = useQueryClient();
   const [preview, setPreview] = useState<{ targetId: string; command: Command; expectedVersion: string; reason: string }>();
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -34,9 +35,15 @@ export function Action({ title, operation, permission, target, version, fields =
     const values = new FormData(event.currentTarget);
     const command = { ...payload };
     for (const field of fields) {
-      const value = String(values.get(field.name) ?? "").trim();
+      const raw = String(values.get(field.name) ?? "");
+      const value = field.type === "password" ? raw : raw.trim();
       if (field.type === "checkbox") command[field.name] = values.has(field.name);
       else if (value) command[field.name] = field.type === "number" ? Number(value) : value;
+      else if (field.clearable) command[field.name] = null;
+    }
+    for (const field of fields.filter(field => field.type === "password")) {
+      const control = event.currentTarget.elements.namedItem(field.name);
+      if (control instanceof HTMLInputElement) control.value = "";
     }
     setPreview({ targetId: typeof target === "function" ? target(command) : target,
       command, expectedVersion: String(version), reason: String(values.get("reason")).trim() });
@@ -56,7 +63,7 @@ export function Action({ title, operation, permission, target, version, fields =
         if (!event) return;
         const values = new FormData(event.currentTarget);
         const { confirmationId } = await api<{ confirmationId: string }>("/auth/step-up", {
-          method: "POST", body: { ...preview, operation, permission, password: values.get("password"), code: values.get("code") },
+          method: "POST", body: { ...preview, operation, permission, password: values.get("password"), ...(needsCode && { code: values.get("code") }) },
         });
         saved.current = {
           targetId: preview.targetId, key: crypto.randomUUID(),
@@ -72,7 +79,7 @@ export function Action({ title, operation, permission, target, version, fields =
       setPreviewOpen(false);
       setResult(response);
       await cache.invalidateQueries({ queryKey: ["admin"] });
-      await after?.();
+      await after?.(response);
     } catch (cause) {
       if (cause instanceof ApiError && [400, 401, 403, 404, 409].includes(cause.status)) saved.current = null;
       setConflict(cause instanceof ApiError && ["VERSION_CONFLICT", "CASE_CHANGED", "STALE_REVISION"].includes(cause.code));
@@ -105,8 +112,10 @@ export function Action({ title, operation, permission, target, version, fields =
       {fields.map(field => field.type === "checkbox" ? <Checkbox key={field.name} name={field.name}
         defaultChecked={field.value === "true"}>{field.label}</Checkbox> : <label key={field.name}>{field.label}
         {field.options ? <Select name={field.name} defaultValue={field.value}>{field.required === false && <option value="">—</option>}
-          {field.options.map(option => <option key={option} value={option}>{states[option] ?? option}</option>)}</Select>
+          {field.options.map(option => typeof option === "string" ? <option key={option} value={option}>{states[option] ?? option}</option> :
+            <option key={option.value} value={option.value}>{option.label}</option>)}</Select>
           : field.type === "textarea" ? <Textarea name={field.name} rows={3} maxLength={2000} required={field.required ?? true} />
+          : field.type === "password" ? <PasswordInput name={field.name} minLength={12} maxLength={128} autoComplete="new-password" required={field.required ?? true} />
           : <Input name={field.name} type={field.type ?? "text"} defaultValue={field.value} required={field.required ?? true} />}
       </label>)}
       <label>Причина<Textarea name="reason" minLength={5} maxLength={500} rows={2} required /></label>
@@ -114,17 +123,17 @@ export function Action({ title, operation, permission, target, version, fields =
     </form>}
     <Dialog open={previewOpen} onClose={closePreview} title={title} busy={pending} className="command-confirm">
       {preview && <>
-        <p>Объект <CodeDisplay>{preview.targetId}</CodeDisplay> · версия {preview.expectedVersion}</p>
+        <p>Объект <CodeDisplay>{context ?? preview.targetId}</CodeDisplay> · версия {preview.expectedVersion}</p>
         <div className={prior ? "command-comparison" : ""}>
           {prior && <section className="mz-card"><h3>Текущая версия</h3><Facts data={prior} /></section>}
-          <section className={prior ? "mz-card" : undefined}><h3>{prior ? "Новая версия" : "Изменения"}</h3><Facts data={{ ...preview.command, reason: preview.reason }} /></section>
+          <section className={prior ? "mz-card" : undefined}><h3>{prior ? "Новая версия" : "Изменения"}</h3><Facts data={{ ...Object.fromEntries(Object.entries(preview.command).filter(([key]) => !fields.some(field => field.name === key && field.type === "password"))), reason: preview.reason }} /></section>
         </div>
         {error && <p role="alert">{error}</p>}
         {conflict ? <Button variant="secondary" onClick={() => { closePreview(); void cache.invalidateQueries({ queryKey: ["admin"] }); }}>Обновить объект</Button>
           : saved.current ? <Button loading={pending} onClick={() => void execute()}>Повторить тот же запрос</Button>
           : <form onSubmit={event => void execute(event)}>
             <label>Служебный пароль<PasswordInput name="password" autoComplete="current-password" required /></label>
-            <label>Свежий код TOTP<Input name="code" autoComplete="one-time-code" inputMode="numeric" pattern="[0-9]{6}" required /></label>
+            {needsCode && <label>Свежий код TOTP<Input name="code" autoComplete="one-time-code" inputMode="numeric" pattern="[0-9]{6}" required /></label>}
             <div className="mz-actions">
               <Button variant="secondary" disabled={pending} onClick={closePreview}>Отмена</Button>
               <Button variant="danger" type="submit" loading={pending}>Подтвердить и выполнить</Button>

@@ -5,3 +5,4 @@ export * from "./schemas/commerce";
 export * from "./schemas/account";
 
 export * from "./schemas/support";
+export * from "./schemas/product";

@@ -38,7 +38,7 @@ describe("buildAuthorizationUrl", () => {
       client_id: "google-client",
       redirect_uri: "https://x.test/cb",
       response_type: "code",
-      scope: "openid email profile",
+      scope: "openid email",
       state: "st",
       code_challenge: "ch",
       code_challenge_method: "S256",
@@ -138,7 +138,21 @@ describe("toProfile", () => {
       emailVerified: true,
     });
     expect(google.toProfile({ sub: "s", email: "u@gmail.com", email_verified: "true" }).emailVerified).toBe(false);
+    expect(google.toProfile({ sub: "s", email: "u@gmail.com" }).emailVerified).toBe(false);
     expect(google.toProfile({ sub: "s" })).toEqual({ providerId: "s", email: null, emailVerified: false });
+  });
+
+  it("Google Workspace подтверждает адрес при истинном email_verified и подписанном hd", () => {
+    expect(google.toProfile({ sub: "s", email: "u@example.org", email_verified: true, hd: "example.org" }).emailVerified)
+      .toBe(true);
+    expect(google.toProfile({ sub: "s", email: "u@example.org", email_verified: false, hd: "example.org" }).emailVerified)
+      .toBe(false);
+  });
+
+  it("Google без hd не подтверждает владение сторонним адресом", () => {
+    const claims = { sub: "s", email: "u@example.org", email_verified: true };
+    expect(google.toProfile(claims)).toEqual({ providerId: "s", email: "u@example.org", emailVerified: false });
+    expect(google.toProfile({ ...claims, hd: "" }).emailVerified).toBe(false);
   });
 
   it("Telegram: берёт id из клэйма id, а не sub", () => {

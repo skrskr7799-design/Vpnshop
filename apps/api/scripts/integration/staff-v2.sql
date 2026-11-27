@@ -1,0 +1,23 @@
+INSERT INTO "User"(id,email,role,status,"updatedAt") VALUES
+  ('legacy-staff-a','shared@example.invalid','ADMIN','ACTIVE',now()),
+  ('legacy-staff-b','shared@other.invalid','SUPPORT','BLOCKED',now()),
+  ('legacy-customer','customer@example.invalid','USER','ACTIVE',now());
+INSERT INTO "StaffCredential"("userId","passwordHash",version) VALUES
+  ('legacy-staff-a','fixture-unchanged-admin-hash',4), ('legacy-staff-b','fixture-unchanged-support-hash',3);
+INSERT INTO "AdminTotp"(id,"userId","secretEnc","confirmedAt","lastUsedStep")
+VALUES ('legacy-factor','legacy-staff-a','fixture-encrypted-factor',now(),17);
+INSERT INTO "AdminRecoveryCode"(id,"userId","codeHash") VALUES ('legacy-code','legacy-staff-a','fixture-recovery-hash');
+INSERT INTO "AuditLog"(id,"actorId",action,entity,"entityId")
+VALUES ('legacy-audit','legacy-staff-a','fixture-action','staff','legacy-staff-b');
+INSERT INTO "AdminSession"(id,"userId","tokenHash","idleExpiresAt","expiresAt")
+VALUES ('legacy-session','legacy-staff-a','fixture-session',now()+interval '1 hour',now()+interval '2 hours');
+INSERT INTO "StaffInvite"(id,email,role,"tokenHash","expiresAt")
+VALUES ('legacy-invite','unclaimed@example.invalid','SUPPORT','fixture-invite',now()+interval '1 day');
+INSERT INTO "SupportCase" (id,"userId",category,"requestKeyHash",fingerprint,"updatedAt")
+VALUES ('legacy-case','legacy-customer','DELIVERY','fixture-case-hash','fixture-fingerprint',now());
+INSERT INTO "SupportMessage" (id,"caseId",author,text)
+VALUES ('legacy-message','legacy-case','CUSTOMER','Legacy support conversation');
+INSERT INTO "SupportEvent" (id,"caseId",author,"fromStatus","toStatus")
+VALUES ('legacy-event','legacy-case','CUSTOMER','OPEN','OPEN');
+INSERT INTO "VerificationToken" (id,"userId",type,"tokenHash","expiresAt")
+VALUES ('legacy-reset','legacy-customer','PASSWORD_RESET','fixture-reset-hash',now()+interval '1 hour');

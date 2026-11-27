@@ -1,9 +1,10 @@
 import { z } from "zod";
 import { CURRENCIES } from "../constants";
-import { emailField } from "./auth";
 
 // ───── вход в админку ─────
-export const adminLoginSchema = z.object({ email: emailField, password: z.string().min(1).max(128) });
+export const staffUsernameSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{2,47}$/)
+  .transform(value => value.toLowerCase());
+export const adminLoginSchema = z.strictObject({ username: staffUsernameSchema, password: z.string().min(1).max(128) });
 
 const stageToken = z.string().min(20).max(2000);
 const totpCode = z.string().trim().regex(/^\d{6}$/, "Введите 6 цифр");

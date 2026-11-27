@@ -10,7 +10,7 @@ import { lockEntitlementAccount, lockOrder, lockPaymentKey, nextCheck, noteCase 
 
 export async function createAttempt(
   account: MerchantAccount, adapter: PaymentProviderAdapter,
-  userId: string, orderId: string, channel: PaymentChannel, key: string,
+  userId: string, orderId: string, channel: PaymentChannel, key: string, restriction?: () => string | undefined,
 ) {
   const reservation = await prisma.$transaction(async db => {
     const order = await lockOrder(db, orderId);
@@ -21,6 +21,8 @@ export async function createAttempt(
       if (existing.channel !== channel || existing.accountId !== account.id) throw new AppError(409, "IDEMPOTENCY_CONFLICT");
       return { attempt: existing, submit: false };
     }
+    const denied = restriction?.();
+    if (denied) throw new AppError(503, denied);
     const now = await dbNow(db);
     if (order.status !== "PENDING" || order.expiresAt <= now) throw new AppError(409, "ORDER_CLOSED");
     if (order.currency !== "RUB" || !order.offerVersionId || !adapter.channels.includes(channel)) {

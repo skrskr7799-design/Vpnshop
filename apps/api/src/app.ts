@@ -5,6 +5,7 @@ import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
+import { paymentRestriction, publicConfig } from "./config/product";
 import { env } from "./config/env";
 import { AppError } from "./lib/errors";
 import { registerErrorHandler } from "./lib/error-handler";
@@ -21,6 +22,16 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 export async function buildApp(options: { payments?: PaymentProviderAdapter; panel?: AssignmentPanel } = {}) {
   const payments = paymentFixture(options.payments);
+  if (env.PAYMENTS_ENABLED && env.NODE_ENV !== "test") throw new Error("Payments require an admitted provider contract");
+  const providers = loadProviders();
+  const panel = env.REMNAWAVE_ENABLED === false ? undefined : options.panel;
+  const restriction = () => paymentRestriction(env, { provider: !!payments, panel: !!panel });
+  const configuration = () => publicConfig(env, {
+    registration: env.REGISTRATION_ENABLED && !env.MAINTENANCE_MODE,
+    support: env.SUPPORT_ENABLED && !env.MAINTENANCE_MODE,
+    payments: !restriction() && !!payments, maintenance: env.MAINTENANCE_MODE,
+    google: providers.has("google"), telegram: providers.has("telegram"),
+  });
   const app = Fastify({
     // за reverse proxy: корректный IP клиента для rate limit и аудита
     trustProxy: env.WEB_TRUSTED_PROXIES.length ? env.WEB_TRUSTED_PROXIES : false,
@@ -52,11 +63,12 @@ export async function buildApp(options: { payments?: PaymentProviderAdapter; pan
         if (req.headers.origin !== env.WEB_ORIGIN) throw new AppError(403, "BAD_ORIGIN");
       });
 
+      api.get("/config", (_req, reply) => reply.header("Cache-Control", "no-store").send(configuration()));
       await api.register(healthRoutes);
       await api.register(ownerSupportRoutes);
-      await api.register(commerceRoutes, { payments, panel: options.panel });
+      await api.register(commerceRoutes, { payments, panel, restriction });
       await api.register(authRoutes, { prefix: "/auth" });
-      await api.register(oauthRoutes, { prefix: "/auth/oauth", providers: loadProviders() });
+      await api.register(oauthRoutes, { prefix: "/auth/oauth", providers });
     },
     { prefix: "/api" },
   );

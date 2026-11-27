@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { recoverOwner } from "./auth/local-admin";
 import { SignJWT } from "jose";
 import { beforeEach, describe, expect, it } from "vitest";
 import { env } from "../../config/env";
@@ -5,14 +7,12 @@ import { prisma } from "../../lib/prisma";
 import { resetDatabase } from "../../test/db";
 import { createUser } from "../../test/factories";
 import { stageTokenKey } from "./admin.keys";
-import { buildTestAdminApp, createEnrolledAdmin, ctx, PASSWORD } from "./admin.test-helpers";
+import { buildTestAdminApp, createAdminUser, createEnrolledAdmin, ctx, fixtureUsername, PASSWORD } from "./admin.test-helpers";
 import {
   adminLogin,
   confirmEnrollment,
-  createAdminUser,
   LOCK_MS,
   MAX_FAILED_ATTEMPTS,
-  resetAdminTotp,
   startEnrollment,
   verifySecondFactor,
 } from "./auth/admin-auth.service";
@@ -23,16 +23,20 @@ beforeEach(resetDatabase);
 
 const STEP = 30_000;
 const at = (offsetMs: number) => new Date(Date.now() + offsetMs);
-const stage = async (email: string) => (await adminLogin({ email, password: PASSWORD }, ctx)).stageToken;
+const stage = async (email: string) => {
+  const result = await adminLogin({ username: fixtureUsername(email), password: PASSWORD }, ctx);
+  if (result.step === "authenticated") throw new Error("Expected a restricted stage");
+  return result.stageToken;
+};
 const auditActions = async () => (await prisma.auditLog.findMany({ orderBy: { createdAt: "asc" } })).map((a) => a.action);
 
 describe("шаг 1: пароль", () => {
   it("админ без 2FA получает этап подключения, с 2FA получает этап проверки кода", async () => {
     await createAdminUser({ email: "a@example.com", password: PASSWORD, role: "ADMIN" });
-    expect((await adminLogin({ email: "a@example.com", password: PASSWORD }, ctx)).step).toBe("enroll_2fa");
+    expect((await adminLogin({ username: fixtureUsername("a@example.com"), password: PASSWORD }, ctx)).step).toBe("enroll_2fa");
 
     const admin = await createEnrolledAdmin("b@example.com");
-    expect((await adminLogin({ email: admin.email, password: PASSWORD }, ctx)).step).toBe("verify_2fa");
+    expect((await adminLogin({ username: fixtureUsername(admin.email), password: PASSWORD }, ctx)).step).toBe("verify_2fa");
   });
 
   it("все причины отказа дают одну и ту же ошибку и пишутся в журнал", async () => {
@@ -52,7 +56,7 @@ describe("шаг 1: пароль", () => {
       { email: "plain@example.com", password: PASSWORD },
     ];
     for (const a of attempts) {
-      await expect(adminLogin(a, ctx)).rejects.toMatchObject({ code: "INVALID_CREDENTIALS", statusCode: 401 });
+      await expect(adminLogin({ username: fixtureUsername(a.email), password: a.password }, ctx)).rejects.toMatchObject({ code: "INVALID_CREDENTIALS", statusCode: 401 });
     }
     expect((await auditActions()).filter((a) => a === "admin.login.failed")).toHaveLength(4);
   });
@@ -61,10 +65,10 @@ describe("шаг 1: пароль", () => {
     await expect(createAdminUser({ email: "weak@example.com", password: "short", role: "ADMIN" })).rejects.toThrow("12");
   });
 
-  it("rejects a bootstrap email already used by a customer", async () => {
+  it("does not combine a staff contact and a customer account", async () => {
     const user = await createUser({ email: "promote@example.com" });
-    await expect(createAdminUser({ email: "promote@example.com", password: PASSWORD, role: "SUPPORT" }))
-      .rejects.toMatchObject({ code: "STAFF_ADDRESS_IN_USE" });
+    const staff = await createAdminUser({ email: "promote@example.com", password: PASSWORD, role: "SUPPORT" });
+    expect(staff.userId).not.toBe(user.id);
     expect((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).role).toBe("USER");
   });
 });
@@ -221,14 +225,14 @@ describe("сессии", () => {
   it("истекает при бездействии, но активность продлевает её; абсолютный предел не продлевается", async () => {
     const admin = await createEnrolledAdmin("sess@example.com");
     const t0 = new Date();
-    const { token } = await createAdminSession(admin.userId, ctx, t0);
+    const { token } = await createAdminSession(admin.userId, ctx, t0, prisma, true);
     const min = (n: number) => new Date(t0.getTime() + n * 60_000);
 
     expect(await resolveAdminSession(token, min(29))).not.toBeNull(); // продлевает окно до 59-й минуты
     expect(await resolveAdminSession(token, min(58))).not.toBeNull(); // продлевает до 88-й
     expect(await resolveAdminSession(token, min(120))).toBeNull(); // бездействие больше 30 минут
 
-    const fresh = await createAdminSession(admin.userId, ctx, t0);
+    const fresh = await createAdminSession(admin.userId, ctx, t0, prisma, true);
     // активность каждые 20 минут не удерживает сессию дольше абсолютного предела (12 ч)
     for (let m = 20; m <= env.ADMIN_SESSION_HOURS * 60 - 10; m += 20) {
       expect(await resolveAdminSession(fresh.token, min(m))).not.toBeNull();
@@ -238,7 +242,7 @@ describe("сессии", () => {
 
   it("отзыв, блокировка и потеря роли действуют мгновенно", async () => {
     const admin = await createEnrolledAdmin("instant@example.com");
-    const { token } = await createAdminSession(admin.userId, ctx);
+    const { token } = await createAdminSession(admin.userId, ctx, new Date(), prisma, true);
     expect(await resolveAdminSession(token)).not.toBeNull();
 
     await prisma.user.update({ where: { id: admin.userId }, data: { status: "BLOCKED" } });
@@ -253,13 +257,15 @@ describe("сессии", () => {
   });
 
   it("сброс 2FA из CLI закрывает все сессии и требует подключить 2FA заново", async () => {
-    const admin = await createEnrolledAdmin("cli@example.com");
+    const admin = await createEnrolledAdmin("cli@example.com", "OWNER");
     expect(await resolveAdminSession(admin.sessionToken)).not.toBeNull();
 
-    expect(await resetAdminTotp("cli@example.com", "INC-123")).toBe(true);
+    const recovery = { username: admin.username, password: "new-staff-password-123", incident: "INC-123",
+      correlationId: randomUUID(), resetTotp: true, restoreStatus: false };
+    await expect(recoverOwner(recovery)).resolves.toMatchObject({ id: admin.userId });
     expect(await resolveAdminSession(admin.sessionToken)).toBeNull();
-    expect((await adminLogin({ email: "cli@example.com", password: PASSWORD }, ctx)).step).toBe("enroll_2fa");
-    expect(await resetAdminTotp("ghost@example.com", "INC-123")).toBe(false);
+    expect((await adminLogin({ username: recovery.username, password: recovery.password }, ctx)).step).toBe("enroll_2fa");
+    await expect(recoverOwner({ ...recovery, username: "missing" })).rejects.toMatchObject({ code: "OWNER_NOT_FOUND" });
   });
 });
 
@@ -269,7 +275,7 @@ describe("HTTP: вход", () => {
     await createAdminUser({ email: "http@example.com", password: PASSWORD, role: "ADMIN" });
     const post = (url: string, payload: object) => app.inject({ method: "POST", url, payload, headers: { origin: env.ADMIN_ORIGIN } });
 
-    const login = (await post("/api/auth/login", { email: "http@example.com", password: PASSWORD })).json();
+    const login = (await post("/api/auth/login", { username: fixtureUsername("http@example.com").toUpperCase(), password: PASSWORD })).json();
     expect(login.step).toBe("enroll_2fa");
     const start = (await post("/api/auth/2fa/enroll/start", { stageToken: login.stageToken })).json();
     const confirm = await post("/api/auth/2fa/enroll/confirm", { stageToken: login.stageToken, code: currentCode(start.secret) });
@@ -294,7 +300,7 @@ describe("HTTP: вход", () => {
     const app = await buildTestAdminApp();
     const admin = await createEnrolledAdmin("httprec@example.com");
     const post = (url: string, payload: object) => app.inject({ method: "POST", url, payload, headers: { origin: env.ADMIN_ORIGIN } });
-    const login = (await post("/api/auth/login", { email: admin.email, password: PASSWORD })).json();
+    const login = (await post("/api/auth/login", { username: admin.username, password: PASSWORD })).json();
     expect(login.step).toBe("verify_2fa");
 
     const bad = await post("/api/auth/2fa/verify", { stageToken: login.stageToken, recoveryCode: "AAAAA-AAAAA" });

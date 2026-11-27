@@ -42,6 +42,10 @@ export async function visualQa({ site, dist, send, evaluate, until, origin, scre
   });
   async function visit(screen) {
     await prepare(screen);
+    if (new URL(screen.path, origin).hash) {
+      await send("Page.navigate", { url: "about:blank" });
+      await until('location.href === "about:blank"');
+    }
     await evaluate("window.__mztPreviousDocument = true");
     await send("Page.navigate", { url: origin + screen.path });
     await until(`!window.__mztPreviousDocument && location.pathname === ${JSON.stringify(new URL(screen.path, origin).pathname)}`);

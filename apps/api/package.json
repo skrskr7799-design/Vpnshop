@@ -20,8 +20,7 @@
     "remnawave:check": "tsx --env-file=../../.env scripts/remnawave-check.ts",
     "test:integration": "bash scripts/integration/run.sh",
     "db:deploy": "prisma migrate deploy",
-    "admin:create": "tsx --env-file=../../.env scripts/admin-create.ts",
-    "admin:reset-2fa": "tsx --env-file=../../.env scripts/admin-reset-2fa.ts"
+    "admin:local": "tsx --env-file=../../.env src/admin-local.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.0",

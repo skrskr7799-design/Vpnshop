@@ -7,12 +7,14 @@ import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import ipaddr from "ipaddr.js";
 import Fastify from "fastify";
+import { runtimeMetadata } from "../../config/product";
 import { env, isProd } from "../../config/env";
 import { AppError } from "../../lib/errors";
 import { registerErrorHandler } from "../../lib/error-handler";
 import { registerCommandProtocol } from "./commands";
 import { staffCommands, staffRoutes } from "./staff";
 import { createIpGuard } from "./admin.ip-guard";
+import { explicitPublicAdminAccess } from "../../config/proxy";
 import { adminAuditRoutes } from "./routes/audit.routes";
 import { adminAuthRoutes } from "./routes/auth.routes";
 import { adminDashboardRoutes, type DashboardDeps } from "./routes/dashboard.routes";
@@ -63,7 +65,8 @@ export async function buildAdminApp(options: AdminAppOptions) {
   await app.register(rateLimit, { global: true, max: 300, timeWindow: "1 minute" });
   app.decorateRequest("admin", null);
 
-  const ipAllowed = createIpGuard(cidrs);
+  const publicInternet = options.allowedCidrs === undefined && explicitPublicAdminAccess(env.ADMIN_ACCESS_MODE, cidrs);
+  const ipAllowed = createIpGuard(publicInternet ? [] : cidrs);
 
   await app.register(healthRoutes);
 
@@ -84,6 +87,7 @@ export async function buildAdminApp(options: AdminAppOptions) {
 
   await app.register(
     async (api) => {
+      api.get("/config", (_req, reply) => reply.header("Cache-Control", "no-store").send(runtimeMetadata(env)));
       const execute = registerCommandProtocol(api, { ...staffCommands, ...storeCommands, ...supportCommands });
       registerStoreRoutes(api, execute);
       await api.register(staffRoutes);

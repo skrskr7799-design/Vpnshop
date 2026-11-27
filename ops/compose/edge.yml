@@ -1,0 +1,17 @@
+# Shared service definitions come from the installed-stack Compose contract.
+services:
+  web:
+    extends: {file: "${V2_LEGACY_COMPOSE:-compose.yml}", service: web}
+  public-edge:
+    user: "101:101"
+    extends: {file: "${V2_LEGACY_COMPOSE:-compose.yml}", service: public-edge}
+    environment: {EDGE_SCOPE: public}
+    networks: !override [public-ingress, public-assets]
+
+networks:
+  public-ingress:
+  public-assets: {internal: true}
+
+secrets:
+  public_cert: {file: "${SECRETS_DIR}/public_cert"}
+  public_key: {file: "${SECRETS_DIR}/public_key"}

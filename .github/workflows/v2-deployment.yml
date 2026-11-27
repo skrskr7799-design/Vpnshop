@@ -1,0 +1,75 @@
+name: VPNShop V2 deployment
+
+on:
+  push:
+    branches: [work/vpnshop-v2]
+  pull_request:
+    paths:
+      - 'ops/**'
+      - 'Dockerfile'
+      - 'apps/api/src/config/**'
+      - 'apps/api/src/modules/admin/admin-app.ts'
+      - '.github/workflows/v2-deployment.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-deployment-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  matrix:
+    name: Render V2 roles and verify preflight isolation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - run: PYTHONDONTWRITEBYTECODE=1 python3 ops/scripts/test_v2_compose.py -v
+  smoke:
+    name: V2 Single and TLS transport smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Build local candidates
+        run: ops/scripts/build.sh
+      - name: Exercise the built TLS edge and gateway
+        env:
+          MZT_V2_EDGE_IMAGE: mzt-ci-edge:${{ github.sha }}
+        run: PYTHONDONTWRITEBYTECODE=1 python3 ops/scripts/v2_tls_smoke.py
+      - name: Start the disposable Single deployment and verify local backup
+        run: MZT_V2_SMOKE=1 MZT_V2_CLI_SMOKE=1 ops/scripts/smoke.sh
+  artifacts:
+    name: Test release selection, CLI recovery and deploy artifacts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Exercise fingerprints, archive boundaries and CLI transactions
+        run: PYTHONDONTWRITEBYTECODE=1 python3 ops/scripts/test_v2_release.py -v
+      - name: Verify the source-free installer and reproducible test bundle
+        run: |
+          set -euo pipefail
+          python3 ops/scripts/v2_release.py candidate "$RUNNER_TEMP/vpnshop-candidate"
+          python3 ops/scripts/v2_release.py candidate "$RUNNER_TEMP/vpnshop-reproduction"
+          diff -r "$RUNNER_TEMP/vpnshop-candidate" "$RUNNER_TEMP/vpnshop-reproduction"
+          cd "$RUNNER_TEMP/vpnshop-candidate"
+          sha256sum -c ./*.sha256
+          bash -n vpnshop.sh
+          shellcheck vpnshop.sh "$GITHUB_WORKSPACE"/ops/scripts/build.sh "$GITHUB_WORKSPACE"/ops/backup/logical.sh
+          ./vpnshop.sh version
+          ./vpnshop.sh help
+      - name: Upload non-installable test candidate
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: vpnshop-test-candidate-${{ github.sha }}
+          path: ${{ runner.temp }}/vpnshop-candidate
+          if-no-files-found: error

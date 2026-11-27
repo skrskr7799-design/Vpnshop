@@ -19,8 +19,8 @@ let second: ReturnType<typeof as>;
 beforeEach(async () => {
   await resetDatabase();
   app = await buildTestAdminApp();
-  alice = await createEnrolledAdmin("alice@example.invalid");
-  bob = await createEnrolledAdmin("bob@example.invalid");
+  alice = await createEnrolledAdmin("alice@example.invalid", "OWNER");
+  bob = await createEnrolledAdmin("bob@example.invalid", "OWNER");
   first = as(app, alice.sessionToken);
   second = as(app, bob.sessionToken);
 });
@@ -50,7 +50,7 @@ it("issues a fresh TOTP proof, rejects cross-session use and returns one command
     .toBe("IDEMPOTENCY_CONFLICT");
   expect(await prisma.plan.count()).toBe(1);
   const audit = await prisma.auditLog.findFirstOrThrow({ where: { action: "plan.create" } });
-  expect(audit).toMatchObject({ role: "ADMIN", permission: "plans:write", reason, commandId: requests[0]!.json().commandId });
+  expect(audit).toMatchObject({ role: "OWNER", permission: "plans:write", reason, commandId: requests[0]!.json().commandId });
   expect(JSON.stringify(audit)).not.toContain(PASSWORD);
   await expect(prisma.auditLog.update({ where: { id: audit.id }, data: { action: "rewrite" } })).rejects.toBeTruthy();
 });
@@ -94,14 +94,14 @@ it("prevents two concurrent mutual demotions and invalidates a revoked actor's p
     second.command("staff.role", alice.userId, 1, { role: "SUPPORT" }),
   ]);
   expect(requests.filter(response => response.statusCode === 200)).toHaveLength(1);
-  expect(await prisma.user.count({ where: { role: "ADMIN", status: "ACTIVE" } })).toBe(1);
+  expect(await prisma.user.count({ where: { role: "OWNER", status: "ACTIVE" } })).toBe(1);
   if (requests[0]!.statusCode === 200) expect((await send(bob, "plan.create", "fixture", pending)).statusCode).toBe(401);
   const winner = requests[0]!.statusCode === 200 ? first : second;
   const self = winner === first ? alice : bob;
   expect((await winner.command("staff.role", self.userId, 1, { role: "SUPPORT" })).statusCode).toBe(409);
 });
 
-it("separates invitations and customer authentication, while preserving the last ready ADMIN", async () => {
+it("separates invitations and customer authentication, while preserving the existing OWNER", async () => {
   const invited = await first.command("staff.invite", "invite@example.invalid", 0, { email: "invite@example.invalid", role: "SUPPORT" });
   expect(invited.statusCode).toBe(200);
   const token = invited.json().invitationToken;
@@ -113,7 +113,7 @@ it("separates invitations and customer authentication, while preserving the last
   expect(await prisma.authIdentity.count({ where: { providerId: "invite@example.invalid" } })).toBe(0);
   const publicApp = await buildApp();
   try {
-    const staff = await prisma.user.findUniqueOrThrow({ where: { email: "invite@example.invalid" } });
+    const staff = await prisma.user.findFirstOrThrow({ where: { staffCredential: { is: { contactEmail: "invite@example.invalid" } } } });
     await expect(createSession(staff, {})).rejects.toMatchObject({ code: "ACCOUNT_BLOCKED" });
     const token = (await createSession(await createUser(), {})).accessToken;
     expect((await app.inject({ url: "/api/me", cookies: { vpn_at: token } })).statusCode).toBe(401);
@@ -210,9 +210,9 @@ it("requires a separate approver for staff factor reset and keeps other staff se
   expect(await prisma.staffCredential.findUnique({ where: { userId: target.userId } })).toMatchObject({ version: 2 });
 });
 
-it("protects the only enrolled administrator when the other administrator is locked out", async () => {
+it("protects the only available OWNER when the other OWNER is locked out", async () => {
   await prisma.adminTotp.update({ where: { userId: bob.userId }, data: { lockedUntil: new Date(Date.now() + 60_000) } });
   const reply = await second.command("staff.role", alice.userId, 1, { role: "DISABLED" });
-  expect(reply.json().error.code).toBe("LAST_ADMIN");
+  expect(reply.json().error.code).toBe("LAST_OWNER");
   expect((await first.get("/api/me")).statusCode).toBe(200);
 });
