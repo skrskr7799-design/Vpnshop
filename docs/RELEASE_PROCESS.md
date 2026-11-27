@@ -30,7 +30,7 @@ The default rejects an existing tag or release. Use the explicit `resume` input 
 
 The read-only **VPNShop release rehearsal** workflow builds the seven images from the release worktree and runs the same migration, restore, PITR, TLS and scan commands as publication. Python contract tests run the production planner, registry digest verification, bundler and publication logic using memory-backed command responses. They cover the first release, permission errors, tag conflicts, partial uploads, altered assets and retries. Real GHCR permissions, GitHub attestation issuance and GitHub Release writes require separately authorized external verification.
 
-Release and rehearsal diagnostics retain stage statuses, vulnerability IDs, package versions and npm counts. Raw scanner JSON, image history, scanner matches, Docker credentials and release notes are excluded from the diagnostic artifacts. Production audit findings and image CRITICALs or secrets still block publication. Use the full dependency audit to track advisories in development tooling separately.
+Release and rehearsal diagnostics retain stage statuses, vulnerability IDs, package versions and npm counts. Raw scanner JSON, image history, scanner matches, Docker credentials and release notes are excluded from the diagnostic artifacts. Production audit findings, image secrets and all image CRITICAL findings outside the temporary Bookworm policy block publication. Use the full dependency audit to track advisories in development tooling separately.
 
 ## Build inputs and artifacts
 
@@ -50,3 +50,11 @@ gh attestation verify vpnshop.sh --repo skrskr7799-design/Vpnshop \
   --signer-workflow skrskr7799-design/Vpnshop/.github/workflows/release-images.yml \
   --source-ref refs/heads/main --deny-self-hosted-runners
 ```
+
+### Temporary Bookworm risk policy
+
+The v2.0.0 database stays on PostgreSQL 17 and Debian Bookworm. Three exact Debian CVE, package and installed-version combinations can pass the gate only in the Linux amd64 `db` and `backup` images. This approval expires at **2027-05-27 00:00 UTC**. Trivy keeps the findings at CRITICAL and the gate reports them individually as accepted risk.
+
+Each release and rehearsal scans with a fresh Trivy cache. An exception requires advisory data issued within the last seven days with the known Debian status and no reported fixed version. It also requires the installed version to match the newest version in the live, signed Debian Bookworm, updates and security indexes. A changed package version, fix in Trivy, unexpected status, stale data or failure to verify the signed indexes blocks the exception. Packages are checked in a disposable unprivileged container without changing the pinned build inputs. All unrelated CRITICAL findings continue to block.
+
+When a fix becomes available, refresh the pinned PostgreSQL base or Bookworm snapshot as appropriate, rebuild the affected images, confirm the findings are gone, and rerun PITR and the release rehearsal. See the [release audit](V2_RELEASE_SECURITY_AUDIT.md) for the exact entries and residual risks.

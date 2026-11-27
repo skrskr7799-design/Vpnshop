@@ -44,10 +44,12 @@ scan_image() {
     --db-repository ghcr.io/aquasecurity/trivy-db:2 \
     --java-db-repository ghcr.io/aquasecurity/trivy-java-db:1 --disable-telemetry --timeout 5m "$@"
 }
-critical=0
+blocking_critical=0
 secret_count=0
 scan_failed=0
 findings='{}'
+: > "$tmp/bookworm-versions"
+bookworm_checked=false
 record_blocked() {
   scan_failed=1
   findings=$(jq -c --arg name "$1" --arg stage "$2" \
@@ -94,7 +96,26 @@ for image in application migrator web admin edge db backup prometheus alertmanag
                else (.FixedVersion|safe("^[a-zA-Z0-9:_.+~!, -]{1,256}$")) end),
         status:(.Status|safe("^[a-z_]{1,32}$"))}]
     ' "$tmp/result.json" > "$output/$image.vulnerabilities.json"
-    c=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' "$tmp/result.json")
+    if [[ "$bookworm_checked" == false && ( "$image" == db || "$image" == backup ) ]] &&
+       jq -e 'any(.Results[]?.Vulnerabilities[]?; .Severity == "CRITICAL")' "$tmp/result.json" >/dev/null; then
+      bookworm_checked=true
+      if docker run --rm -i --user 999:999 --read-only --tmpfs /tmp:rw,nosuid,nodev,mode=1777,size=192m \
+          --cap-drop ALL --security-opt no-new-privileges \
+          --entrypoint /bin/sh "mzt-ci-db:$revision" -s < ops/scripts/release-bookworm-versions.sh > "$tmp/bookworm-versions.pending"; then
+        mv "$tmp/bookworm-versions.pending" "$tmp/bookworm-versions"
+      else
+        printf 'Live signed Bookworm package indexes unavailable. Exceptions cannot apply.\n' >&2
+      fi
+    fi
+    if ! python3 -B ops/scripts/release_risk_policy.py "$image" "$tmp/result.json" "$tmp/cache/db/metadata.json" "$tmp/bookworm-versions" \
+        > "$output/$image.risk-policy.json"; then
+      record_blocked "$image" risk-policy
+      rm -f "$output/$image.risk-policy.json" "$tmp/image.tar" "$tmp/result.json" "$tmp/sbom.json" "$tmp/image-history.ndjson" "$tmp/image-gitleaks.json"
+      continue
+    fi
+    c=$(jq '.critical' "$output/$image.risk-policy.json")
+    a=$(jq '.acceptedCritical' "$output/$image.risk-policy.json")
+    b=$(jq '.blockingCritical' "$output/$image.risk-policy.json")
     h=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH")] | length' "$tmp/result.json")
     s=$(jq '[.Results[]?.Secrets[]?] | length' "$tmp/result.json")
     if (( c )) && [[ "${GITHUB_ACTIONS:-}" == true ]]; then
@@ -123,16 +144,24 @@ for image in application migrator web admin edge db backup prometheus alertmanag
         printf '::notice title=Redacted secret locations for %s::%s\n' "$image" "$(cat "$output/$image.secret-locations.json")"
       fi
     fi
-    critical=$((critical+c)); secret_count=$((secret_count+s))
-    if (( c || s )); then image_status=FAIL; fi
-    findings=$(jq -c --arg name "$image" --arg ref "$ref" --arg status "$image_status" --argjson critical "$c" --argjson high "$h" --argjson secrets "$s" \
-      '. + {($name): {status:$status,ref:$ref,critical:$critical,high:$high,secrets:$secrets}}' <<<"$findings")
+    blocking_critical=$((blocking_critical+b)); secret_count=$((secret_count+s))
+    if (( b || s )); then
+      image_status=FAIL
+    elif (( a )); then
+      image_status=ACCEPTED_RISK
+    fi
+    if (( a )) && [[ "${GITHUB_ACTIONS:-}" == true ]]; then
+      printf '::warning title=Temporary CRITICAL risk accepted in %s::%s\n' "$image" \
+        "$(jq -c '{expiresAt,acceptances}' "$output/$image.risk-policy.json")"
+    fi
+    findings=$(jq -c --arg name "$image" --arg ref "$ref" --arg status "$image_status" --argjson critical "$c" --argjson accepted "$a" --argjson blocking "$b" --argjson high "$h" --argjson secrets "$s" \
+      '. + {($name): {status:$status,ref:$ref,critical:$critical,acceptedCritical:$accepted,blockingCritical:$blocking,high:$high,secrets:$secrets}}' <<<"$findings")
   else
     record_blocked "$image" scan
   fi
   rm -f "$tmp/image.tar" "$tmp/result.json" "$tmp/sbom.json" "$tmp/image-history.ndjson" "$tmp/image-gitleaks.json"
 done
-if (( critical || secret_count || scan_failed )); then decision=1; fi
+if (( blocking_critical || secret_count || scan_failed )); then decision=1; fi
 jq -n --arg sha "$revision" --argjson git "$git_result" --argjson npm "$audit_result" --argjson all "$audit_all_result" \
   --argjson images "$findings" --argjson decision "$decision" \
   '{gitSha:$sha,gitleaksExit:$git,npmProductionExit:$npm,npmAllExit:$all,images:$images,failed:($decision!=0)}' > "$output/scan-gates.json"

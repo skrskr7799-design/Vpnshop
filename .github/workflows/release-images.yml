@@ -89,6 +89,7 @@ jobs:
       - name: Publish verified images and assemble deploy bundle
         id: bundle
         run: |
+          python3 ops/scripts/release_risk_policy.py verify-publication-window "$RUNNER_TEMP/mzt-release-scans/scan-gates.json"
           python3 ops/scripts/v2_release.py finalize "$RUNNER_TEMP/vpnshop-plan.json" "$RELEASE_VERSION" \
             "$RUNNER_TEMP/vpnshop-notes.json" "$RUNNER_TEMP/vpnshop-release"
       - name: Attest the archive and standalone launcher
@@ -101,6 +102,7 @@ jobs:
       - name: Verify provenance and publish immutable release assets
         id: publish
         run: |
+          python3 ops/scripts/release_risk_policy.py verify-publication-window "$RUNNER_TEMP/mzt-release-scans/scan-gates.json"
           args=()
           if [[ "$RESUME_RELEASE" == true ]]; then args+=(--resume); fi
           python3 ops/scripts/v2_publish.py publish "$RELEASE_VERSION" "$RUNNER_TEMP/vpnshop-release" "${args[@]}"
@@ -120,6 +122,7 @@ jobs:
             ${{ runner.temp }}/mzt-release-scans/stages.txt
             ${{ runner.temp }}/mzt-release-scans/scan-gates.json
             ${{ runner.temp }}/mzt-release-scans/*.vulnerabilities.json
+            ${{ runner.temp }}/mzt-release-scans/*.risk-policy.json
             ${{ runner.temp }}/mzt-release-scans/npm-production.json
             ${{ runner.temp }}/mzt-release-scans/npm-all.json
           if-no-files-found: warn

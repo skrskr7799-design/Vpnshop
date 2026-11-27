@@ -33,6 +33,7 @@ jobs:
         run: |
           python3 ops/scripts/test_v2_release.py -v
           python3 ops/scripts/test_release_rehearsal.py -v
+          python3 ops/scripts/test_release_risk_policy.py -v
       - name: Build all seven images from the release worktree
         id: build
         run: |
@@ -65,6 +66,7 @@ jobs:
             ${{ runner.temp }}/mzt-release-scans/stages.txt
             ${{ runner.temp }}/mzt-release-scans/scan-gates.json
             ${{ runner.temp }}/mzt-release-scans/*.vulnerabilities.json
+            ${{ runner.temp }}/mzt-release-scans/*.risk-policy.json
             ${{ runner.temp }}/mzt-release-scans/npm-production.json
             ${{ runner.temp }}/mzt-release-scans/npm-all.json
           if-no-files-found: error
