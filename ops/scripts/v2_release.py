@@ -23,8 +23,8 @@ def run(args, check=True, **kwargs):
     return subprocess.run(args, check=check, text=True, **kwargs)
 
 
-def git(*args):
-    return run(["git", *args], cwd=ROOT, capture_output=True).stdout.strip()
+def git(*args, **kwargs):
+    return run(["git", *args], cwd=ROOT, capture_output=True, **kwargs).stdout.strip()
 
 
 def tracked(root):
@@ -288,6 +288,19 @@ def production():
     return sha
 
 
+def build_images(sha, images):
+    with tempfile.TemporaryDirectory() as directory:
+        context = Path(directory) / "source"
+        # The private parent protects the worktree on the host. Git must still
+        # create source files that an unprivileged runtime UID can read after COPY.
+        git("worktree", "add", "--detach", str(context), sha, umask=0o022)
+        try:
+            run(["bash", "ops/scripts/build.sh", "mzt-ci", *images], cwd=context,
+                env=os.environ | {"MZT_BUILD_PLATFORM": PLATFORM})
+        finally:
+            git("worktree", "remove", "--force", str(context))
+
+
 def prepare_plan(prior, output, refresh):
     sha = production()
     current = fingerprints()
@@ -301,14 +314,7 @@ def prepare_plan(prior, output, refresh):
         run(["docker", "tag", item["reference"], f"mzt-ci-{name}:{sha}"])
     changed = sorted(current.keys() - selected.keys())
     if changed:
-        with tempfile.TemporaryDirectory() as directory:
-            context = Path(directory) / "source"
-            git("worktree", "add", "--detach", str(context), sha)
-            try:
-                run(["bash", "ops/scripts/build.sh", "mzt-ci", *changed], cwd=context,
-                    env=os.environ | {"MZT_BUILD_PLATFORM": PLATFORM})
-            finally:
-                git("worktree", "remove", "--force", str(context))
+        build_images(sha, changed)
     content = {"source": sha, "current": current, "reused": selected, "prior_history": old_history,
                "prior_source": f"{prior} {old_sha}" if old_sha else None}
     atomic(output, json.dumps(content).encode())
@@ -339,6 +345,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("fingerprints")
+    commands.add_parser("build-candidate", help="Build local images from the release worktree without publishing")
     app = commands.add_parser("launcher")
     app.add_argument("output", type=Path)
     app = commands.add_parser("candidate")
@@ -355,6 +362,8 @@ def main():
     args = parser.parse_args()
     if args.command == "fingerprints":
         print(json.dumps(fingerprints(), indent=2))
+    elif args.command == "build-candidate":
+        build_images(git("rev-parse", "HEAD"), IMAGE_KEYS)
     elif args.command == "launcher":
         launcher(args.output)
     elif args.command == "candidate":

@@ -4,6 +4,7 @@ import io
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import tarfile
 import tempfile
@@ -41,6 +42,34 @@ class ReleaseFixtures(unittest.TestCase):
 
 
 class ReleaseTests(ReleaseFixtures):
+    def test_release_build_context_preserves_runtime_readability_under_private_umask(self):
+        sha = release.git("rev-parse", "HEAD")
+        run = release.run
+        contexts = []
+
+        def check_build(args, **kwargs):
+            if args[0] != "bash":
+                return run(args, **kwargs)
+            context = kwargs["cwd"]
+            contexts.append(context)
+            self.assertEqual(args, ["bash", "ops/scripts/build.sh", "mzt-ci", "migrator"])
+            self.assertEqual(stat.S_IMODE(context.parent.stat().st_mode), 0o700)
+            for path, mode in (("pnpm-workspace.yaml", 0o644), ("apps/api/prisma/schema.prisma", 0o644),
+                               ("apps/api/prisma", 0o755), ("ops/scripts/build.sh", 0o755)):
+                self.assertEqual(stat.S_IMODE((context / path).stat().st_mode), mode, path)
+            private = context.parent / "runner-output"
+            private.touch()
+            self.assertEqual(stat.S_IMODE(private.stat().st_mode), 0o600)
+
+        previous = os.umask(0o077)
+        try:
+            with patch.object(release, "run", side_effect=check_build):
+                release.build_images(sha, ["migrator"])
+        finally:
+            os.umask(previous)
+        self.assertEqual(len(contexts), 1)
+        self.assertFalse(contexts[0].exists())
+
     def test_build_graph_invalidates_only_relevant_targets(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
