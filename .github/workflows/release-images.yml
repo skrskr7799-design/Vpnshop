@@ -41,6 +41,7 @@ jobs:
       id-token: write
       attestations: write
     env:
+      PYTHONDONTWRITEBYTECODE: "1"
       GH_TOKEN: ${{ github.token }}
       RELEASE_VERSION: ${{ inputs.version }}
       PREVIOUS_RELEASE: ${{ inputs.previous }}
