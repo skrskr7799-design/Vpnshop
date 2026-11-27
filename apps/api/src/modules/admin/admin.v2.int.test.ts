@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { staffUsernameSchema } from "@vpn/shared";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
@@ -20,6 +20,7 @@ const temp = "initial-staff-fixture-23";
 const permanent = "replacement-fixture-34";
 const previousPolicy = env.ADMIN_2FA_POLICY;
 const previousMode = env.ADMIN_ACCESS_MODE;
+const previousMailKey = env.MAIL_QUEUE_KEY;
 let adminApp: FastifyInstance;
 let publicApp: FastifyInstance;
 beforeEach(async () => {
@@ -30,6 +31,7 @@ beforeEach(async () => {
 afterEach(async () => {
   env.ADMIN_2FA_POLICY = previousPolicy;
   env.ADMIN_ACCESS_MODE = previousMode;
+  env.MAIL_QUEUE_KEY = previousMailKey;
   await Promise.all([adminApp.close(), publicApp.close()]);
 });
 const local = { username: "first-owner", password: PASSWORD, correlationId: randomUUID() };
@@ -199,6 +201,39 @@ it("requires step-up for a permanent password change and invalidates customer se
   const oauth = await prisma.user.create({ data: { identities: { create: { provider: "GOOGLE", providerId: randomUUID() } } } });
   expect((await as(adminApp, admin.sessionToken).command("user.password.set", oauth.id, oauth.updatedAt.toISOString(),
     { password: permanent })).json().error.code).toBe("PASSWORD_NOT_CONFIGURED");
+});
+
+it("queues the same password recovery email with a shared budget and never creates an OAuth-only password", async () => {
+  const admin = await createEnrolledAdmin("operator@example.invalid");
+  const support = await createEnrolledAdmin("support@example.invalid", "SUPPORT");
+  const email = "recovery@example.invalid";
+  const user = await prisma.user.create({ data: { email, emailVerifiedAt: new Date(),
+    identities: { create: [
+      { provider: "EMAIL", providerId: email, passwordHash: await hashPassword(temp) },
+      { provider: "GOOGLE", providerId: randomUUID() },
+    ] } } });
+  const api = as(adminApp, admin.sessionToken);
+  const version = user.updatedAt.toISOString();
+  env.MAIL_QUEUE_KEY = undefined;
+  expect((await api.command("user.password.send_reset", user.id, version, {})).json().error.code).toBe("EMAIL_UNAVAILABLE");
+  env.MAIL_QUEUE_KEY = randomBytes(32).toString("base64");
+  expect((await direct(support.sessionToken, "user.password.send_reset", user.id, version, {})).statusCode).toBe(403);
+  for (let index = 0; index < 3; index++) {
+    const response = await api.command("user.password.send_reset", user.id, version, {});
+    expect(response.statusCode).toBe(200);
+    expect(response.json().result).toEqual({ id: user.id, resetQueued: true });
+  }
+  expect((await api.command("user.password.send_reset", user.id, version, {})).statusCode).toBe(429);
+  expect(await prisma.notificationOutbox.count()).toBe(3);
+  expect(await prisma.verificationToken.count({ where: { userId: user.id, type: "PASSWORD_RESET", usedAt: null } })).toBe(1);
+  const oauth = await prisma.user.create({ data: { email: "oauth@example.invalid", emailVerifiedAt: new Date(),
+    identities: { create: { provider: "TELEGRAM", providerId: randomUUID() } } } });
+  expect((await api.command("user.password.send_reset", oauth.id, oauth.updatedAt.toISOString(), {})).json().error.code)
+    .toBe("PASSWORD_NOT_CONFIGURED");
+  await prisma.user.update({ where: { id: user.id }, data: { emailVerifiedAt: null } });
+  const unverified = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+  expect((await api.command("user.password.send_reset", user.id, unverified.updatedAt.toISOString(), {})).json().error.code)
+    .toBe("PASSWORD_RESET_UNAVAILABLE");
 });
 
 it("distinguishes all policies and requires current factors for session and step-up", async () => {

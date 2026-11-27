@@ -175,7 +175,7 @@ export const storeCommands = {
     await ctx.db.authIdentity.update({ where: { id: credential.id },
       data: { passwordHash: await hashPassword(input.password), temporaryPasswordExpiresAt: null }, select: { id: true } });
     await invalidatePasswordResets(ctx.db, owner.id, ctx.now);
-    await ctx.db.identityProof.deleteMany({ where: { userId: owner.id } });
+    await ctx.db.identityProof.deleteMany({ where: { family: { userId: owner.id } } });
     await revokeAllUserSessions(owner.id, ctx.db);
     const updated = await ctx.db.user.update({ where: { id: owner.id },
       data: { updatedAt: new Date(Math.max(+ctx.now, +owner.updatedAt + 1)) }, select: { updatedAt: true } });

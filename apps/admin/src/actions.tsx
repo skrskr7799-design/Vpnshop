@@ -13,6 +13,9 @@ export function PlanCreate() {
 export function PlanActions({ plan, versions }: { plan: Row; versions: Row[] }) {
   const version = String(plan.revision);
   return <>
+    <Action title="Обновить черновик тарифа" operation="plan.update" permission="plans:write" target={plan.id} version={version}
+      fields={[{ name: "name", label: "Название", value: String(plan.name) },
+        { name: "deviceLimit", label: "Лимит устройств", type: "number", value: Number(plan.deviceLimit) }]} />
     {plan.isActive ? <Action title="Опубликовать предложение" operation="plan.publish" permission="plans:write" target={plan.id} version={version}
       baseline={body => {
         const offer = versions.find(row => !row.withdrawnAt && row.currency === body.currency && Number(row.durationMonths) === Number(body.durationMonths));

@@ -23,6 +23,7 @@ const fixtureSignInPassword = ["local", "test", "password"].join("-");
 const fixtureTemporary = ["fixture", "disposable", "2026"].join("-");
 const fixtureReplacement = ["fixture", "replacement", "2026"].join("-");
 const visitedStaffOperations = [];
+let stepUps = 0;
 const customer = { activation: "PENDING", emailVerified: false, id: "id-customer", email: "p•••@example.invalid", status: "ACTIVE", createdAt: now };
 const plan = { id: "fixture-plan", name: "MZT Standard", code: "standard", revision: 1, deviceLimit: 5, isActive: true };
 const ticket = { id: "case-1", subject: "Уточнение по выдаче доступа", category: "DELIVERY", orderId: "order-1", status: "OPEN",
@@ -118,7 +119,9 @@ const server = createServer(async (req, res) => {
     { key: "worker", state: "STALE", observedAt: now, data: null, reasonCode: "WORKER_STALE" },
     { key: "panel", state: "UNAVAILABLE", observedAt: null, data: null, reasonCode: "PANEL_UNAVAILABLE" },
   ], alerts: [{ id: "panel", kind: "panel", reasonCode: "PANEL_UNAVAILABLE" }] });
-  if (path === "/api/users/id-customer") return json({ ...customer, right: "ACTIVE", subscription: null, version: now });
+  if (path === "/api/users/id-customer") return json({ ...customer, right: "ACTIVE", subscription: null, version: now,
+    identities: [{ provider: "EMAIL" }, { provider: "TELEGRAM" }],
+    ...(admin && { access: { hasPassword: true, mailAvailable: false, emailResetEligible: false } }) });
   if (path === "/api/users/id-customer/periods") return json(pages([{ id: "period-fixture-001", orderId: order.id, serial: 1,
     startAt: now, endAt: now, deviceLimit: 5 }]));
   if (path === "/api/plans") return json(pages([plan]));
@@ -135,13 +138,17 @@ const server = createServer(async (req, res) => {
     return res.writeHead(204).end();
   }
   if (path === "/api/auth/step-up") {
+    stepUps++;
     if (input.code !== "123456" || !permissions.includes(input.permission) || !admin) return json({ error: { code: "FORBIDDEN" } }, 403);
     return json({ confirmationId: "confirmation-test" });
   }
   if (path.startsWith("/api/commands/")) {
     const operation = path.split("/")[3];
-    if (["staff.create", "user.create", "user.activate", "staff.role"].includes(operation)) {
-      assert.equal(input.confirmationId, "confirmation-test");
+    if (["staff.create", "user.create", "user.activate", "staff.role", "support.reply", "user.password.set"].includes(operation)) {
+      if (["staff.role", "staff.create", "user.password.set"].includes(operation)) assert.equal(input.confirmationId, "confirmation-test");
+      else assert.equal(input.confirmationId, undefined);
+      if (operation !== "staff.role") assert.equal(input.reason, undefined);
+      if (operation === "user.create") assert.deepEqual(Object.keys(input.command), ["email"]);
       visitedStaffOperations.push(operation);
       return json({ commandId: operation + "-saved", result: { id: "fixture-committed" } });
     }
@@ -198,6 +205,14 @@ try {
       (!document.querySelector("dialog[open]") || node.closest("dialog[open]")))`;
     await until(`(() => { const control = ${target}; if (!control) return false; control.click(); return true; })()`);
   }
+  const submitRoutine = value => until(`(() => {
+    const section = [...document.querySelectorAll("details[open]")].find(node =>
+      node.querySelector("summary").textContent.trim() === ${JSON.stringify(value)});
+    const button = section?.querySelector('button[type="submit"]');
+    if (!button || button.disabled) return false;
+    button.click();
+    return true;
+  })()`);
   const fill = (name, value) => evaluate(`[...document.querySelectorAll('[name=' + ${JSON.stringify(name)} + ']')].find(node => node.checkVisibility()).value = ${JSON.stringify(value)}`);
   const menu = async value => {
     await evaluate('document.querySelector(`button[aria-label="Открыть меню"]`).click()');
@@ -264,8 +279,8 @@ try {
   await until(text("persisted-command"));
   assert.equal(commandCalls, 2);
   assert.equal(commandBody.command.amountMinor, 10000);
-  async function confirmIdentity() {
-    await fill("reason", "Проверка команды на стенде");
+  async function confirmIdentity(withReason = true) {
+    if (withReason) await fill("reason", "Проверка команды на стенде");
     await click("Проверить команду");
     await until(text("Свежий код TOTP"));
     assert.equal(await evaluate(text(fixtureTemporary)), false);
@@ -277,7 +292,7 @@ try {
   await click("Создать сотрудника");
   await fill("username", "new-employee");
   await fill("temporaryPassword", fixtureTemporary);
-  await confirmIdentity();
+  await confirmIdentity(false);
   await until(text("staff.create-saved"));
   await click(staff.username);
   await click("Изменить роль и завершить сессии");
@@ -286,19 +301,26 @@ try {
   await until(text("staff.role-saved"));
   await fit();
   await menu("Пользователи");
-  await click("Создать аккаунт пользователя");
+  const beforeRoutine = stepUps;
+  await click("Создать заявку клиента");
   await fill("email", "fixture-created@example.invalid");
-  await fill("temporaryPassword", fixtureTemporary);
-  await confirmIdentity();
+  await submitRoutine("Создать заявку клиента");
   await until(text("user.create-saved"));
   await click(customer.email);
+  await until(text("Email и пароль, Telegram"));
+  assert.ok(await evaluate(text("почтовая отправка отключена")));
   await click("Активировать аккаунт вручную");
-  await confirmIdentity();
+  await submitRoutine("Активировать аккаунт вручную");
   await until(text("user.activate-saved"));
+  assert.equal(stepUps, beforeRoutine);
+  await click("Установить новый пароль");
+  await fill("password", fixtureReplacement);
+  await confirmIdentity(false);
+  await until(text("user.password.set-saved"));
   await menu("Сессии");
   await click("Завершить остальные сессии");
   await until(text("Политика: Обязательна"));
-  assert.deepEqual(visitedStaffOperations, ["staff.create", "staff.role", "user.create", "user.activate", "revoke-others"]);
+  assert.deepEqual(visitedStaffOperations, ["staff.create", "staff.role", "user.create", "user.activate", "user.password.set", "revoke-others"]);
   await fit();
   await click("Выйти");
   await login("support@example.invalid");
@@ -307,7 +329,7 @@ try {
   assert.equal(await evaluate("Boolean(document.querySelector('nav a[href=\"/staff\"]'))"), false);
   await menu("Пользователи");
   await until(text(customer.email));
-  assert.equal(await evaluate(text("Создать аккаунт пользователя")), false);
+  assert.equal(await evaluate(text("Создать заявку клиента")), false);
   await send("Page.navigate", { url: origin + "/payments" });
   await until(text("Раздел закрыт"));
   await menu("Поддержка");
@@ -318,6 +340,12 @@ try {
   assert.equal(await evaluate(text("Ответить или изменить статус")), false);
   assert.ok(await evaluate(text("Ответить")));
   assert.equal(await evaluate(text("Назначить ответственного")), false);
+  const beforeReply = stepUps;
+  await click("Ответить");
+  await fill("publicReply", "Проверка ответа через рабочую форму");
+  await submitRoutine("Ответить");
+  await until(text("support.reply-saved"));
+  assert.equal(stepUps, beforeReply);
   await fit();
   assert.ok(requests.every(value => value.startsWith(origin) || value.startsWith("data:")));
   await click("Выйти");

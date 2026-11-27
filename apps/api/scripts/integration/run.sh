@@ -141,6 +141,35 @@ pnpm exec prisma migrate deploy
 pnpm exec prisma migrate deploy
 sql vpnshop_staff_legacy < scripts/integration/staff-v2-check.sql
 
+phase=v200-release-upgrade
+sql postgres <<< 'CREATE DATABASE vpnshop_v200 OWNER vpnshop_migrator'
+mkdir "$tmp/v200"
+git archive 594476766180425c08e7aeada6668bb4799207e2 apps/api/prisma | tar -x -C "$tmp/v200"
+export DATABASE_URL="$base/vpnshop_v200"
+pnpm exec prisma migrate deploy --schema "$tmp/v200/apps/api/prisma/schema.prisma"
+sql vpnshop_v200 <<'SQL'
+INSERT INTO "User" (id, role, "updatedAt") VALUES ('baseline-owner', 'OWNER', NOW());
+INSERT INTO "User" (id, email, "updatedAt") VALUES ('baseline-client','old@example.invalid', NOW());
+INSERT INTO "AuthIdentity" (id, "userId", provider, "providerId", "passwordHash")
+  VALUES ('baseline-identity','baseline-client','EMAIL','old@example.invalid','retained-fixture-hash');
+INSERT INTO "PendingRegistration" (id,email,"passwordHash","tokenHash","expiresAt")
+  VALUES ('baseline-claim','pending@example.invalid','pending-fixture-hash','retained-fixture-token', NOW() + INTERVAL '1 day');
+SQL
+pnpm exec prisma migrate deploy
+check_schema
+sql vpnshop_v200 <<'SQL'
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM "User" WHERE id = 'baseline-owner' AND role = 'OWNER') OR
+     NOT EXISTS (SELECT FROM "AuthIdentity" WHERE "userId" = 'baseline-client' AND "passwordHash" = 'retained-fixture-hash') OR
+     NOT EXISTS (SELECT FROM "PendingRegistration" WHERE id = 'baseline-claim' AND "passwordHash" = 'pending-fixture-hash'
+                 AND "tokenHash" = 'retained-fixture-token' AND "approvalHash" IS NULL) THEN
+    RAISE EXCEPTION 'V2.0.0 account or credential was changed during upgrade';
+  END IF;
+END
+$$;
+SQL
+
 export MAIL_TRANSPORT_ENABLED=true
 phase=suite-grants
 # Only the runtime schema is writable, with DML privileges on application tables.
