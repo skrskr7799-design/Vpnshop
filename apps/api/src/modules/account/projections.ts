@@ -6,6 +6,7 @@ import { AppError } from "../../lib/errors";
 import { dbNow } from "../commerce/offers";
 import { snapshot } from "../commerce/orders";
 import type { AssignmentPanel } from "../remnawave/remnawave.assignment";
+import { subscriptionLinkAllowed } from "../fulfillment/subscription-link-policy";
 import { driftIntervalMs } from "../fulfillment/revision.queue";
 
 const periodInclude = { adjustment: true, order: { include: { offerVersion: true } } } as const;
@@ -50,7 +51,7 @@ export async function subscriptionOverview(userId: string, panel?: AssignmentPan
       : rightStatus === "HELD" ? "HELD" : rightStatus === "EXPIRED" ? "EXPIRED" : rightStatus === "SCHEDULED" ? "SCHEDULED"
       : rightStatus === "EMPTY" ? "NOT_REQUESTED"
       : observationFresh && assignment?.enabled && assignment.grantId === active?.id ? "READY" : "WAITING";
-    return { serverTime, subscription: { id: sub.id, rightStatus, currentPeriod: active && periodDto(active),
+    return { serverTime, subscription: { id: sub.id, rightStatus, linkAllowed: await subscriptionLinkAllowed(db, userId), currentPeriod: active && periodDto(active),
       coverageEndsAt: end?.toISOString() ?? null, paidThroughAt: last ? boundary(last).toISOString() : null,
       nextBoundaryAt: sub.nextBoundaryAt?.toISOString() ?? null, delivery: {
         status: delivery, observedAt: observedAt?.toISOString() ?? null, observationFresh,

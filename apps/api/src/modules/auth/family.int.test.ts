@@ -17,6 +17,19 @@ afterEach(async () => { await app.close(); });
 const headers = { origin: env.WEB_ORIGIN };
 const access = (token: string) => app.inject({ url: "/api/auth/me", cookies: { vpn_at: token } });
 
+it("returns the login method from the live family and preserves it across refresh", async () => {
+  const user = await createUser();
+  const old = await createSession(user, {});
+  expect((await access(old.accessToken)).json().loginMethod).toBeNull();
+  const session = await createSession(user, { loginMethod: "TELEGRAM" });
+  expect((await access(session.accessToken)).json().loginMethod).toBe("telegram");
+  const refresh = await app.inject({ method: "POST", url: "/api/auth/refresh", headers,
+    cookies: { vpn_rt: session.refreshToken } });
+  expect(refresh.statusCode).toBe(204);
+  const next = refresh.cookies.find(cookie => cookie.name === "vpn_at")!.value;
+  expect((await access(next)).json().loginMethod).toBe("telegram");
+});
+
 it("isolates devices and rejects JWTs immediately after revoke, revoke others and logout", async () => {
   const user = await createUser();
   const first = await createSession(user, { userAgent: "Fixture device" });

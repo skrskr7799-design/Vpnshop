@@ -20,6 +20,7 @@ const emailToken = "synthetic-email-token";
 const user = { id: "synthetic-user", email: "test@example.invalid", role: "USER" };
 const sessionId = "synthetic-browser-session";
 let signedIn = true;
+let loginMethod = "email";
 let loginOutcome = "invalid";
 let loginRequests = 0;
 let checkoutKeys = [];
@@ -66,7 +67,7 @@ const server = createServer(async (req, res) => {
     availability: { registration: false, payments: false, support: false, maintenance: productState === "maintenance",
       google: false, telegram: false } });
   }
-  if (path === "/api/auth/me") return signedIn ? json({ user, sessionId }) : json({ error: { code: "UNAUTHENTICATED" } }, 401);
+  if (path === "/api/auth/me") return signedIn ? json({ user, sessionId, loginMethod }) : json({ error: { code: "UNAUTHENTICATED" } }, 401);
   if (path === "/api/auth/login") {
     req.resume();
     loginRequests++;
@@ -320,6 +321,10 @@ try {
   assert.equal(await evaluate("localStorage.getItem('mzt.last-sign-in-method')"), "email");
   assert.equal(await evaluate('Boolean(document.querySelector(".mz-maze-opening"))'), false);
   await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+  await send("Page.navigate", { url: origin + "/account?signed-in-with=google" });
+  await until("location.search === '' && Boolean(document.querySelector('.mzt-account'))");
+  assert.equal(await evaluate("localStorage.getItem('mzt.last-sign-in-method')"), "email");
+  loginMethod = "google";
   await send("Page.navigate", { url: origin + "/account?signed-in-with=google" });
   await until("location.search === '' && Boolean(document.querySelector('.mzt-account'))");
   assert.equal(await evaluate("localStorage.getItem('mzt.last-sign-in-method')"), "google");

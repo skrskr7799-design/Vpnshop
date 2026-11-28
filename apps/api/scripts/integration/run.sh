@@ -174,6 +174,39 @@ END
 $$;
 SQL
 
+phase=v201-release-upgrade
+sql postgres <<< 'CREATE DATABASE vpnshop_v201 OWNER vpnshop_migrator'
+mkdir "$tmp/v201"
+git -C ../.. archive 8849e848ea78d0bf5d6032fd34c184ebbc64d762 apps/api/prisma | tar -x -C "$tmp/v201"
+export DATABASE_URL="$base/vpnshop_v201"
+pnpm exec prisma migrate deploy --schema "$tmp/v201/apps/api/prisma/schema.prisma"
+sql vpnshop_v201 <<'SQL'
+INSERT INTO "User" (id,email,"updatedAt") VALUES ('v201-customer','v201@example.invalid',NOW());
+INSERT INTO "AuthIdentity" (id,"userId",provider,"providerId","verifiedAt")
+  VALUES ('v201-identity','v201-customer','GOOGLE','fixture-google-sub',NOW());
+INSERT INTO "SessionFamily" (id,"userId","expiresAt")
+  VALUES ('v201-family','v201-customer',NOW()+INTERVAL '1 day');
+INSERT INTO "AdminOperationalSettings" (id,version,"paymentLagWarnSeconds") VALUES ('default',5,300);
+SQL
+pnpm exec prisma migrate deploy
+check_schema
+sql vpnshop_v201 <<'SQL'
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM "User" u JOIN "SessionFamily" f ON f."userId" = u.id
+                 JOIN "AuthIdentity" i ON i."userId" = u.id
+                 WHERE u.id = 'v201-customer' AND u.email = 'v201@example.invalid'
+                   AND u."subscriptionLinkPolicy" = 'INHERIT' AND f.id = 'v201-family'
+                   AND f."loginMethod" IS NULL AND f."revokedAt" IS NULL
+                   AND i."providerId" = 'fixture-google-sub' AND i."verifiedAt" IS NOT NULL) OR
+     NOT EXISTS (SELECT FROM "AdminOperationalSettings" WHERE id = 'default' AND version = 5
+                 AND "paymentLagWarnSeconds" = 300 AND "subscriptionLinkAllowed") THEN
+    RAISE EXCEPTION 'V2.0.1 session, identity or operator settings changed during upgrade';
+  END IF;
+END
+$$;
+SQL
+
 export MAIL_TRANSPORT_ENABLED=true
 phase=suite-grants
 # Only the runtime schema is writable, with DML privileges on application tables.

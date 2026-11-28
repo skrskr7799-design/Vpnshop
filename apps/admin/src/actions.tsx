@@ -42,6 +42,12 @@ export function AccessActions({ row }: { row: Row }) {
       context={String(row.email ?? row.id)} />}
     <Action title={row.status === "BLOCKED" ? "Восстановить вход" : "Заблокировать вход"} operation="user.account_status"
       permission="users:write" target={row.id} version={String(row.version)} payload={{ status: row.status === "BLOCKED" ? "ACTIVE" : "BLOCKED" }} />
+    {typeof row.subscriptionLinkPolicy === "string" && <Action title="Изменить доступ к ссылке подписки"
+      operation="user.subscription_link_policy" permission="access:write" target={row.id} version={String(row.version)}
+      fields={[{ name: "policy", label: "Политика", options: [
+        { value: "INHERIT", label: "Наследовать настройку магазина" },
+        { value: "ALLOW", label: "Разрешить получение" }, { value: "DENY", label: "Запретить получение" },
+      ], value: row.subscriptionLinkPolicy }]} />}
     <Action title="Удержать VPN-доступ" operation="user.hold" permission="access:write" target={row.id} version={revision}
       fields={[{ name: "kind", label: "Основание", options: ["ADMIN", "FRAUD", "SERVICE_CONFLICT"] }]} />
     {subscription?.holds.filter(hold => !hold.releasedAt && String(hold.source ?? "").startsWith("staff:")).map(hold =>
@@ -166,8 +172,12 @@ export function Settings() {
 }
 function SettingsDetail() {
   const query = useAdmin<Row>("/operations/settings");
-  return <><h2>Пороги предупреждений</h2><RequestState state={query} />
+  return <><h2>Настройки магазина</h2><RequestState state={query} />
     {query.data && <><Facts data={query.data} />
+      <Action title="Изменить политику доступа к ссылкам" operation="settings.subscription_link_policy"
+        permission="settings:write" target="default" version={String(query.data.version)}
+        fields={[{ name: "allowed", label: "Разрешить выдачу ссылок по умолчанию", type: "checkbox",
+          value: String(query.data.subscriptionLinkAllowed === true) }]} />
       <Action title="Изменить пороги" operation="settings.update" permission="settings:write" target="default" version={String(query.data.version)}
         fields={[{ name: "fulfillmentLagWarnSeconds", label: "Задержка выдачи (сек)", type: "number", value: Number(query.data.fulfillmentLagWarnSeconds) },
           { name: "paymentLagWarnSeconds", label: "Задержка платежа (сек)", type: "number", value: Number(query.data.paymentLagWarnSeconds) }]} />

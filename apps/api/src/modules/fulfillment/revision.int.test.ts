@@ -264,6 +264,38 @@ it("checks ownership and revokes local links across multiple holds, enabling onl
   } finally { await app.close(); }
 });
 
+it("enforces global and overriding link policies and rechecks the policy after panel I/O", async () => {
+  await (await booking()).capture();
+  await tick();
+  const app = await buildApp({ panel: fixture.panel });
+  const { accessToken } = await createSession(user, {});
+  const link = () => app.inject({ method: "POST", url: "/api/me/subscription/access", headers: { origin: env.WEB_ORIGIN },
+    cookies: { vpn_at: accessToken }, payload: {} });
+  const setPolicy = (subscriptionLinkPolicy: "ALLOW" | "DENY" | "INHERIT") =>
+    prisma.user.update({ where: { id: user.id }, data: { subscriptionLinkPolicy } });
+  try {
+    await prisma.adminOperationalSettings.create({ data: { id: "default", subscriptionLinkAllowed: false } });
+    expect((await link()).json().error.code).toBe("SUBSCRIPTION_LINK_DISABLED");
+    expect(fixture.panel.getSubscriptionLink).not.toHaveBeenCalled();
+
+    await setPolicy("ALLOW");
+    expect((await link()).json()).toEqual({ subscriptionUrl: secret });
+    await prisma.adminOperationalSettings.update({ where: { id: "default" }, data: { subscriptionLinkAllowed: true } });
+    fixture.panel.getSubscriptionLink.mockImplementationOnce(async () => {
+      await setPolicy("DENY");
+      return { user: fixture.current!, url: secret };
+    });
+    const denied = await link();
+    expect(denied.statusCode).toBe(403);
+    expect(denied.headers["cache-control"]).toBe("private, no-store");
+    expect(denied.body).not.toContain(secret);
+    expect((await link()).statusCode).toBe(403);
+    expect(fixture.panel.getSubscriptionLink).toHaveBeenCalledTimes(2);
+    await setPolicy("INHERIT");
+    expect((await link()).statusCode).toBe(200);
+  } finally { await app.close(); }
+});
+
 it("projects the boundary and ignores an expired lease before issuing any HTTP", async () => {
   await (await booking()).capture();
   const job = (await claimRevision("old", 5000))!;

@@ -9,7 +9,7 @@ import type { Permission } from "../admin.permissions";
 type Execute = (req: FastifyRequest, operation: string, targetId: string) => Promise<unknown>;
 const uuid = z.uuid();
 const id = (req: FastifyRequest) => z.object({ id: uuid }).parse(req.params).id;
-const defaultSettings = { version: 0, fulfillmentLagWarnSeconds: 900, paymentLagWarnSeconds: 900 };
+const defaultSettings = { version: 0, subscriptionLinkAllowed: true, fulfillmentLagWarnSeconds: 900, paymentLagWarnSeconds: 900 };
 
 export function registerStoreRoutes(app: FastifyInstance, execute: Execute) {
   // Named routes and generic dispatch share the same auth, normalized command and audit.

@@ -261,7 +261,7 @@ export const oauthRoutes: FastifyPluginAsync<{ providers: ProviderMap }> = async
           provider: provider.authProvider, providerId: profile.providerId,
         } } });
         if (identity?.userId !== user.id) throw new AppError(403, "OAUTH_STATE");
-        return createSession(user, { ip: req.ip, userAgent: req.headers["user-agent"] }, db);
+        return createSession(user, { ip: req.ip, userAgent: req.headers["user-agent"], loginMethod: provider.authProvider }, db);
       });
       setAuthCookies(reply, tokens);
       return toWeb(reply, flow.returnTo ?? "/account", { "signed-in-with": provider.id });

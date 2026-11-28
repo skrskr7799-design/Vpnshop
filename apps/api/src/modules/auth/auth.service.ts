@@ -260,7 +260,7 @@ export async function login(
       throw new AppError(403, "TEMPORARY_PASSWORD");
     }
     if (owner.activationRequired) throw new AppError(403, "ACTIVATION_PENDING");
-    const tokens = await createSession(owner, { ip: ctx.ip, userAgent: ctx.userAgent }, db);
+    const tokens = await createSession(owner, { ip: ctx.ip, userAgent: ctx.userAgent, loginMethod: "EMAIL" }, db);
     return { user: toPublicUser(owner), ...tokens };
   });
 }

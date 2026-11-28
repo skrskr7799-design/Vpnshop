@@ -28,7 +28,8 @@ export function ConnectionCard({ compact = false }: { compact?: boolean }) {
   const requestRef = useRef<AbortController>(null);
   const revealButton = useRef<HTMLButtonElement>(null);
   const delivery = sub ? displayDelivery(sub) : null;
-  const ready = !query.isError && delivery === "READY" && sub?.rightStatus === "ACTIVE";
+  const allowed = sub?.linkAllowed !== false;
+  const ready = allowed && !query.isError && delivery === "READY" && sub?.rightStatus === "ACTIVE";
   const periodId = sub?.currentPeriod?.id;
   const visible = ready && revealed?.id === periodId ? revealed : null;
   useEffect(() => {
@@ -69,7 +70,7 @@ export function ConnectionCard({ compact = false }: { compact?: boolean }) {
         <div>
           <p className="mzt-connection__name">Ссылка подписки</p>
           {ready ? <p className="mz-muted">Для импорта в VPN-клиент</p>
-            : <p className="mz-muted">{sub?.rightStatus === "HELD" ? "Доступ приостановлен. Обратитесь в поддержку." :
+            : <p className="mz-muted">{!allowed ? "Получение ссылки отключено. По вопросам доступа обратитесь в поддержку." : sub?.rightStatus === "HELD" ? "Доступ приостановлен. Обратитесь в поддержку." :
               sub?.rightStatus === "EXPIRED" ? "Продлите подписку, чтобы получить данные подключения." :
               "Данные появятся после начала периода и подтверждения профиля панелью."}</p>}
           {!compact && sub?.delivery.observedAt && <p className="mz-muted">Последнее подтверждение {date(sub.delivery.observedAt)}</p>}

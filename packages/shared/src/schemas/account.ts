@@ -26,7 +26,7 @@ export const subscriptionSummarySchema = z.object({
   serverTime: z.iso.datetime(),
   subscription: z.object({
     id: z.string(), rightStatus: z.enum(["ACTIVE", "HELD", "SCHEDULED", "EXPIRED", "EMPTY", "LEGACY_REVIEW"]),
-    currentPeriod: periodSchema.nullable(),
+    currentPeriod: periodSchema.nullable(), linkAllowed: z.boolean().optional(),
     coverageEndsAt: z.iso.datetime().nullable(), paidThroughAt: z.iso.datetime().nullable(), nextBoundaryAt: z.iso.datetime().nullable(),
     delivery: z.object({ status: ownerOrderSummarySchema.shape.deliveryStatus, observedAt: z.iso.datetime().nullable(),
       observationFresh: z.boolean(), reasonCode: z.string().nullable() }),

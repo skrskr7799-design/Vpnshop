@@ -314,6 +314,30 @@ export const storeCommands = {
     const desired = await projectAssignment(ctx.db, subscription, now, "SERVICE_COMPENSATION", true);
     return { id: credit.id, startAt: startAt.toISOString(), endAt: credit.endAt.toISOString(), revision: desired.revision };
   }),
+  "user.subscription_link_policy": command("access:write", z.strictObject({
+    policy: z.enum(["INHERIT", "ALLOW", "DENY"]),
+  }), async (ctx, input) => {
+    const user = await lockIdentityOwner(ctx.db, versionTarget(ctx));
+    if (!user || user.role !== "USER") throw new AppError(404, "NOT_FOUND");
+    expectVersion(ctx.expectedVersion, user.updatedAt);
+    const updated = await ctx.db.user.update({
+      where: { id: user.id }, data: { subscriptionLinkPolicy: input.policy,
+        updatedAt: new Date(Math.max(+ctx.now, +user.updatedAt + 1)) },
+    });
+    return { id: user.id, previous: user.subscriptionLinkPolicy, policy: updated.subscriptionLinkPolicy,
+      version: updated.updatedAt.toISOString() };
+  }),
+  "settings.subscription_link_policy": command("settings:write", z.strictObject({ allowed: z.boolean() }), async (ctx, input) => {
+    if (ctx.targetId !== "default") throw new AppError(400, "INVALID_TARGET");
+    const id = "default";
+    const old = await ctx.db.adminOperationalSettings.findUnique({ where: { id } });
+    expectVersion(ctx.expectedVersion, old?.version ?? 0);
+    const current = await ctx.db.adminOperationalSettings.upsert({ where: { id },
+      create: { id, version: 1, subscriptionLinkAllowed: input.allowed },
+      update: { version: { increment: 1 }, subscriptionLinkAllowed: input.allowed },
+    });
+    return { previous: old?.subscriptionLinkAllowed ?? true, allowed: current.subscriptionLinkAllowed, version: current.version };
+  }),
   "settings.update": command("settings:write", z.strictObject({
     fulfillmentLagWarnSeconds: z.number().int().min(30).max(86_400),
     paymentLagWarnSeconds: z.number().int().min(30).max(86_400),

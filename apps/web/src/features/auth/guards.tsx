@@ -16,11 +16,14 @@ export function RequireAuth() {
   if (me.isError) return <PageStatus kind="error" onRetry={() => void me.refetch()} />;
   if (!me.data) return <Navigate to="/login" replace state={{ from: location }} />;
   const method = new URLSearchParams(location.search).get(oauthMethodParam);
-  if (method === "google" || method === "telegram") return <OAuthEntry key={location.key} method={method} />;
+  if (method !== null) {
+    const confirmed = me.data.loginMethod;
+    return <OAuthEntry key={location.key} method={method === confirmed && (confirmed === "google" || confirmed === "telegram") ? confirmed : undefined} />;
+  }
   return <Outlet key={me.data.sessionId} />;
 }
 
-function OAuthEntry({ method }: { method: "google" | "telegram" }) {
+function OAuthEntry({ method }: { method?: "google" | "telegram" }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [opening, setOpening] = useState(false);
@@ -32,9 +35,11 @@ function OAuthEntry({ method }: { method: "google" | "telegram" }) {
     const target = { pathname: location.pathname, search: query.toString(), hash: location.hash };
 
     void (async () => {
-      rememberEntryMethod(method);
-      const ready = await loadDashboard().then(() => true, () => false);
-      if (ready && !controller.signal.aborted) await playEntry(() => setOpening(true), controller.signal);
+      if (method) {
+        rememberEntryMethod(method);
+        const ready = await loadDashboard().then(() => true, () => false);
+        if (ready && !controller.signal.aborted) await playEntry(() => setOpening(true), controller.signal);
+      }
       if (!controller.signal.aborted) void navigate(target, { replace: true });
     })();
 

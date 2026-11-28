@@ -5,8 +5,11 @@ import { matchesProfile, type AssignmentPanel } from "../remnawave/remnawave.ass
 import { absoluteProfile } from "./revision.processor";
 import { bindingIdentityMatches, driftIntervalMs } from "./revision.queue";
 
+import { subscriptionLinkAllowed } from "./subscription-link-policy";
+
 async function accessTarget(userId: string, panel: AssignmentPanel) {
   return prisma.$transaction(async db => {
+    if (!await subscriptionLinkAllowed(db, userId)) throw new AppError(403, "SUBSCRIPTION_LINK_DISABLED");
     const now = await dbNow(db);
     const subscription = await db.subscription.findUnique({ where: { userId }, include: {
       panelBinding: true, holds: { where: { releasedAt: null }, select: { id: true }, take: 1 },

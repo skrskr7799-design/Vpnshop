@@ -198,7 +198,7 @@ describe("Google: вход", () => {
       email: "user@gmail.com",
       emailVerified: true,
     });
-    expect(createSession).toHaveBeenCalledOnce();
+    expect(createSession).toHaveBeenCalledExactlyOnceWith(expect.anything(), expect.objectContaining({ loginMethod: "GOOGLE" }), expect.anything());
 
     const setCookies = ([] as string[]).concat((res.headers["set-cookie"] as string[]) ?? []);
     expect(setCookies.some((c) => c.startsWith("vpn_at=AT") && c.includes("HttpOnly"))).toBe(true);

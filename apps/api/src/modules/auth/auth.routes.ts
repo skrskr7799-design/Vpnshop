@@ -132,6 +132,6 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   app.get("/me", { preHandler: authenticate }, async (req) => {
-    return { user: await getCurrentUser(req.auth!.userId), sessionId: req.auth!.sid };
+    return { user: await getCurrentUser(req.auth!.userId), sessionId: req.auth!.sid, loginMethod: req.auth!.loginMethod?.toLowerCase() ?? null };
   });
 }

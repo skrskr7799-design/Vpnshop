@@ -1,4 +1,4 @@
-import type { Prisma, User } from "@prisma/client";
+import type { AuthProvider, Prisma, User } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { generateToken, sha256 } from "../../lib/crypto";
 import { AppError } from "../../lib/errors";
@@ -6,7 +6,7 @@ import { prisma } from "../../lib/prisma";
 import { REFRESH_REUSE_GRACE_MS, REFRESH_TTL_MS } from "./auth.constants";
 import { signAccessToken, type AuthClaims } from "./jwt";
 
-export type SessionMeta = { ip?: string; userAgent?: string };
+export type SessionMeta = { ip?: string; userAgent?: string; loginMethod?: AuthProvider };
 export type IssuedTokens = { accessToken: string; refreshToken: string };
 type Db = Prisma.TransactionClient;
 
@@ -32,7 +32,7 @@ export async function createSession(user: { id: string }, meta: SessionMeta, db?
     const expiresAt = new Date(Date.now() + REFRESH_TTL_MS);
     const refreshToken = generateToken();
     const userAgent = meta.userAgent?.slice(0, 200);
-    await tx.sessionFamily.create({ data: { id: sid, userId: owner.id, expiresAt, userAgent } });
+    await tx.sessionFamily.create({ data: { id: sid, userId: owner.id, expiresAt, userAgent, loginMethod: meta.loginMethod } });
     await tx.session.create({ data: {
       userId: owner.id, familyId: sid, liveFamilyId: sid, tokenHash: sha256(refreshToken), expiresAt, userAgent, ip: meta.ip,
     } });

@@ -112,7 +112,14 @@ enum JobStatus {
 
 // ─────────────────────── Пользователи и вход ───────────────────────
 
+enum SubscriptionLinkPolicy {
+  INHERIT
+  ALLOW
+  DENY
+}
+
 model User {
+  subscriptionLinkPolicy SubscriptionLinkPolicy @default(INHERIT)
   id              String     @id @default(uuid())
   email           String?    @unique // lowercase, владение определяется emailVerifiedAt
   emailVerifiedAt DateTime?
@@ -712,6 +719,7 @@ model PanelObservation {
 }
 
 model SessionFamily {
+  loginMethod AuthProvider?
   id         String @id
   userId     String
   userAgent  String?
@@ -975,6 +983,7 @@ model RefundIntent {
 }
 
 model AdminOperationalSettings {
+  subscriptionLinkAllowed Boolean @default(true)
   twoFactorPolicy String?
   id                       String @id
   version                  Int @default(0)

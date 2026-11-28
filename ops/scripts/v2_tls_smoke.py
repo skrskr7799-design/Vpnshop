@@ -21,6 +21,10 @@ BASE = next(line.split()[1] for line in (OPS.parent / "Dockerfile").read_text().
 NODE = "node:24.22.3-trixie-slim@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0"
 STUB = """require('node:http').createServer((req, res) => {
   res.setHeader('content-type', 'application/json');
+  if (['/api/auth/me', '/api/me/subscription/access'].includes(req.url)) {
+    res.setHeader('cache-control', 'private, no-store');
+    return res.end(JSON.stringify({subject: req.headers.cookie}));
+  }
   const restriction = {
     '/api/orders/disabled': 'PAYMENTS_DISABLED',
     '/api/auth/register/maintenance': 'MAINTENANCE_MODE',
@@ -49,12 +53,14 @@ class TLSConnection(http.client.HTTPSConnection):
                                               server_hostname=self.host)
 
 
-def request(context, host, port, path, headers=None):
+def request(context, host, port, path, headers=None, *, method="GET", with_headers=False):
     conn = TLSConnection(host, port, context=context, timeout=5)
     try:
-        conn.request("GET", path, headers={"Host": host} | (headers or {}))
+        conn.request(method, path, headers={"Host": host} | (headers or {}))
         reply = conn.getresponse()
         body = reply.read()
+        if with_headers:
+            return reply.status, body, reply.headers
         return reply.status, body
     finally:
         conn.close()
@@ -166,6 +172,16 @@ USER 101:101
                                    ("/api/me/support/disabled", "SUPPORT_DISABLED")):
                 status, payload = request(context, "shop.example.test", port(proxy), path)
                 assert status == 503 and json.loads(payload) == {"error": {"code": expected}}
+        for proxy in (private, public):
+            for path, method in (("/api/auth/me", "GET"), ("/api/me/subscription/access", "POST")):
+                for identity in ("fixture-first", "fixture-second", "fixture-first"):
+                    status, payload, response_headers = request(
+                        context, "shop.example.test", port(proxy), path, {"Cookie": "session=" + identity},
+                        method=method, with_headers=True,
+                    )
+                    assert status == 200 and json.loads(payload) == {"subject": "session=" + identity}
+                    assert response_headers["Cache-Control"] == "private, no-store"
+                    assert response_headers.get("Age") is None
         for path in ("/api/auth/oauth/google/callback?code=only-local", "/webhooks/platega/test-only"):
             code, payload = request(context, "shop.example.test", port(public), path,
                                     {"X-Forwarded-For": "203.0.113.39", "X-MZT-Edge-Client-IP": "203.0.113.39",

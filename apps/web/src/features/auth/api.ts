@@ -9,7 +9,7 @@ import type {
 import { ApiError } from "../../api/ApiError";
 import { bindPrivateSession, request } from "../../api/client";
 
-export type SessionUser = PublicUser & { sessionId: string };
+export type SessionUser = PublicUser & { sessionId: string; loginMethod?: "email" | "google" | "telegram" | null };
 const logoutMarker = "mzt.logout-unconfirmed";
 let localLogout = false;
 export function logoutHidden() {
@@ -56,9 +56,9 @@ export const authApi = {
 export async function fetchMe(signal?: AbortSignal): Promise<SessionUser | null> {
   if (logoutHidden()) return null;
   try {
-    const { user, sessionId } = await request<{ user: PublicUser; sessionId: string }>("/auth/me", { signal });
+    const { user, sessionId, loginMethod } = await request<{ user: PublicUser; sessionId: string; loginMethod?: SessionUser["loginMethod"] }>("/auth/me", { signal });
     if (sessionId) bindPrivateSession(sessionId);
-    return { ...user, sessionId };
+    return { ...user, sessionId, loginMethod };
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) return null;
     throw err;

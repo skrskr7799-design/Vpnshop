@@ -122,6 +122,24 @@ it("finds customers by exact credential and business references without extendin
     headers: { origin: env.ADMIN_ORIGIN } })).statusCode).toBe(401);
 });
 
+it("version-checks and audits global and individual subscription link preferences behind access permissions", async () => {
+  const customer = await createUser();
+  const global = await api.command("settings.subscription_link_policy", "default", 0, { allowed: false });
+  expect(global.statusCode).toBe(200);
+  expect((await api.get("/api/operations/settings")).json()).toMatchObject({ version: 1, subscriptionLinkAllowed: false });
+  expect((await api.command("settings.subscription_link_policy", "default", 0, { allowed: true })).json().error.code).toBe("VERSION_CONFLICT");
+
+  const operation = "user.subscription_link_policy";
+  const input = { expectedVersion: customer.updatedAt.toISOString(), command: { policy: "ALLOW" }, reason: "Fixture access review" };
+  expect((await supportApi.command(operation, customer.id, input.expectedVersion, input.command)).statusCode).toBe(403);
+  expect((await api.post("/api/commands/" + operation + "/" + customer.id, input)).statusCode).toBe(400);
+  const { statusCode } = await api.command(operation, customer.id, input.expectedVersion, input.command);
+  expect(statusCode).toBe(200);
+  expect((await api.get("/api/users/" + customer.id)).json().subscriptionLinkPolicy).toBe("ALLOW");
+  expect((await supportApi.get("/api/users/" + customer.id)).json()).not.toHaveProperty("subscriptionLinkPolicy");
+  expect(await prisma.auditLog.count({ where: { action: operation, entityId: customer.id } })).toBe(1);
+});
+
 it("paginates 1001 users with timestamp ties, stable cursors and filter isolation", async () => {
   const createdAt = new Date("2026-01-01T00:00:00Z");
   await prisma.user.createMany({ data: Array.from({ length: 1001 }, (_, i) => ({
