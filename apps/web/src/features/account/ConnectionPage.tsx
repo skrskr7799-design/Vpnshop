@@ -3,7 +3,7 @@ import qrcode from "qrcode-generator";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { useProductConfig } from "../../config";
-import type { OwnerSubscription } from "@vpn/shared";
+import type { OwnerDevices, OwnerSubscription } from "@vpn/shared";
 import { request } from "../../api/client";
 import { date, displayDelivery, errorMessage, label, LoadState, useOwner } from "./account";
 
@@ -120,6 +120,31 @@ function detectedPlatform(): Platform {
   return "other";
 }
 
+function RegisteredDevices({ enabled }: { enabled: boolean }) {
+  const [open, setOpen] = useState(false);
+  const devices = useOwner<OwnerDevices>(enabled && open ? "/me/subscription/devices" : null);
+  if (!enabled) return null;
+  return <Card className="mzt-panel">
+    <h2 className="mzt-section-title"><Icon name="monitor" size={20} />Зарегистрированные устройства</h2>
+    <p className="mz-muted">Панель учитывает регистрации устройств. Список не показывает текущие VPN-подключения.</p>
+    <Button variant="secondary" aria-expanded={open} onClick={() => setOpen(!open)}>
+      {open ? "Скрыть устройства" : "Показать устройства"}
+    </Button>
+    {open && <>
+      <LoadState pending={devices.isPending} error={devices.error} retry={devices.refetch} />
+      {devices.data && <>
+        <p>{devices.data.total} {devices.data.limit ? `из ${devices.data.limit}` : "зарегистрировано"}</p>
+        {devices.data.items.length === 0 && <p>Зарегистрированных устройств пока нет.</p>}
+        <ul className="mzt-steps">{devices.data.items.map((item, index) => <li key={item.registeredAt + index}>
+          {item.model || item.platform || "Устройство"}{item.platform && item.model ? ` · ${item.platform}` : ""}
+          <p className="mz-muted">Добавлено {date(item.registeredAt)} · Запись обновлена {date(item.updatedAt)}</p>
+        </li>)}</ul>
+        {devices.data.items.length < devices.data.total && <p>Показаны доступные записи списка.</p>}
+      </>}
+    </>}
+  </Card>;
+}
+
 export function ConnectionPage() {
   const [platform, setPlatform] = useState(detectedPlatform);
   const selection = platforms[platform];
@@ -129,6 +154,7 @@ export function ConnectionPage() {
   const period = subscription && subscription.currentPeriod;
   return <><PageHeader title="Подключение" description="Добавьте подписку MZT в VPN-клиент." />
     <ConnectionCard />
+    <RegisteredDevices enabled={Boolean(subscription && displayDelivery(subscription) === "READY")} />
     {paymentsEnabled && subscription && ["ACTIVE", "EXPIRED"].includes(subscription.rightStatus) &&
       <Card className="mzt-panel"><h2 className="mzt-section-title"><Icon name="clock" size={20} />Продление</h2>
         {subscription.coverageEndsAt && <p>Доступ до {date(subscription.coverageEndsAt)}{period && ` · До ${period.deviceLimit} устройств`}</p>}

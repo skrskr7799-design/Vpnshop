@@ -38,6 +38,12 @@ export type OwnerOrderDetail = z.infer<typeof ownerOrderDetailSchema>;
 export type OwnerPeriod = z.infer<typeof periodSchema>;
 export const renewalPreviewSchema = z.strictObject({ estimatedEndAt: z.iso.datetime() });
 export type RenewalPreview = z.infer<typeof renewalPreviewSchema>;
+export const ownerDevicesSchema = z.strictObject({
+  total: z.number().int().nonnegative(), limit: z.number().int().nonnegative().nullable(),
+  items: z.array(z.strictObject({ platform: z.string().nullable(), model: z.string().nullable(),
+    registeredAt: z.iso.datetime(), updatedAt: z.iso.datetime() })),
+});
+export type OwnerDevices = z.infer<typeof ownerDevicesSchema>;
 export type OwnerSubscription = z.infer<typeof subscriptionSummarySchema>;
 export type OwnerPayment = Omit<z.infer<typeof paymentAttemptSchema>, "status" | "channel" | "expiresAt"> & {
   status: z.infer<typeof paymentAttemptSchema>["status"] | "LEGACY";

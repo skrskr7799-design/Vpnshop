@@ -7,9 +7,9 @@ import { bindingIdentityMatches, driftIntervalMs } from "./revision.queue";
 
 import { subscriptionLinkAllowed } from "./subscription-link-policy";
 
-async function accessTarget(userId: string, panel: AssignmentPanel) {
+async function accessTarget(userId: string, panel: AssignmentPanel, forLink = true) {
   return prisma.$transaction(async db => {
-    if (!await subscriptionLinkAllowed(db, userId)) throw new AppError(403, "SUBSCRIPTION_LINK_DISABLED");
+    if (forLink && !await subscriptionLinkAllowed(db, userId)) throw new AppError(403, "SUBSCRIPTION_LINK_DISABLED");
     const now = await dbNow(db);
     const subscription = await db.subscription.findUnique({ where: { userId }, include: {
       panelBinding: true, holds: { where: { releasedAt: null }, select: { id: true }, take: 1 },
@@ -50,4 +50,25 @@ export async function subscriptionLink(userId: string, panel?: AssignmentPanel) 
     throw new AppError(409, "ACCESS_NOT_READY");
   }
   return { subscriptionUrl: result.url };
+}
+
+export async function subscriptionDevices(userId: string, panel?: AssignmentPanel) {
+  if (!panel?.getUserDevices) throw new AppError(503, "DEVICES_UNAVAILABLE");
+  const before = await accessTarget(userId, panel, false);
+  const id = Number(before.binding.remoteUserId);
+  const remote = await panel.readBack(id).catch(() => { throw new AppError(503, "DEVICES_UNAVAILABLE"); });
+  if (!remote || !bindingIdentityMatches(before.binding, remote) || remote.status !== "ACTIVE" ||
+      !matchesProfile(remote, absoluteProfile(before.desired))) throw new AppError(409, "ACCESS_NOT_READY");
+  const result = await panel.getUserDevices(id).catch(() => { throw new AppError(503, "DEVICES_UNAVAILABLE"); });
+  const after = await accessTarget(userId, panel, false);
+  if (before.desired.id !== after.desired.id || !bindingIdentityMatches(after.binding, remote)) {
+    throw new AppError(409, "ACCESS_NOT_READY");
+  }
+  return {
+    total: result.total, limit: remote.deviceLimit,
+    items: result.devices.slice(0, 100).map(({ platform, deviceModel, createdAt, updatedAt }) => ({
+      platform: platform?.slice(0, 80) ?? null, model: deviceModel?.slice(0, 120) ?? null,
+      registeredAt: createdAt.toISOString(), updatedAt: updatedAt.toISOString(),
+    })),
+  };
 }

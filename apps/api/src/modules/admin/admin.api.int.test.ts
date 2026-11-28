@@ -132,7 +132,7 @@ it("version-checks and audits global and individual subscription link preference
   const operation = "user.subscription_link_policy";
   const input = { expectedVersion: customer.updatedAt.toISOString(), command: { policy: "ALLOW" }, reason: "Fixture access review" };
   expect((await supportApi.command(operation, customer.id, input.expectedVersion, input.command)).statusCode).toBe(403);
-  expect((await api.post("/api/commands/" + operation + "/" + customer.id, input)).statusCode).toBe(400);
+  expect((await api.post("/api/commands/" + operation + "/" + customer.id, input)).statusCode).toBe(403);
   const { statusCode } = await api.command(operation, customer.id, input.expectedVersion, input.command);
   expect(statusCode).toBe(200);
   expect((await api.get("/api/users/" + customer.id)).json().subscriptionLinkPolicy).toBe("ALLOW");

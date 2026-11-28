@@ -296,6 +296,32 @@ it("enforces global and overriding link policies and rechecks the policy after p
   } finally { await app.close(); }
 });
 
+it("lists only devices for the confirmed subscription owner without exposing HWIDs or VPN URLs", async () => {
+  await (await booking()).capture();
+  await tick();
+  const dates = { createdAt: new Date(), updatedAt: new Date() };
+  const getUserDevices = vi.fn(async () => ({ total: 1, devices: [
+    { userId: fixture.current!.id, deviceModel: "Synthetic", platform: "Android", hwid: "private-hwid", ...dates },
+  ] }));
+  const app = await buildApp({ panel: { ...fixture.panel, getUserDevices } });
+  const token = (await createSession(user, {})).accessToken;
+  const other = (await createSession(await createUser(), {})).accessToken;
+  const devices = (session: string) => app.inject({ url: "/api/me/subscription/devices", cookies: { vpn_at: session } });
+  try {
+    expect((await devices(other)).statusCode).toBe(409);
+    expect(getUserDevices).not.toHaveBeenCalled();
+    const result = await devices(token);
+    expect(result.json()).toMatchObject({ total: 1, limit: 5, items: [{ model: "Synthetic", platform: "Android" }] });
+    expect(result.body).not.toContain("private-hwid");
+    expect(result.body).not.toContain(secret);
+    expect(result.headers["cache-control"]).toBe("private, no-store");
+    expect(getUserDevices).toHaveBeenCalledExactlyOnceWith(fixture.current!.id);
+    fixture.change({ ...fixture.current!, marker: "foreign" });
+    expect((await devices(token)).statusCode).toBe(409);
+    expect(getUserDevices).toHaveBeenCalledTimes(1);
+  } finally { await app.close(); }
+});
+
 it("projects the boundary and ignores an expired lease before issuing any HTTP", async () => {
   await (await booking()).capture();
   const job = (await claimRevision("old", 5000))!;

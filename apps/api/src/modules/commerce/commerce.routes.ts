@@ -9,7 +9,7 @@ import { authenticate } from "../auth/authenticate";
 import { paymentOwnerRoutes } from "../payments/payments.routes";
 import type { PaymentProviderAdapter } from "../payments/provider";
 import { getCurrentUser } from "../auth/auth.service";
-import { subscriptionLink } from "../fulfillment/subscription-access";
+import { subscriptionDevices, subscriptionLink } from "../fulfillment/subscription-access";
 import type { AssignmentPanel } from "../remnawave/remnawave.assignment";
 import { computeTargetExpireAt } from "../remnawave/remnawave.dates";
 import { dbNow, requireCurrentOffer, toOffer } from "./offers";
@@ -59,6 +59,13 @@ export const commerceRoutes: FastifyPluginAsync<{ payments?: PaymentProviderAdap
     });
 
     orders.get("/me/subscription", req => subscriptionOverview(req.auth!.userId, panel));
+    orders.get("/me/subscription/devices", {
+      config: { rateLimit: { max: 12, timeWindow: "1 minute" } },
+    }, async req => {
+      const devices = await subscriptionDevices(req.auth!.userId, panel);
+      await requireLiveFamily(req.auth!);
+      return devices;
+    });
     orders.get("/me/subscription/renewal", async req => {
       const { offerVersionId } = checkoutBodySchema.parse(req.query);
       const userId = req.auth!.userId;

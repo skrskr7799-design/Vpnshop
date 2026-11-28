@@ -3,6 +3,7 @@ import {
   GetInternalSquadsCommand,
   GetMetadataCommand,
   GetUserByIdCommand,
+  GetUserHwidDevicesCommand,
   DisableUserCommand,
   EnableUserCommand,
   GetUserByUsernameCommand,
@@ -11,7 +12,7 @@ import {
 import { describe, expect, it } from "vitest";
 import { REMNAWAVE_ROUTES, toCreateBody, toUpdateBody } from "./remnawave.client";
 import { PANEL_USER } from "./remnawave.fixtures";
-import { remnawaveUserSchema } from "./remnawave.schemas";
+import { hwidDevicesResponseSchema, remnawaveUserSchema } from "./remnawave.schemas";
 import { remnawaveUsernameFor } from "./remnawave.username";
 
 // Сверка с ОФИЦИАЛЬНЫМ контрактом панели. Пакет @remnawave/backend-contract стоит как devDependency
@@ -33,6 +34,20 @@ describe("контракт Remnawave 3.4.17", () => {
     expect(CreateUserCommand.endpointDetails.REQUEST_METHOD.toLowerCase()).toBe("post");
     expect(UpdateUserCommand.endpointDetails.REQUEST_METHOD.toLowerCase()).toBe("patch");
     expect(GetUserByUsernameCommand.endpointDetails.REQUEST_METHOD.toLowerCase()).toBe("get");
+  });
+
+  it("matches the HWID route and projects only display-safe fields from the official response", () => {
+    expect(REMNAWAVE_ROUTES.userDevices(7)).toBe(GetUserHwidDevicesCommand.url("7"));
+    expect(GetUserHwidDevicesCommand.endpointDetails.REQUEST_METHOD.toLowerCase()).toBe("get");
+    const timestamp = "2026-11-01T10:00:00.000Z";
+    const source = { response: { total: 1, devices: [{
+      hwid: "synthetic-device", userId: 7, platform: "Android", osVersion: null, deviceModel: "Fixture",
+      userAgent: null, requestIp: null, createdAt: timestamp, updatedAt: timestamp,
+    }] } };
+    expect(GetUserHwidDevicesCommand.ResponseSchema.safeParse(source).success).toBe(true);
+    expect(hwidDevicesResponseSchema.parse(source).response.devices).toEqual([{
+      userId: 7, platform: "Android", deviceModel: "Fixture", createdAt: new Date(timestamp), updatedAt: new Date(timestamp),
+    }]);
   });
 
   it("тело создания пользователя проходит официальную валидацию", () => {

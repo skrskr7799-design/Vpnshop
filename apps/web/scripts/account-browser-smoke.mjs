@@ -107,6 +107,7 @@ const server = createServer(async (req, res) => {
   if (path === "/api/orders/order-smoke") return json(order);
   if (path === "/api/orders/order-smoke/payments") return json(page([{ id: "attempt-local", status: "UNKNOWN",
     updatedAt: now, confirmedCaptures: [] }]));
+  if (path === "/api/me/subscription/devices") return json({ total: 1, limit: 3, items: [{ platform: "Android", model: "Synthetic device", registeredAt: now, updatedAt: now }] });
   if (path === "/api/me/subscription/renewal") return json({ estimatedEndAt: later });
   if (path === "/api/me/subscription") {
     if (slowOverview) await delay(850);
@@ -255,6 +256,10 @@ try {
   await until(text("Chromium Smoke"));
   await menu("Подключение");
   await until(text("Показать ссылку и QR"));
+  await click("Показать устройства");
+  await until(text("Synthetic device"));
+  await fit();
+  await click("Скрыть устройства");
   await click("Показать ссылку и QR");
   await until('Boolean(document.querySelector("svg.mzt-qr path"))');
   await fit();

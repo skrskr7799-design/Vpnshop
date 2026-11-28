@@ -32,3 +32,14 @@ export const internalSquadsResponseSchema = envelope(
   z.object({ internalSquads: z.array(z.object({ uuid: z.string(), name: z.string() })) }),
 );
 export const metadataResponseSchema = envelope(z.object({ version: z.string() }));
+
+export const hwidDevicesResponseSchema = envelope(z.object({
+  total: z.number().int().nonnegative(),
+  devices: z.array(z.object({
+    userId: z.number().int().positive(),
+    platform: z.string().nullable(),
+    deviceModel: z.string().nullable(),
+    createdAt: isoDate,
+    updatedAt: isoDate,
+  })),
+}));

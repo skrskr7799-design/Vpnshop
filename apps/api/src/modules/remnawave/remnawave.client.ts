@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { RemnawaveError } from "./remnawave.errors";
 import {
+  hwidDevicesResponseSchema,
   internalSquadsResponseSchema,
   metadataResponseSchema,
   userResponseSchema,
@@ -17,6 +18,7 @@ export const REMNAWAVE_ROUTES = {
   userByUsername: (username: string) => `/api/users/by-username/${encodeURIComponent(username)}`,
   internalSquads: "/api/internal-squads/",
   metadata: "/api/system/metadata",
+  userDevices: (id: number) => `/api/hwid/devices/${id}`,
 } as const;
 
 export type RemnawaveClientConfig = {
@@ -108,6 +110,15 @@ export class RemnawaveClient {
       if (err instanceof RemnawaveError && err.kind === "not_found" && err.errorCode === "A063") return null;
       throw err;
     }
+  }
+
+  async getUserDevices(id: number) {
+    const { response } = await this.request({ method: "GET", path: REMNAWAVE_ROUTES.userDevices(id),
+      schema: hwidDevicesResponseSchema });
+    if (response.devices.some(device => device.userId !== id) || response.total < response.devices.length) {
+      throw new RemnawaveError("invalid_response", null, "Unexpected HWID device ownership or count");
+    }
+    return response;
   }
 
   async setEnabled(id: number, enabled: boolean): Promise<void> {

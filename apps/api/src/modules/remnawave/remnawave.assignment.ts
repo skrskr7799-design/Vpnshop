@@ -24,6 +24,7 @@ export interface AssignmentPanel {
   updateAbsoluteProfile(id: number, profile: AbsoluteProfile): Promise<void>;
   disableUser(id: number): Promise<void>;
   enableUser(id: number): Promise<void>;
+  getUserDevices?(id: number): ReturnType<RemnawaveClient["getUserDevices"]>;
   getSubscriptionLink(id: number): Promise<{ user: PanelUser; url: string } | null>;
 }
 
@@ -57,6 +58,7 @@ export function assignmentPanel(client: RemnawaveClient, installation: {
     },
     disableUser: id => client.setEnabled(id, false),
     enableUser: id => client.setEnabled(id, true),
+    getUserDevices: id => client.getUserDevices(id),
     async getSubscriptionLink(id) {
       const user = await client.getUserById(id);
       if (!user) return null;
