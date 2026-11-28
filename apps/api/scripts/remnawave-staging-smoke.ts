@@ -18,7 +18,8 @@ async function smoke() {
   async function inspectLink(url: string) {
     // URLs are already origin-validated by assignmentPanel. Never log the URL/body,
     // accept cross-origin redirects or forward the management token to the subscription host.
-    const response = await fetch(url, { redirect: "error", cache: "no-store", signal: AbortSignal.timeout(panel.timeoutMs) });
+    const response = await fetch(url, { redirect: "error", headers: { "Cache-Control": "no-cache, no-store" },
+      signal: AbortSignal.timeout(panel.timeoutMs) });
     await response.body?.cancel();
     return response.status;
   }
