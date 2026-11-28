@@ -19,6 +19,7 @@ export function serveAsset(req, res, mime, filename, body, { pwa = false } = {})
   } else res.end(body);
 }
 
+const snapshotWidths = [390, 768, 1440];
 const viewports = [320, 360, 375, 390, 428, 430, 768, 1024, 1440, 1920];
 const textExists = value => "Boolean(document.querySelector('main')?.innerText.includes(" + JSON.stringify(value) + "))";
 const monitor = `
@@ -66,6 +67,8 @@ export async function visualQa({ site, dist, send, evaluate, until, origin, scre
     })()`), `${site} ${screen.id} local square logo and usable home target`);
   }
 
+  const screenIndex = ["# Chromium · " + site, "", "Сборка приложения с синтетическими API-данными.", "",
+    "| Экран | Маршрут | Телефон | Планшет | Десктоп |", "| --- | --- | --- | --- | --- |"];
   for (const screen of screens) {
     for (const width of viewports) {
       await viewport(width, width < 768 ? 844 : screen.id === "login" ? 810 : 920);
@@ -88,13 +91,16 @@ export async function visualQa({ site, dist, send, evaluate, until, origin, scre
       assert.deepEqual(geometry.unlabeled, [], `${site} ${screen.id} field labels`);
       assert.deepEqual(geometry.narrow, [], `${site} ${screen.id} control targets`);
       metrics.responsive.push({ screen: screen.id, width });
-      if (width === 390 || width === 1440) {
+      if (snapshotWidths.includes(width)) {
         await evaluate("window.scrollTo(0,0)");
         await delay(200);
         const screenshot = await send("Page.captureScreenshot", { format: "png" });
         await writeFile(join(output, `${screen.id}-${width}.png`), Buffer.from(screenshot.data, "base64"));
       }
     }
+    const links = snapshotWidths.map(width => `[${width} px](${screen.id}-${width}.png)`);
+    screenIndex.push(`| ${screen.id} | \`${new URL(screen.path, origin).pathname}\` | ${links.join(" | ")} |`);
+    await writeFile(join(output, "INDEX.md"), screenIndex.join("\n") + "\n");
   }
 
   await viewport(390, 844);

@@ -429,6 +429,9 @@ try {
           await click("Продолжить");
           await click("У меня временный пароль");
           await until(text("Сменить пароль"));
+        } else if (screen.id === "connection") {
+          await click("Показать устройства");
+          await until(text("Synthetic device"));
         } else {
           await click("Выбрать");
           await until(text("Проверьте условия"));
@@ -454,7 +457,8 @@ try {
         { id: "order", path: "/account/orders/order-smoke", ready: "Попытки оплаты" },
         { id: "orders", path: "/account/orders", ready: offer.name },
         { id: "subscription", path: "/account/subscription", ready: "Состояние подписки" },
-        { id: "connection", path: "/account/connect", ready: "Показать ссылку и QR" },
+        { id: "connection", path: "/account/connect", ready: "Показать ссылку и QR", afterLoad: true },
+        { id: "notices", path: "/account/notices", ready: "Сервисное обновление" },
         { id: "support", path: "/account/support", ready: "Мои обращения" },
         { id: "support-thread", path: "/account/support/case-smoke", ready: "Можно уточнить?" },
         { id: "security", path: "/account/security", ready: "Chromium Smoke" },
