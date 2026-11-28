@@ -1,9 +1,12 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { stagingPanel } from "../src/config/staging-panel";
 import { matchesProfile } from "../src/modules/remnawave/remnawave.assignment";
 
 async function smoke() {
-  if (process.argv[2] !== "--execute-isolated") throw new Error("Explicit isolated staging execution required");
+  const [execution, rotation, ...extra] = process.argv.slice(2);
+  if (execution !== "--execute-isolated" || (rotation && rotation !== "--check-link-rotation") || extra.length) {
+    throw new Error("Explicit isolated staging execution required");
+  }
   const staging = stagingPanel(10_000);
   if (!staging) throw new Error("Staging mode required");
   const { panel, client, squads } = staging;
@@ -12,6 +15,13 @@ async function smoke() {
   const known = await client.listInternalSquads();
   if (squads.some(id => !known.some(squad => squad.uuid.toLowerCase() === id))) throw new Error("Unknown staging squad");
 
+  async function inspectLink(url: string) {
+    // URLs are already origin-validated by assignmentPanel. Never log the URL/body,
+    // accept cross-origin redirects or forward the management token to the subscription host.
+    const response = await fetch(url, { redirect: "error", cache: "no-store", signal: AbortSignal.timeout(panel.timeoutMs) });
+    await response.body?.cancel();
+    return response.status;
+  }
   const username = `stg_${randomUUID().replaceAll("-", "")}`;
   const marker = `vpnshop:${panel.instance}:smoke:${randomUUID()}`;
   if (await panel.findUser(username)) throw new Error("Smoke username is occupied");
@@ -43,6 +53,28 @@ async function smoke() {
     if (belongs(await panel.readBack(user.id))?.status !== "ACTIVE") throw new Error("Staging enable mismatch");
     const link = await panel.getSubscriptionLink(user.id);
     if (!link || !belongs(link.user)) throw new Error("Staging link mismatch");
+    if (rotation) {
+      const before = await client.getUserById(user.id);
+      if (!before || !belongs(link.user) || before.username !== username || before.description !== marker ||
+          await inspectLink(link.url) !== 200) throw new Error("Staging link was not usable before rotation");
+
+      // Persisted local application state would store only a digest of this value.
+      // The probe confirms by a fresh read, independently of the mutation's response.
+      const replacement = randomBytes(24).toString("base64url");
+      await client.revokeSubscriptionForStaging(user.id, replacement).catch(() => undefined);
+      const after = await client.getUserById(user.id);
+      const freshLink = await panel.getSubscriptionLink(user.id);
+      if (!after || after.shortUuid !== replacement || before.shortUuid === after.shortUuid ||
+          !freshLink || !belongs(freshLink.user) || !matchesProfile(freshLink.user, updated) ||
+          freshLink.user.status !== "ACTIVE" || freshLink.url === link.url) {
+        throw new Error("Staging link rotation could not be confirmed");
+      }
+      const oldStatus = await inspectLink(link.url);
+      if ((oldStatus !== 404 && oldStatus !== 410) || await inspectLink(freshLink.url) !== 200) {
+        throw new Error("Staging old/new link acceptance check failed");
+      }
+      console.log("Isolated rotation: old subscription link rejected and new link usable");
+    }
   } finally {
     await cleanup();
   }

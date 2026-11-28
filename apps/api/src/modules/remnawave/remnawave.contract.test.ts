@@ -6,6 +6,7 @@ import {
   GetUserHwidDevicesCommand,
   DisableUserCommand,
   EnableUserCommand,
+  RevokeUserSubscriptionCommand,
   GetUserByUsernameCommand,
   UpdateUserCommand,
 } from "@remnawave/backend-contract";
@@ -34,6 +35,14 @@ describe("контракт Remnawave 3.4.17", () => {
     expect(CreateUserCommand.endpointDetails.REQUEST_METHOD.toLowerCase()).toBe("post");
     expect(UpdateUserCommand.endpointDetails.REQUEST_METHOD.toLowerCase()).toBe("patch");
     expect(GetUserByUsernameCommand.endpointDetails.REQUEST_METHOD.toLowerCase()).toBe("get");
+  });
+
+  it("matches the official full rotation route and accepts a staged replacement ID", () => {
+    expect(REMNAWAVE_ROUTES.revokeSubscription(7)).toBe(RevokeUserSubscriptionCommand.url("7"));
+    expect(RevokeUserSubscriptionCommand.endpointDetails.REQUEST_METHOD.toLowerCase()).toBe("post");
+    expect(RevokeUserSubscriptionCommand.RequestBodySchema.safeParse({
+      shortUuid: "synthetic-replacement-id", revokeOnlyPasswords: false,
+    }).success).toBe(true);
   });
 
   it("matches the HWID route and projects only display-safe fields from the official response", () => {

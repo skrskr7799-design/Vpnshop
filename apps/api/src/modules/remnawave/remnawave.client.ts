@@ -18,6 +18,7 @@ export const REMNAWAVE_ROUTES = {
   userByUsername: (username: string) => `/api/users/by-username/${encodeURIComponent(username)}`,
   internalSquads: "/api/internal-squads/",
   metadata: "/api/system/metadata",
+  revokeSubscription: (id: number) => `/api/users/${id}/actions/revoke`,
   userDevices: (id: number) => `/api/hwid/devices/${id}`,
 } as const;
 
@@ -110,6 +111,12 @@ export class RemnawaveClient {
       if (err instanceof RemnawaveError && err.kind === "not_found" && err.errorCode === "A063") return null;
       throw err;
     }
+  }
+
+  async revokeSubscriptionForStaging(id: number, replacement: string): Promise<void> {
+    const shortUuid = z.string().regex(/^[A-Za-z0-9_-]{16,64}$/).parse(replacement);
+    await this.request({ method: "POST", path: REMNAWAVE_ROUTES.revokeSubscription(id),
+      schema: userResponseSchema, body: { shortUuid, revokeOnlyPasswords: false } });
   }
 
   async getUserDevices(id: number) {
