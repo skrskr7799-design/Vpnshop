@@ -206,7 +206,7 @@ try {
   async function click(value) {
     const target = `[...document.querySelectorAll("a,button,summary")].find(node =>
       node.textContent.trim() === ${JSON.stringify(value)} && node.checkVisibility() && !node.disabled &&
-      (!document.querySelector("dialog[open]") || node.closest("dialog[open]")))`;
+      (!document.querySelector("dialog[open]") || node.closest("dialog[open]") === [...document.querySelectorAll("dialog[open]")].at(-1)))`;
     await until(`(() => { const control = ${target}; if (!control) return false; control.click(); return true; })()`);
   }
   const submitRoutine = value => until(`(() => {
@@ -217,7 +217,7 @@ try {
     button.click();
     return true;
   })()`);
-  const fill = (name, value) => evaluate(`[...document.querySelectorAll('[name=' + ${JSON.stringify(name)} + ']')].find(node => node.checkVisibility() && (!document.querySelector('dialog[open]') || node.closest('dialog[open]'))).value = ${JSON.stringify(value)}`);
+  const fill = (name, value) => evaluate(`[...document.querySelectorAll('[name=' + ${JSON.stringify(name)} + ']')].find(node => node.checkVisibility() && (!document.querySelector('dialog[open]') || node.closest('dialog[open]') === [...document.querySelectorAll('dialog[open]')].at(-1))).value = ${JSON.stringify(value)}`);
   const menu = async value => {
     await evaluate('document.querySelector(`button[aria-label="Открыть меню"]`).click()');
     await until('Boolean(document.querySelector("dialog[open]"))');
@@ -339,6 +339,7 @@ try {
   await fill("password", fixtureReplacement);
   await confirmIdentity(false);
   await until(text("user.password.set-saved"));
+  await click("К списку");
   await menu("Сессии");
   await click("Завершить остальные сессии");
   await until(text("Политика: Обязательна"));
