@@ -60,12 +60,12 @@ async function smoke() {
 
       // Persisted local application state would store only a digest of this value.
       // The probe confirms by a fresh read, independently of the mutation's response.
-      const replacement = randomBytes(24).toString("base64url");
-      await client.revokeSubscriptionForStaging(user.id, replacement).catch(() => undefined);
+      const shortUuid = randomBytes(24).toString("base64url");
+      await client.revokeSubscriptionForStaging(user.id, shortUuid).catch(() => undefined);
       const after = await client.getUserById(user.id);
       const freshLink = await panel.getSubscriptionLink(user.id);
-      if (!after || after.shortUuid !== replacement || before.shortUuid === after.shortUuid ||
-          !freshLink || !belongs(freshLink.user) || !matchesProfile(freshLink.user, updated) ||
+      if (!after || after.shortUuid !== shortUuid || before.shortUuid === after.shortUuid ||
+          !freshLink || !belongs(freshLink.user) || !matchesProfile(freshLink.user, replacement) ||
           freshLink.user.status !== "ACTIVE" || freshLink.url === link.url) {
         throw new Error("Staging link rotation could not be confirmed");
       }
