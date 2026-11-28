@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import { overdueJobs, stuckPayments } from "../operational-filters";
+import { overdueJobs, registrationCohort, stuckPayments } from "../operational-filters";
 import { emailAvailable, env } from "../../../config/env";
 import { z } from "zod";
 import { AppError } from "../../../lib/errors";
@@ -86,7 +86,8 @@ export const adminDashboardRoutes: FastifyPluginAsync<DashboardDeps> = async (ap
       if (+from >= +to || +to - +from > 366 * DAY || to > asOf) throw new AppError(400, "INVALID_RANGE");
       const range = { gte: from, lt: to };
       const users = { total: await db.user.count({ where: { role: "USER", createdAt: { lte: asOf } } }),
-        new: await db.user.count({ where: { role: "USER", createdAt: range } }) };
+        new: await db.user.count({ where: registrationCohort(from, to) }),
+        ...(financeAllowed && { paidInWindow: await db.user.count({ where: registrationCohort(from, to, true) }) }) };
       const [subscriptions] = await db.$queryRaw<{ active: number; panelReady: number }[]>`
         SELECT COUNT(*)::int AS active,
           COUNT(*) FILTER (WHERE b."confirmedRevision" = s.revision AND j.status = 'CONFIRMED'

@@ -222,6 +222,7 @@ function FinanceSummary({ rows }: { rows: Record<string, unknown>[] }) {
 type MetricSource<T = unknown> = { state: string; observedAt: string | null; data: T | null; reasonCode?: string | null };
 type DashboardData = {
   asOf: string;
+  range?: { from: string; to: string };
   users?: MetricSource<Record<string, unknown>>;
   subscriptions?: MetricSource<Record<string, unknown>>;
   orders?: MetricSource<Record<string, unknown>>;
@@ -294,6 +295,23 @@ function RecentUsers() {
   </Card>;
 }
 
+function RegistrationConversion({ data }: { data: DashboardData }) {
+  const range = data.range;
+  const counts = data.users?.state === "FRESH" ? data.users.data : null;
+  if (!range || !counts || typeof counts.new !== "number" || typeof counts.paidInWindow !== "number") return null;
+  const filters = new URLSearchParams({ registeredFrom: range.from, registeredTo: range.to });
+  const converted = new URLSearchParams(filters);
+  converted.set("paidInWindow", "true");
+  return <section>
+    <h3>Регистрация → Оплата</h3>
+    <p className="admin-meta">Клиенты, зарегистрированные и оплатившие в одном периоде. Зачтённые оплаты учитываются один раз на клиента.</p>
+    <div className="mz-actions">
+      <Link to={"/users?" + filters}>Зарегистрировались · {counts.new}</Link>
+      <Link to={"/users?" + converted}>Оплатили · {counts.paidInWindow}</Link>
+    </div>
+  </section>;
+}
+
 export function Dashboard() {
   const query = useAdmin<DashboardData>("/dashboard", 30_000);
   const finance = useCan("finance:read");
@@ -324,6 +342,7 @@ export function Dashboard() {
             <DashboardSource title="Платежи" source={data.payments} />
             <DashboardSource title="Очередь выдачи" source={data.jobs} />
           </div>
+          {finance && <RegistrationConversion data={data} />}
           {movements?.data?.length && movements.state !== "UNAVAILABLE" ? <FinanceSummary rows={movements.data} /> : null}
         </Card>
         {services && <DashboardServices dashboard={data} />}

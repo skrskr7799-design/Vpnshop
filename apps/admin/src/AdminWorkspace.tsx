@@ -164,10 +164,14 @@ function Permit({ permission, children }: { permission: string; children: ReactN
     </EmptyState></>;
 }
 function Users() {
+  const canSeeFinance = useCan("finance:read");
   const canActivate = useCan("users:write");
   const { search } = useLocation();
   return <><List title="Пользователи" path="/users" columns={["email", "id", "status", "activation", "emailVerified", "createdAt"]}
-    filters={[["status", "Статус", ["ACTIVE", "BLOCKED"]]]} destination={row => "/users/" + row.id + search}>
+    filters={[["status", "Статус", ["ACTIVE", "BLOCKED"]], ["registeredFrom", "Начало периода регистрации (UTC)"],
+      ["registeredTo", "Конец периода регистрации (UTC)"], ...(canSeeFinance ?
+        [["paidInWindow", "Оплатили в периоде", ["true"]] as [string, string, string[]]] : [])]}
+    destination={row => "/users/" + row.id + search}>
     <UserCreate />
     {canActivate && <Link className={buttonClass("secondary")} to="/users/registrations">Ожидающие регистрации</Link>}
   </List><Outlet /></>;

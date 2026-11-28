@@ -228,6 +228,26 @@ it("sends service notices once, keeps content out of the audit, and isolates rea
   } finally { await storefront.close(); }
 });
 
+it("counts distinct paid customers registered in the same dashboard period and links to the same cohort", async () => {
+  const newBuyer = await createUser();
+  const newCustomer = await createUser();
+  const olderBuyer = await createUser();
+  await prisma.user.update({ where: { id: olderBuyer.id }, data: { createdAt: new Date(Date.now() - 60 * 86_400_000) } });
+  await paidOrder(newBuyer.id);
+  await paidOrder(newBuyer.id);
+  await paidOrder(olderBuyer.id);
+
+  const dashboard = (await api.get("/api/dashboard")).json();
+  expect(dashboard.users.data).toMatchObject({ new: 2, paidInWindow: 1 });
+  const query = new URLSearchParams({ registeredFrom: dashboard.range.from, registeredTo: dashboard.range.to });
+  const registered = (await api.get("/api/users?" + query)).json().items;
+  expect(registered.map((row: { id: string }) => row.id).sort()).toEqual([newBuyer.id, newCustomer.id].sort());
+  query.set("paidInWindow", "true");
+  expect((await api.get("/api/users?" + query)).json().items).toMatchObject([{ id: newBuyer.id }]);
+  expect((await supportApi.get("/api/users?" + query)).statusCode).toBe(403);
+  expect((await supportApi.get("/api/dashboard")).json().users.data).not.toHaveProperty("paidInWindow");
+});
+
 it("paginates 1001 users with timestamp ties, stable cursors and filter isolation", async () => {
   const createdAt = new Date("2026-01-01T00:00:00Z");
   await prisma.user.createMany({ data: Array.from({ length: 1001 }, (_, i) => ({

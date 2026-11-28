@@ -10,7 +10,7 @@ import { dbNow } from "../../commerce/offers";
 import { snapshot } from "../../commerce/orders";
 import { listCustomerNotices } from "../../notifications/customer-notices";
 import { adminOf, requireAdmin } from "../admin.middleware";
-import { overdueJobs, stuckPayments } from "../operational-filters";
+import { overdueJobs, registrationCohort, stuckPayments } from "../operational-filters";
 import { can } from "../admin.permissions";
 
 const id = z.uuid();
@@ -135,9 +135,21 @@ const orderDto = (row: Order) => ({
 
 export const adminReadRoutes: FastifyPluginAsync = async app => {
   app.get("/users", { preHandler: requireAdmin("users:read") }, async req => {
-    const { cursor, limit, status } = keysetQuery.extend({ status: userStatus.optional() }).parse(req.query);
-    const scope = pageScope("admin-users", { status });
-    const rows = await prisma.user.findMany({ where: { role: "USER", status, ...keysetWhere(scope, cursor) },
+    const { cursor, limit, status, registeredFrom, registeredTo, paidInWindow } = keysetQuery.extend({
+      status: userStatus.optional(), registeredFrom: z.iso.datetime().optional(), registeredTo: z.iso.datetime().optional(),
+      paidInWindow: z.literal("true").optional(),
+    }).parse(req.query);
+    if (paidInWindow && !can(adminOf(req).role, "finance:read")) throw new AppError(403, "FORBIDDEN");
+    const scope = pageScope("admin-users", { status, registeredFrom, registeredTo, paidInWindow });
+    if (Boolean(registeredFrom) !== Boolean(registeredTo) || paidInWindow && !registeredFrom) throw new AppError(400, "INVALID_RANGE");
+    let cohort: Prisma.UserWhereInput = { role: "USER" };
+    if (registeredFrom && registeredTo) {
+      const from = new Date(registeredFrom);
+      const to = new Date(registeredTo);
+      if (+from >= +to || +to - +from > 366 * 86_400_000 || to > await dbNow(prisma)) throw new AppError(400, "INVALID_RANGE");
+      cohort = registrationCohort(from, to, paidInWindow === "true");
+    }
+    const rows = await prisma.user.findMany({ where: { ...cohort, status, ...keysetWhere(scope, cursor) },
       select: userSelect, orderBy: newestFirst, take: limit + 1 });
     return keysetPage(scope, rows, limit, row => publicUser(row, false));
   });
