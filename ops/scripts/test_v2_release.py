@@ -277,7 +277,7 @@ class VirtualRuntime:
     def containers(self):
         return {"db": {"State": "running"}}
 
-    def ensure_images(self):
+    def ensure_images(self, *, show_progress=False):
         self.events.append(("pull", self.values["VPNSHOP_VERSION"]))
 
     def validate_owners(self):
@@ -415,6 +415,16 @@ class CLITests(ReleaseFixtures):
         self.deploy.recover(cli.parser().parse_args(["recover", "--yes"]))
         self.assertIsNone(self.deploy.read_pending())
         self.assertEqual(self.deploy.pointer("previous").name, "v2.0.0")
+
+    def test_cancelled_migration_does_not_pull_or_change_deployment(self):
+        current = self.install("single")
+        archive = self.candidate(migrations=self.history | {"20261102000000_next": "b" * 64})
+        with patch.object(cli, "tty_read", side_effect=["wrong", "cancel"]):
+            with self.assertRaisesRegex(bundle.ReleaseError, "cancelled"):
+                self.update(archive, "--yes")
+        self.assertEqual(self.deploy.pointer("current"), current)
+        self.assertIsNone(self.deploy.read_pending())
+        self.assertEqual(VirtualRuntime.events, [])
 
     def test_migration_update_with_backup_and_refused_rollback(self):
         self.install("single")

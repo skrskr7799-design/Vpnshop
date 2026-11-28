@@ -61,6 +61,12 @@ class OperationsTests(unittest.TestCase):
         self.assertEqual(os.waitstatus_to_exitcode(status), 0)
         return transcript
 
+    def test_migration_prompt_shows_exact_version_and_retries(self):
+        prompt = b"Type 'v2.0.2' to continue"
+        transcript = self.terminal([(prompt, b"yes\n"), (prompt, b"v2.0.2\n")],
+                                   lambda: cli.ask("Migration changes PostgreSQL.", phrase="v2.0.2", retry=True))
+        self.assertIn(b"did not match", transcript)
+
     def test_interactive_owner_prompts_do_not_echo_password(self):
         password = b"pty-fixture-password-41"
 

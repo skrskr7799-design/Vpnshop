@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from threading import Event, Thread
 from urllib import error, parse, request
 
 sys.dont_write_bytecode = True
@@ -110,9 +111,39 @@ def call(args, *, input=None, stdin=None, stdout=subprocess.PIPE, env=None, time
     return process
 
 
-def ask(prompt, *, yes=False, phrase="yes"):
+@contextmanager
+def progress(label, *, interval=10):
+    """Report elapsed waiting without streaming subprocess or network bodies."""
+    stop = Event()
+    safe_line("Update", label)
+
+    def heartbeat():
+        elapsed = 0
+        while not stop.wait(interval):
+            elapsed += interval
+            safe_line("Update", f"{label} · still running ({elapsed}s)")
+
+    worker = Thread(target=heartbeat, daemon=True)
+    worker.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        worker.join()
+
+
+
+def ask(prompt, *, yes=False, phrase="yes", retry=False):
     if yes:
         return
+    if retry:
+        while True:
+            answer = tty_read(f"{prompt}\nType {phrase!r} to continue, or 'cancel' to abort: ")
+            if answer == phrase:
+                return
+            if answer == "cancel":
+                raise ReleaseError("Update cancelled. No deployment changes were made.")
+            safe_line("Confirmation", "Input did not match the required version.")
     print(prompt, flush=True)
     try:
         with open("/dev/tty", encoding="utf-8") as terminal:
@@ -235,15 +266,24 @@ class Runtime:
         self.validate_owners()
         return "OK"
 
-    def ensure_images(self):
+    def ensure_images(self, *, show_progress=False):
         definitions = self.config["services"]
-        for reference in sorted({item["image"] for item in definitions.values()}):
+        references = sorted({item["image"] for item in definitions.values()})
+        for index, reference in enumerate(references, 1):
             if call(["docker", "image", "inspect", reference], check=False).returncode:
                 associated = tuple(name for name in sorted(definitions) if definitions[name]["image"] == reference)
                 try:
-                    call(["docker", "pull", reference], timeout=900, stage="pull", services=associated)
+                    if show_progress:
+                        with progress(f"Pull image {index}/{len(references)} · {', '.join(associated)}"):
+                            call(["docker", "pull", reference], timeout=900, stage="pull", services=associated)
+                    else:
+                        call(["docker", "pull", reference], timeout=900, stage="pull", services=associated)
+
                 except OperationError as failure:
                     raise OperationError("pull", ", ".join(associated), failure.code, str(failure).partition(": ")[2]) from None
+            elif show_progress:
+                services = ", ".join(name for name in sorted(definitions) if definitions[name]["image"] == reference)
+                safe_line("Update", f"Image {index}/{len(references)} already present · {services}")
 
     def compose(self, *args, timeout=180, input=None, stdin=None, stdout=subprocess.PIPE, check=True, stage=None, services=()):
         return call(self.command + list(args), env=self.env, timeout=timeout, input=input, stdin=stdin,
@@ -760,9 +800,11 @@ class Deployment:
     def update(self, args, source):
         former = self.pointer("current")
         with tempfile.TemporaryDirectory(prefix=".candidate-", dir=self.root) as tmp:
-            staged, tag = self.stage(args.selection, source, Path(tmp), args)
-            current = Runtime(self, former, read_only=True)
-            candidate = Runtime(self, staged, read_only=True)
+            with progress("Fetch release and verify archive"):
+                staged, tag = self.stage(args.selection, source, Path(tmp), args)
+            with progress("Validate current and candidate configuration"):
+                current = Runtime(self, former, read_only=True)
+                candidate = Runtime(self, staged, read_only=True)
             changes = [name for name, key in IMAGE_KEYS.items() if current.values[key] != candidate.values[key]]
             additions = migration_delta(current.history, candidate.history)
             schema_changes = bool(additions) and self.role != "edge"
@@ -799,16 +841,17 @@ class Deployment:
             if args.dry_run:
                 notify("Dry run complete. Registry pulls and deployment changes were skipped.", "33")
                 return
-            # Pull only after the candidate and current database are proven compatible.
-            candidate.ensure_images()
-            candidate.validate_owners()
             ask("Type yes to apply this update.", yes=args.yes)
             if schema_changes or database_change:
                 ask("Database changes may require a forward fix or restore. Type the target release to authorize.",
-                    phrase=tag)
+                    phrase=tag, retry=True)
             if candidate.metadata["coordination"] == "coordinated" and self.role != "single":
-                ask("Follow the coordinated Core/Edge sequence in NOTES.md. Type the target release to continue.",
-                    phrase=tag)
+                ask("Follow the coordinated Core/Edge sequence in NOTES.md.",
+                    phrase=tag, retry=True)
+            with progress("Check required images"):
+                candidate.ensure_images(show_progress=True)
+            with progress("Verify secret ownership for the candidate"):
+                candidate.validate_owners()
             self.retain(staged, tag)
             pending = {"operation": "update", "source": former.name, "target": tag, "backup": None,
                        "startedAt": clock().isoformat(), "migrations": additions if schema_changes else [],
@@ -844,22 +887,27 @@ class Deployment:
         former, target = (checked_dir(self.releases / pending[key]) for key in ("source", "target"))
         selected = self.pointer("current")
         demand(selected in (former, target), "Current pointer no longer matches pending update")
-        candidate = Runtime(self, target, allow_pull=True)
+        with progress("Check target configuration and required images"):
+            candidate = Runtime(self, target, allow_pull=True)
         schema_change = bool(pending["migrations"])
         db_change = pending["databaseImageChange"]
         if self.role != "edge":
             current = Runtime(self, former)
             if schema_change or db_change:
                 if not pending["backup"]:
-                    current.stop_writers()
+                    with progress("Drain database writers"):
+                        current.stop_writers()
                     self.set_pending(pending, "drained")
-                    pending["backup"] = self.backup(current)
-                # Recheck the original backup before retrying or moving past any database step.
-                self.backup_record(pending["backup"], current)
+                    with progress("Create encrypted database backup"):
+                        pending["backup"] = self.backup(current)
+                with progress("Verify backup checksum and compatibility"):
+                    self.backup_record(pending["backup"], current)
                 if selected == former:
                     self.set_pending(pending, "migrating")
-                    candidate.start("db")
-                    candidate.migrate()
+                    with progress("Start PostgreSQL for the reviewed release"):
+                        candidate.start("db")
+                    with progress("Apply and verify database migrations"):
+                        candidate.migrate()
                 else:
                     demand(candidate.inventory()[0] == candidate.history, "Pending update schema does not match the candidate")
             else:
@@ -868,8 +916,10 @@ class Deployment:
             self.switch("current", target)
         pending["switched"] = True
         self.set_pending(pending, "starting")
-        candidate.start()
-        candidate.verify_live()
+        with progress("Reconcile Compose services"):
+            candidate.start()
+        with progress("Verify service readiness"):
+            candidate.verify_live()
         self.copy_cli(target)
         self.completed(pending["operation"], target, former, pending["backup"], pending["changed"])
         self.finish_pending()
