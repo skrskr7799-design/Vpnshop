@@ -33,9 +33,9 @@ describe("MZT UI semantics", () => {
     for (const markup of [still, opening]) {
       expect(markup.match(/class="mz-orbit-ring"/g)).toHaveLength(8);
       expect(markup).toContain('aria-hidden="true"');
-      expect(markup).not.toMatch(/<image|href=/);
+      expect(markup).not.toMatch(/href="(?:https?:)?\/\//);
     }
-    expect(still).toContain("mz-orbit-glints");
+    expect(still).toContain("maze-v5-glints.svg");
     expect(still).not.toContain("animateMotion");
     expect(opening).toContain('<animateMotion path="M973 500H500"');
   });

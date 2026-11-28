@@ -1,5 +1,6 @@
 import { useId, type CSSProperties } from "react";
-import { mazeGlints, mazeRings, mazeSpokes } from "./assets/maze-v5";
+import { mazeRings, mazeSpokes } from "./assets/maze-v5";
+import glints from "./assets/maze-v5-glints.svg";
 
 export const mazeOpeningMs = 740;
 const ringOffsets = [-22, 24, -18, 34, -24, 24, -30, 17];
@@ -24,13 +25,6 @@ function OrbitMaze({ className, opening = false, remaining }: { className: strin
         <stop offset=".48" stopColor="#30203f" />
         <stop offset="1" stopColor="#69458e" />
       </linearGradient>
-      {!opening && mazeGlints.map(([path, x1, y1, x2, y2], index) =>
-        <linearGradient key={path} id={`${gradientId}-glint-${index}`} gradientUnits="userSpaceOnUse"
-          x1={x1} y1={y1} x2={x2} y2={y2}>
-          <stop stopColor="#a36bd6" stopOpacity="0" />
-          <stop offset=".7" stopColor="#a36bd6" stopOpacity=".5" />
-          <stop offset="1" stopColor="#a36bd6" />
-        </linearGradient>)}
     </defs>
     <g stroke={`url(#${gradientId})`} strokeWidth="17" strokeLinecap="butt">
       {mazeRings.map((path, index) =>
@@ -38,9 +32,7 @@ function OrbitMaze({ className, opening = false, remaining }: { className: strin
           style={{ "--mz-ring-offset": `${ringOffsets[index]}deg` } as CSSProperties} />)}
       <path d={mazeSpokes} className="mz-orbit-spokes" />
     </g>
-    {!opening && <g className="mz-orbit-glints">
-      {mazeGlints.map(([path], index) => <path key={path} d={path} fill={`url(#${gradientId}-glint-${index})`} />)}
-    </g>}
+    {!opening && <image className="mz-orbit-glints" href={glints} width="1000" height="1000" />}
     {remaining !== undefined && remaining > 0 && <circle cx="500" cy="500" r="480" pathLength="1"
       stroke="#baa0e4" strokeWidth="5" strokeDasharray={`${Math.min(1, remaining)} 1`} transform="rotate(-90 500 500)" />}
     {opening && <g className="mz-orbit-light">
