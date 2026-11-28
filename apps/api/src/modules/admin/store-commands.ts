@@ -314,6 +314,16 @@ export const storeCommands = {
     const desired = await projectAssignment(ctx.db, subscription, now, "SERVICE_COMPENSATION", true);
     return { id: credit.id, startAt: startAt.toISOString(), endAt: credit.endAt.toISOString(), revision: desired.revision };
   }),
+  "user.sessions.revoke": command("users:write", empty, async ctx => {
+    const user = await lockIdentityOwner(ctx.db, versionTarget(ctx));
+    if (!user || user.role !== "USER") throw new AppError(404, "NOT_FOUND");
+    expectVersion(ctx.expectedVersion, user.updatedAt);
+    await revokeAllUserSessions(user.id, ctx.db);
+    const { updatedAt } = await ctx.db.user.update({
+      where: { id: user.id }, data: { updatedAt: new Date(Math.max(+ctx.now, +user.updatedAt + 1)) },
+    });
+    return { id: user.id, version: updatedAt.toISOString(), sessionsRevoked: true };
+  }),
   "user.subscription_link_policy": command("access:write", z.strictObject({
     policy: z.enum(["INHERIT", "ALLOW", "DENY"]),
   }), async (ctx, input) => {

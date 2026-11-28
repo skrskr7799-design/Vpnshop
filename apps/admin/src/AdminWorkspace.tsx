@@ -175,21 +175,34 @@ function Users() {
 function UserDetails() {
   const location = useLocation();
   const navigate = useNavigate();
+  const canSeeSessions = useCan("users:write");
+  const canSeeAudit = useCan("audit:read");
   const { focusRow } = (location.state ?? {}) as { focusRow?: string };
   function close() {
     void navigate("/users" + location.search, { replace: true, state: { focusRow } });
   }
   return <Drawer open title="Карточка пользователя" onClose={close}>
     <Detail title="Пользователь" path="/users" hideTitle>{row => <>
-    <section className="mz-card panel"><Facts data={row} keys={Object.keys(row).filter(key => key !== "access")} />
+    <section className="mz-card panel"><h3>Профиль</h3><Facts data={row}
+      keys={["displayName", "email", "emailVerified", "activation", "status", "createdAt", "lastSessionAt", "id"]
+        .filter(key => Object.hasOwn(row, key))} />
+    </section>
+    <section className="mz-card panel"><h3>Подписка</h3><Facts data={row}
+      keys={["right", "coverage", "subscription", "subscriptionLinkPolicy"].filter(key => Object.hasOwn(row, key))} />
+    </section>
+    <section className="mz-card panel"><h3>История</h3>
       <nav className="mz-actions" aria-label="Связанные записи пользователя">
         <Link className={buttonClass("secondary")} to={"/orders?userId=" + row.id}>Заказы</Link>
         <Link className={buttonClass("secondary")} to={"/jobs?userId=" + row.id}>Выдача</Link>
         <Link className={buttonClass("secondary")} to={"/support?forUserId=" + row.id}>Обращения</Link>
         <Link className={buttonClass("secondary")} to={"/users/" + row.id + "/periods"}>Периоды</Link>
+        {canSeeSessions && <Link className={buttonClass("secondary")} to={`/users/${row.id}/sessions`}>Сессии</Link>}
+        {canSeeAudit && <Link className={buttonClass("secondary")} to={`/audit?entityId=${row.id}`}>Аудит</Link>}
       </nav>
     </section>
     <CustomerCredentials row={row} />
+    <Action title="Завершить все сессии клиента" operation="user.sessions.revoke" permission="users:write"
+      target={row.id} version={String(row.version)} context={String(row.email ?? row.id)} />
     <AccessActions row={row} />
   </>}</Detail></Drawer>;
 }
@@ -326,6 +339,11 @@ export default function AdminWorkspace() {
       </Permit>} />
       <Route path="users/:id/periods" element={<ForId render={id => <List title="Периоды доступа" path={`/users/${id}/periods`}
         columns={["orderId", "serial", "startAt", "endAt", "deviceLimit", "adjustment"]} />} />} />
+      <Route path="users/:id/sessions" element={<Permit permission="users:write"><ForId render={id =>
+        <List title="Сессии клиента" path={`/users/${id}/sessions`}
+          columns={["state", "loginMethod", "userAgent", "createdAt", "lastSeenAt", "expiresAt", "revokedAt"]}>
+          <Link to={`/users/${id}`}>К карточке клиента</Link>
+        </List>} /></Permit>} />
       <Route path="orders" element={<List title="Заказы" path="/orders" columns={orderColumns} filters={orderFilters}
         destination={row => "/orders/" + row.id} />} />
       <Route path="orders/:id" element={<OrderDetails />} />

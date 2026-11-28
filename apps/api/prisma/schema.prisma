@@ -154,6 +154,7 @@ model User {
   assignedCases SupportCase[] @relation("SupportAssignee")
   supportReads SupportReadCursor[]
   @@index([role, createdAt, id])
+  @@index([role, displayName, createdAt, id])
 }
 
 // Один способ входа = одна запись. Почта, Google и Telegram
@@ -423,6 +424,8 @@ model Payment {
   @@unique([accountId, externalId])
   @@unique([accountId, merchantReference])
   @@unique([orderId, requestKeyHash])
+  @@index([externalId])
+  @@index([merchantReference])
   @@index([orderId])
   @@index([accountId, nextCheckAt])
 }

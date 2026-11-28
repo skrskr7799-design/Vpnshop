@@ -177,13 +177,20 @@ export const adminReadRoutes: FastifyPluginAsync = async app => {
     if (!row) throw missing();
     const staff = can(adminOf(req).role, "users:write");
     const { subscription } = row;
+    const overview = (await subscriptionOverview(userId)).subscription;
+    const currentPeriod = overview?.currentPeriod;
+    const seen = staff ? await prisma.sessionFamily.findFirst({ where: { userId },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: { createdAt: true } }) : null;
     const password = row.identities.find(identity => identity.provider === "EMAIL" && !!identity.passwordHash);
     return { ...publicUser(row, staff),
       identities: row.identities.map(({ provider, verifiedAt }) => ({ provider, verifiedAt })), counts: row._count,
       ...(can(adminOf(req).role, "access:write") && { subscriptionLinkPolicy: row.subscriptionLinkPolicy }),
       ...(staff && { access: { hasPassword: !!password, mailAvailable: emailAvailable && !!env.MAIL_QUEUE_KEY,
         emailResetEligible: row.status === "ACTIVE" && !!row.emailVerifiedAt && !row.emailLoginDisabled && password?.providerId === row.email } }),
-      right: (await subscriptionOverview(userId)).subscription?.rightStatus ?? "EMPTY",
+      right: overview?.rightStatus ?? "EMPTY",
+      ...(staff && { lastSessionAt: seen?.createdAt ?? null }),
+      coverage: overview && { endsAt: overview.coverageEndsAt, delivery: overview.delivery.status,
+        periodName: currentPeriod?.snapshot?.name ?? null, deviceLimit: currentPeriod?.deviceLimit ?? null },
       subscription: subscription && { id: subscription.id, revision: subscription.revision, legacy: subscription.legacyUnverified,
         nextBoundaryAt: subscription.nextBoundaryAt,
         binding: subscription.panelBinding && { ...subscription.panelBinding,
@@ -191,6 +198,18 @@ export const adminReadRoutes: FastifyPluginAsync = async app => {
         holds: subscription.holds.map(({ reason, source, ...hold }) => staff ? { ...hold, reason, source } : hold),
       },
     };
+  });
+  app.get("/users/:id/sessions", { preHandler: requireAdmin("users:write") }, async req => {
+    const userId = params.parse(req.params).id;
+    const { limit, cursor } = keysetQuery.parse(req.query);
+    if (!await prisma.user.findFirst({ where: { id: userId, role: "USER" }, select: { id: true } })) throw missing();
+    const scope = "admin-customer-sessions:" + userId;
+    const rows = await prisma.sessionFamily.findMany({ where: { userId, ...keysetWhere(scope, cursor) },
+      select: { id: true, createdAt: true, lastSeenAt: true, expiresAt: true, revokedAt: true, userAgent: true, loginMethod: true },
+      orderBy: newestFirst, take: limit + 1 });
+    const now = new Date();
+    return keysetPage(scope, rows, limit, ({ expiresAt, revokedAt, ...row }) =>
+      ({ ...row, expiresAt, revokedAt, state: revokedAt ? "REVOKED" : expiresAt <= now ? "EXPIRED" : "ACTIVE" }));
   });
   app.get("/users/:id/periods", { preHandler: requireAdmin("users:read") }, async req => {
     const userId = params.parse(req.params).id;

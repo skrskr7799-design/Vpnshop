@@ -1,9 +1,11 @@
+import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { resetDatabase } from "../../test/db";
 import { createOrder, createUser } from "../../test/factories";
+import { createSession } from "../auth/session.service";
 import { buildAdminApp } from "./admin-app";
 import { paidOrder, financeFact } from "./admin.fixtures";
 import { as, buildTestAdminApp, createEnrolledAdmin, type EnrolledAdmin } from "./admin.test-helpers";
@@ -132,12 +134,35 @@ it("version-checks and audits global and individual subscription link preference
   const operation = "user.subscription_link_policy";
   const input = { expectedVersion: customer.updatedAt.toISOString(), command: { policy: "ALLOW" }, reason: "Fixture access review" };
   expect((await supportApi.command(operation, customer.id, input.expectedVersion, input.command)).statusCode).toBe(403);
-  expect((await api.post("/api/commands/" + operation + "/" + customer.id, input)).statusCode).toBe(403);
+  const withoutProof = await app.inject({ method: "POST", url: "/api/commands/" + operation + "/" + customer.id,
+    cookies: { vpn_admin: admin.sessionToken }, headers: { origin: env.ADMIN_ORIGIN, "Idempotency-Key": randomUUID() }, payload: input });
+  expect(withoutProof.json().error.code).toBe("STEP_UP_REQUIRED");
   const { statusCode } = await api.command(operation, customer.id, input.expectedVersion, input.command);
   expect(statusCode).toBe(200);
   expect((await api.get("/api/users/" + customer.id)).json().subscriptionLinkPolicy).toBe("ALLOW");
   expect((await supportApi.get("/api/users/" + customer.id)).json()).not.toHaveProperty("subscriptionLinkPolicy");
   expect(await prisma.auditLog.count({ where: { action: operation, entityId: customer.id } })).toBe(1);
+});
+
+it("lists only the targeted customer's session history and revokes it idempotently through the command protocol", async () => {
+  const target = await createUser();
+  const other = await createUser();
+  const targetSession = await createSession(target, { loginMethod: "EMAIL", userAgent: "Fixture target" });
+  await createSession(other, { loginMethod: "GOOGLE", userAgent: "Fixture other" });
+  const url = "/api/users/" + target.id + "/sessions";
+  const first = await api.get(url);
+  expect(first.json().items).toMatchObject([{ userAgent: "Fixture target", loginMethod: "EMAIL", state: "ACTIVE" }]);
+  expect(first.body).not.toMatch(/Fixture other|tokenHash/);
+  expect(first.body).not.toContain(targetSession.refreshToken);
+  expect((await supportApi.get(url)).statusCode).toBe(403);
+  expect((await api.get("/api/users/" + admin.userId + "/sessions")).statusCode).toBe(404);
+  const key = randomUUID();
+  const run = () => api.command("user.sessions.revoke", target.id, target.updatedAt.toISOString(), {}, { key });
+  const changed = await run();
+  expect(changed.statusCode).toBe(200);
+  expect((await run()).json().commandId).toBe(changed.json().commandId);
+  expect((await api.get(url)).json().items[0].state).toBe("REVOKED");
+  expect(await prisma.sessionFamily.count({ where: { userId: other.id, revokedAt: null } })).toBe(1);
 });
 
 it("paginates 1001 users with timestamp ties, stable cursors and filter isolation", async () => {

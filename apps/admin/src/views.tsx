@@ -23,6 +23,8 @@ const labels: Record<string, string> = {
   registration: "Новые регистрации", payments: "Новые платежи", support: "Новые обращения", maintenance: "Обслуживание",
   runtimeConfigVersion: "Версия публичной конфигурации", remnawave: "Remnawave", smtp: "SMTP", google: "Google",
   telegram: "Telegram", platega: "Platega",
+  lastSessionAt: "Последняя выданная сессия", loginMethod: "Способ входа", coverage: "Оплаченный период",
+  periodName: "Название тарифа", endsAt: "Окончание периода",
   subscriptionLinkAllowed: "Выдача ссылок по умолчанию", subscriptionLinkPolicy: "Политика ссылки",
   identities: "Способы входа", provider: "Провайдер", verifiedAt: "Подтверждён",
   subject: "Тема", customer: "Клиент", priority: "Приоритет", assignee: "Ответственный", unread: "Новые события",
