@@ -1,6 +1,7 @@
 import { useId, type CSSProperties } from "react";
 import { mazeRings, mazeSpokes } from "./assets/maze-v5";
-import glints from "./assets/maze-v5-glints.svg";
+
+const glints = new URL("./assets/maze-v5-glints.svg", import.meta.url).href;
 
 export const mazeOpeningMs = 740;
 const ringOffsets = [-22, 24, -18, 34, -24, 24, -30, 17];
