@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type Com
   type InputHTMLAttributes, type KeyboardEvent, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
 import { Icon, type IconName } from "./icons";
 import { LabyrinthBackground } from "./maze";
-export { Icon, Labyrinth, type IconName } from "./icons";
+export { Icon, type IconName } from "./icons";
 export { LabyrinthBackground, MazeOpening, mazeOpeningMs } from "./maze";
 
 const brandMarkUrl = new URL("./assets/mzt-logo.svg", import.meta.url).href;

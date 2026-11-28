@@ -151,12 +151,6 @@ textarea.mz-control { resize: vertical; }
 .mz-copy { display: grid; justify-items: start; gap: .65rem; }
 .mz-copy .mz-field { width: 100%; }
 .mz-code { font-family: var(--mz-mono); font-size: .86em; overflow-wrap: anywhere; }
-.mz-maze-area { fill: #14121d; }
-.mz-maze-datum { stroke: #242433; stroke-width: .8; stroke-dasharray: 3 5; }
-.mz-maze-walls { stroke: #424356; stroke-width: 1.45; }
-.mz-maze-route { stroke: #927cbe; stroke-width: 1.8; }
-.mz-maze-end { fill: var(--mz-violet); }
-.mz-maze-marks { stroke: #626276; stroke-width: 1; }
 .mz-skip { position: fixed; z-index: var(--mz-layer-skip); inset: .75rem auto auto 1rem; transform: translateY(-200%);
   padding: .7rem 1rem; color: var(--mz-on-violet); background: var(--mz-violet); border-radius: var(--mz-radius); }
 .mz-skip:focus { transform: none; }
