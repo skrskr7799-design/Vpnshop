@@ -23,7 +23,7 @@ const labels: Record<string, string> = {
   registration: "Новые регистрации", payments: "Новые платежи", support: "Новые обращения", maintenance: "Обслуживание",
   runtimeConfigVersion: "Версия публичной конфигурации", remnawave: "Remnawave", smtp: "SMTP", google: "Google",
   telegram: "Telegram", platega: "Platega",
-  subject: "Тема", priority: "Приоритет", assignee: "Ответственный", unread: "Новые события",
+  subject: "Тема", customer: "Клиент", priority: "Приоритет", assignee: "Ответственный", unread: "Новые события",
   username: "Имя пользователя", displayName: "Отображаемое имя", contactEmail: "Контакт",
   activation: "Активация", emailVerified: "Почта подтверждена", lastLoginAt: "Последний вход",
   activeSessions: "Активные сессии", temporaryUntil: "Временный пароль до",
@@ -186,7 +186,7 @@ export function List({ title, path, columns, filters = [], destination, children
 }
 export const orderColumns = ["id", "status", "delivery", "userId", "createdAt"];
 export const jobColumns = ["id", "status", "revision", "attempts", "reasonCode", "leaseUntil", "nextAttemptAt"];
-export const ticketColumns = ["id", "subject", "category", "status", "priority", "assignee", "unread", "orderId", "updatedAt"];
+export const ticketColumns = ["id", "subject", "customer", "category", "status", "priority", "assignee", "unread", "orderId", "updatedAt"];
 export const jobFilters: Filter[] = [["status", "Статус", ["PENDING", "VERIFY_PENDING", "NEEDS_REVIEW", "RUNNING", "CONFIRMED", "RETRY_WAIT", "SUPERSEDED", "FAILED"]],
   ["userId", "ID пользователя"], ["overdue", "Просрочено", ["true"]]];
 export const orderFilters: Filter[] = [["userId", "ID пользователя"], ["status", "Статус", ["PENDING", "PAID", "FULFILLED", "REFUNDED", "EXPIRED", "CANCELED"]]];
@@ -382,6 +382,8 @@ export function SupportDetail({ command }: { command?: (ticket: Row, refresh: ()
   return <><Breadcrumbs><Link to={back} state={{ focusRow: state?.focusRow }}><Icon name="back" size={16} />К обращениям</Link></Breadcrumbs>
     <PageHeader title="Обращение" /><RequestState state={query} />{query.data && <>
     <div className="admin-thread"><section className="mz-card panel"><h2>Карточка обращения</h2><Facts data={query.data.case} keys={["id", "subject", "userId", "status", "category", "priority", "assignee", "updatedAt"]} />
+      {Array.isArray(query.data.case.customerIdentities) && query.data.case.customerIdentities.length > 0 &&
+        <ul aria-label="Способы входа клиента">{query.data.case.customerIdentities.map(item => <li key={String(item)}>{String(item)}</li>)}</ul>}
       {canReadUsers && typeof query.data.case.userId === "string" && <p><Link to={"/users/" + query.data.case.userId}>Карточка пользователя</Link></p>}
       {typeof query.data.case.orderId === "string" && <Link to={"/orders/" + query.data.case.orderId}>Связанный заказ</Link>}
     </section>

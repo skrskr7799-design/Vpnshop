@@ -60,6 +60,30 @@ it("enforces BOLA and a database-order owner constraint, including creation race
   expect((await first.get(cases)).headers["cache-control"]).toBe("private, no-store");
 });
 
+it("shows a verified customer contact according to role, without leaking it to the public support DTO", async () => {
+  const member = await owner();
+  await prisma.user.update({ where: { id: member.user.id }, data: {
+    email: "support-identity@example.invalid", emailVerifiedAt: null,
+    identities: { create: [{ provider: "TELEGRAM", providerId: "184002365" }, { provider: "GOOGLE", providerId: "opaque-fixture-subject" }] },
+  } });
+  const response = await member.post(cases, { category: "OTHER", message: "Проверка профиля" });
+  expect(response.statusCode).toBe(201);
+  const id = response.json().case.id;
+  const support = await createEnrolledAdmin("identity-help@example.invalid", "SUPPORT");
+  const operator = await createEnrolledAdmin("identity-admin@example.invalid", "ADMIN");
+  const helper = as(admin, support.sessionToken);
+  const authorized = as(admin, operator.sessionToken);
+
+  const entry = (await helper.get(staffCases)).json().items[0];
+  expect(entry).toMatchObject({ userId: member.user.id, customer: "Telegram · •••2365" });
+  expect(JSON.stringify(entry)).not.toMatch(/support-identity|opaque-fixture-subject|184002365/);
+  expect((await authorized.get(staffCases + "/" + id)).json().case.customer).toBe("Telegram · 184002365");
+  expect((await member.get(cases + "/" + id)).json().case).not.toHaveProperty("customerIdentities");
+
+  await prisma.user.update({ where: { id: member.user.id }, data: { emailVerifiedAt: new Date() } });
+  expect((await helper.get(staffCases + "/" + id)).json().case.customer).toBe("Email · s•••@example.invalid");
+});
+
 it("serializes duplicate messages, rejects oversize text and returns plain text with safe fields", async () => {
   const member = await owner();
   const created = await member.post(cases, { category: "OTHER", message: "Помощь" });

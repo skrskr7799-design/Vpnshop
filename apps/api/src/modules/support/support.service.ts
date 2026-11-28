@@ -13,7 +13,7 @@ import { enqueueMail } from "../mail/outbox";
 import { supportUpdateMail } from "../mail/mail.templates";
 
 type Db = Prisma.TransactionClient;
-type Reader = { id: string; isStaff: boolean };
+type Reader = { id: string; isStaff: boolean; canReadContact?: boolean };
 type PageInput = { limit: number; cursor?: string };
 type Create = z.infer<typeof supportCreate>;
 type CaseChange = z.infer<typeof supportChange>;
@@ -25,7 +25,13 @@ const eligibleStaff = {
   staffCredential: { is: { deactivatedAt: null } },
 } satisfies Prisma.UserWhereInput;
 const assigneeSelect = { id: true, role: true, status: true, staffCredential: { select: { username: true, deactivatedAt: true } } } as const;
-type WithAssignee = SupportCase & { assignee: Prisma.UserGetPayload<{ select: typeof assigneeSelect }> | null };
+const staffCaseInclude = {
+  assignee: { select: assigneeSelect },
+  user: { select: { email: true, emailVerifiedAt: true, identities: {
+    where: { provider: { in: ["TELEGRAM", "GOOGLE"] } }, select: { provider: true, providerId: true },
+  } } },
+} satisfies Prisma.SupportCaseInclude;
+type StaffCase = Prisma.SupportCaseGetPayload<{ include: typeof staffCaseInclude }>;
 
 function summary(row: SupportCase): CaseSummary {
   return {
@@ -34,16 +40,26 @@ function summary(row: SupportCase): CaseSummary {
   };
 }
 
-function hasAssignee(row: SupportCase | WithAssignee): row is WithAssignee {
+function hasAssignee(row: SupportCase | StaffCase): row is StaffCase {
   return "assignee" in row;
 }
 
-function staffSummary(row: WithAssignee) {
+function staffSummary(row: StaffCase, reader: Reader) {
+  const { email, emailVerifiedAt, identities } = row.user;
+  const telegram = identities.find(identity => identity.provider === "TELEGRAM");
+  const emailLabel = email && emailVerifiedAt &&
+    (reader.canReadContact ? email : email.slice(0, 1) + "•••@" + email.split("@").at(-1));
+  const telegramLabel = telegram && (reader.canReadContact ? telegram.providerId : "•••" + (telegram.providerId.length > 4 ? telegram.providerId.slice(-4) : ""));
+  const customer = [
+    ...(emailLabel ? ["Email · " + emailLabel] : []),
+    ...(telegramLabel ? ["Telegram · " + telegramLabel] : []),
+    ...(identities.some(identity => identity.provider === "GOOGLE") ? ["Google подключён"] : []),
+  ];
   const assignee = row.assignee;
   const active = assignee && assignee.role !== "USER" && assignee.status === "ACTIVE" &&
     assignee.staffCredential && !assignee.staffCredential.deactivatedAt;
   return {
-    ...summary(row), userId: row.userId, priority: row.priority,
+    ...summary(row), userId: row.userId, priority: row.priority, customer: customer[0] ?? null, customerIdentities: customer,
     assigneeId: active ? assignee.id : null, assignee: active ? assignee.staffCredential!.username : null,
   };
 }
@@ -90,12 +106,12 @@ export async function listCases(reader: Reader, input: PageInput & {
   return prisma.$transaction(async db => {
     const args = { where: { userId, orderId, category, status, priority, AND: conditions, ...keysetWhere(scope, cursor) },
       orderBy: newestFirst, take: limit + 1 };
-    const rows: (SupportCase | WithAssignee)[] = reader.isStaff
-      ? await db.supportCase.findMany({ ...args, include: { assignee: { select: assigneeSelect } } })
+    const rows: (SupportCase | StaffCase)[] = reader.isStaff
+      ? await db.supportCase.findMany({ ...args, include: staffCaseInclude })
       : await db.supportCase.findMany(args);
     const unread = await unreadCounts(db, rows.map(row => row.id), reader);
     return keysetPage(scope, rows, limit, row => ({
-      ...(hasAssignee(row) ? staffSummary(row) : summary(row)), unread: unread.get(row.id) ?? 0,
+      ...(hasAssignee(row) ? staffSummary(row, reader) : summary(row)), unread: unread.get(row.id) ?? 0,
     }));
   }, { isolationLevel: "RepeatableRead" });
 }
@@ -108,8 +124,8 @@ export async function listAssignees() {
 
 export async function readCase(id: string, reader: Reader, input: PageInput & { historyCursor?: string }) {
   return prisma.$transaction(async db => {
-    const row: SupportCase | WithAssignee | null = reader.isStaff
-      ? await db.supportCase.findUnique({ where: { id }, include: { assignee: { select: assigneeSelect } } })
+    const row: SupportCase | StaffCase | null = reader.isStaff
+      ? await db.supportCase.findUnique({ where: { id }, include: staffCaseInclude })
       : await db.supportCase.findFirst({ where: { id, userId: reader.id } });
     if (!row) throw new AppError(404, "NOT_FOUND");
     const scope = JSON.stringify(["support-messages", reader.id, id]);
@@ -124,7 +140,7 @@ export async function readCase(id: string, reader: Reader, input: PageInput & { 
     });
     const unread = await unreadCounts(db, [id], reader);
     return {
-      case: { ...(hasAssignee(row) ? staffSummary(row) : summary(row)), unread: unread.get(id) ?? 0 },
+      case: { ...(hasAssignee(row) ? staffSummary(row, reader) : summary(row)), unread: unread.get(id) ?? 0 },
       ...(!input.cursor && !input.historyCursor && { readThrough: row.updatedAt.toISOString() }),
       messages: keysetPage(scope, messages, input.limit, message => messageDto(message, reader.isStaff)),
       history: keysetPage(historyScope, history, input.limit, e => ({

@@ -148,7 +148,7 @@ export const adminReadRoutes: FastifyPluginAsync = async app => {
       state: !row.passwordHash ? "AWAITING_PASSWORD" : row.approvalHash ? "AWAITING_REVIEW" : "EMAIL_CONFIRMATION",
     }));
   });
-  app.post("/users/search", { preHandler: requireAdmin("users:read") }, async req => {
+  app.post("/users/search", { bodyLimit: 4096, preHandler: requireAdmin("users:read") }, async req => {
     const input = userLookup.parse(req.body);
     if ("query" in input) {
       const { role } = adminOf(req);

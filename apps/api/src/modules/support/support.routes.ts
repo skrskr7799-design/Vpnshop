@@ -3,6 +3,7 @@ import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { keysetQuery } from "../../lib/keyset";
 import { adminOf, requireAdmin } from "../admin/admin.middleware";
+import { can } from "../admin/admin.permissions";
 import { authenticate } from "../auth/authenticate";
 import { changeCustomerCase, listAssignees, listCases, markCaseRead, openCase, readCase, replyToCase } from "./support.service";
 
@@ -19,7 +20,10 @@ const boundedPost = { bodyLimit: 16_384, config: { rateLimit: { max: 8, timeWind
 const readPost = { bodyLimit: 2048, config: { rateLimit: { max: 40, timeWindow: "1 minute" } } };
 const through = z.strictObject({ through: z.iso.datetime().transform(value => new Date(value)) });
 const owner = (req: FastifyRequest) => ({ id: req.auth!.userId, isStaff: false });
-const staff = (req: FastifyRequest) => ({ id: adminOf(req).userId, isStaff: true });
+const staff = (req: FastifyRequest) => {
+  const { userId, role } = adminOf(req);
+  return { id: userId, isStaff: true, canReadContact: can(role, "users:write") };
+};
 
 export const ownerSupportRoutes: FastifyPluginAsync = async app => {
   app.addHook("onRequest", async (_req, reply) => { reply.header("Cache-Control", "private, no-store"); });
