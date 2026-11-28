@@ -188,6 +188,16 @@ AND NOT has_table_privilege('"'"'mzt_admin'"'"','"'"'"AuditLog"'"'"','"'"'UPDATE
 AND NOT has_table_privilege('"'"'mzt_worker'"'"','"'"'"User"'"'"','"'"'UPDATE'"'"')
 AND NOT has_table_privilege('"'"'mzt_billing'"'"','"'"'"PaymentTransaction"'"'"','"'"'INSERT'"'"')
 ' | grep -qx t
+dc exec -T db psql -U postgres -d vpnshop -At -v ON_ERROR_STOP=1 <<'SQL' | grep -qx t
+SELECT has_column_privilege('mzt_public','"AdminOperationalSettings"','subscriptionLinkAllowed','SELECT')
+AND NOT has_column_privilege('mzt_public','"AdminOperationalSettings"','twoFactorPolicy','SELECT')
+AND has_table_privilege('mzt_public','"CustomerNotice"','SELECT')
+AND has_column_privilege('mzt_public','"CustomerNotice"','readAt','UPDATE')
+AND NOT has_column_privilege('mzt_public','"CustomerNotice"','body','UPDATE')
+AND NOT has_table_privilege('mzt_public','"CustomerNotice"','INSERT')
+AND has_table_privilege('mzt_admin','"CustomerNotice"','INSERT')
+AND NOT has_column_privilege('mzt_admin','"CustomerNotice"','readAt','UPDATE');
+SQL
 for service in db public-api admin-api worker billing notifications web admin public-edge admin-edge exporter prometheus alertmanager alert-sink; do
   [[ "$(dc exec -T "$service" id -u)" != 0 ]]
   if [[ "$service" != *-edge ]]; then [[ -z "$(docker port "$(dc ps -q "$service")")" ]]; fi
