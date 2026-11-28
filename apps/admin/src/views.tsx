@@ -114,7 +114,8 @@ export function List({ title, path, columns, filters = [], destination, children
   const [search, setSearch] = useState<Page>();
   const [finding, setFinding] = useState(false);
   const lookup = useRef<AbortController>(null);
-  const state = useLocation().state as { focusRow?: string } | null;
+  const location = useLocation();
+  const state = location.state as { focusRow?: string } | null;
   useEffect(() => () => lookup.current?.abort(), [path]);
   const [searchError, setSearchError] = useState("");
   async function find(event: FormEvent<HTMLFormElement>) {
@@ -137,10 +138,10 @@ export function List({ title, path, columns, filters = [], destination, children
   const finance = useCan("finance:read");
   const data = search ?? query.data;
   useEffect(() => {
-    if (!state?.focusRow || !data) return;
+    if (!state?.focusRow || !data || (path === "/users" && location.pathname !== "/users")) return;
     const frame = requestAnimationFrame(() => document.getElementById("row-" + state.focusRow)?.focus());
     return () => cancelAnimationFrame(frame);
-  }, [state?.focusRow, data]);
+  }, [state?.focusRow, data, location.key, location.pathname, path]);
   const filterForm = filters.length > 0 && <form key={filters.map(([key]) => params.get(key)).join("|")} className="mz-cut filters" aria-label="Фильтры списка"
       onSubmit={event => {
         event.preventDefault();
