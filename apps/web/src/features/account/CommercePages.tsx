@@ -2,9 +2,9 @@ import { useProductConfig } from "../../config";
 import { ProductLinks } from "../../components/ProductLinks";
 import { Badge, Breadcrumbs, Button, Card, Dialog, EmptyState, Icon, PageHeader, Pagination, StatusIndicator,
   Timeline, buttonClass } from "@vpn/ui";
-import type { Offer, OwnerOrderDetail, OwnerOrderSummary, OwnerPayment, OwnerPeriod, OwnerSubscription, Page, PaymentChannel } from "@vpn/shared";
+import type { Offer, OwnerOrderDetail, OwnerOrderSummary, OwnerPayment, OwnerPeriod, OwnerSubscription, Page, PaymentChannel, RenewalPreview } from "@vpn/shared";
 import { useRef, useState, type ReactNode } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { request } from "../../api/client";
 import { ApiError } from "../../api/ApiError";
 import { amount, date, displayDelivery, errorMessage, label, LoadState, useOwner } from "./account";
@@ -102,6 +102,10 @@ export function PlansPage() {
   const navigate = useNavigate();
   const [pending, setPending] = useState<string | null>(null);
   const [choice, setChoice] = useState<Offer>();
+  const [section] = useSearchParams();
+  const renewal = section.get("renewal") === "1";
+  const estimate = useOwner<RenewalPreview>(renewal && choice
+    ? "/me/subscription/renewal?" + new URLSearchParams({ offerVersionId: choice.id }) : null);
   const [error, setError] = useState("");
   const keys = useRef(new Map<string, string>());
   const inFlight = useRef(false);
@@ -127,7 +131,7 @@ export function PlansPage() {
   const basePrice = choice && catalog.data?.offers.find(offer => offer.durationMonths === 1 &&
     offer.planId === choice.planId && offer.deviceLimit === choice.deviceLimit && offer.price.currency === choice.price.currency);
   const saving = choice && basePrice ? basePrice.price.amountMinor * choice.durationMonths - choice.price.amountMinor : 0;
-  return <><PageHeader title="Тарифы" description="Выберите срок подписки и количество устройств." />
+  return <><PageHeader title={renewal ? "Продление подписки" : "Тарифы"} description="Выберите срок подписки и количество устройств." />
     <div className="mzt-notice"><Icon name="clock" /><p>Условия заказа фиксируются на 30 минут. Доступные способы оплаты проверяются при открытии заказа.</p></div>
     <LoadState pending={catalog.isPending} error={catalog.error} retry={catalog.refetch} />
     {error && !choice && <p role="alert">{error}</p>}
@@ -147,7 +151,11 @@ export function PlansPage() {
           Math.round(choice.price.amountMinor / choice.durationMonths), choice.price.currency)}</dd></>}
         {saving > 0 && <><dt>Экономия против помесячной оплаты</dt><dd>{amount(saving, choice.price.currency)}</dd></>}
         <dt>Устройства</dt><dd>До {choice.deviceLimit}</dd>
-      </dl><p className="mz-muted">После создания заказ появится в истории. Сейчас списания не будет.</p>
+      </dl>
+        {renewal && <><LoadState pending={estimate.isPending} error={estimate.error} retry={estimate.refetch} />
+          {estimate.data && !estimate.isError && <p>Предварительная дата окончания: {date(estimate.data.estimatedEndAt)}.
+            Фактический срок определяется после подтверждения оплаты.</p>}</>}
+        <p className="mz-muted">После создания заказ появится в истории. Сейчас списания не будет.</p>
         <ProductLinks kind="legal" />
         {salesClosed && <p role="status">Покупка временно недоступна.</p>}
         {error && <p role="alert">{error}</p>}

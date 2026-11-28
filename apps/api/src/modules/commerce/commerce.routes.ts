@@ -11,7 +11,8 @@ import type { PaymentProviderAdapter } from "../payments/provider";
 import { getCurrentUser } from "../auth/auth.service";
 import { subscriptionLink } from "../fulfillment/subscription-access";
 import type { AssignmentPanel } from "../remnawave/remnawave.assignment";
-import { dbNow, toOffer } from "./offers";
+import { computeTargetExpireAt } from "../remnawave/remnawave.dates";
+import { dbNow, requireCurrentOffer, toOffer } from "./offers";
 import { checkout, ownerOrder, snapshot } from "./orders";
 
 export const commerceRoutes: FastifyPluginAsync<{ payments?: PaymentProviderAdapter; panel?: AssignmentPanel; restriction: () => string | undefined }> = async (app, { payments, panel, restriction }) => {
@@ -58,6 +59,19 @@ export const commerceRoutes: FastifyPluginAsync<{ payments?: PaymentProviderAdap
     });
 
     orders.get("/me/subscription", req => subscriptionOverview(req.auth!.userId, panel));
+    orders.get("/me/subscription/renewal", async req => {
+      const { offerVersionId } = checkoutBodySchema.parse(req.query);
+      const userId = req.auth!.userId;
+      return prisma.$transaction(async db => {
+        const version = await requireCurrentOffer(db, offerVersionId);
+        const subscription = await db.subscription.findUnique({ where: { userId }, select: { id: true, legacyUnverified: true } });
+        if (subscription?.legacyUnverified) throw new AppError(409, "LEGACY_ACCESS_UNVERIFIED");
+        const tail = subscription && await db.periodGrant.findFirst({ where: { subscriptionId: subscription.id },
+          orderBy: { serial: "desc" }, select: { endAt: true } });
+        const now = await dbNow(db);
+        return { estimatedEndAt: computeTargetExpireAt(tail?.endAt ?? null, version.durationMonths, now).toISOString() };
+      }, { isolationLevel: "RepeatableRead" });
+    });
     orders.get("/me/subscription/periods", req => {
       const { limit, cursor } = keysetQuery.parse(req.query);
       return listPeriods(req.auth!.userId, limit, cursor);

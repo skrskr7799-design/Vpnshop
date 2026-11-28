@@ -36,6 +36,8 @@ export const subscriptionSummarySchema = z.object({
 export type OwnerOrderSummary = z.infer<typeof ownerOrderSummarySchema>;
 export type OwnerOrderDetail = z.infer<typeof ownerOrderDetailSchema>;
 export type OwnerPeriod = z.infer<typeof periodSchema>;
+export const renewalPreviewSchema = z.strictObject({ estimatedEndAt: z.iso.datetime() });
+export type RenewalPreview = z.infer<typeof renewalPreviewSchema>;
 export type OwnerSubscription = z.infer<typeof subscriptionSummarySchema>;
 export type OwnerPayment = Omit<z.infer<typeof paymentAttemptSchema>, "status" | "channel" | "expiresAt"> & {
   status: z.infer<typeof paymentAttemptSchema>["status"] | "LEGACY";

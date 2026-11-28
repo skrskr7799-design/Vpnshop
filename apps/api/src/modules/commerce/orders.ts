@@ -4,7 +4,7 @@ import { env } from "../../config/env";
 import { sha256 } from "../../lib/crypto";
 import { AppError } from "../../lib/errors";
 import { prisma } from "../../lib/prisma";
-import { dbNow } from "./offers";
+import { dbNow, requireCurrentOffer } from "./offers";
 
 const orderWithVersion = { offerVersion: true } as const;
 const CHECKOUT_POLICY_VERSION = 1;
@@ -36,11 +36,7 @@ export async function checkout(userId: string, key: string, offerVersionId: stri
       SELECT id FROM mzt_lock_offer_plan(${offerVersionId})
     `;
     if (!lock) throw new AppError(409, "OFFER_UNAVAILABLE");
-    const version = await db.offerVersion.findUniqueOrThrow({
-      where: { id: offerVersionId }, include: { offer: { include: { plan: true } } },
-    });
-    if (!version.offer.isActive || !version.offer.plan.isActive) throw new AppError(409, "OFFER_UNAVAILABLE");
-    if (version.withdrawnAt) throw new AppError(409, "OFFER_CHANGED");
+    const version = await requireCurrentOffer(db, offerVersionId);
 
     const createdAt = await dbNow(db);
     return db.order.create({

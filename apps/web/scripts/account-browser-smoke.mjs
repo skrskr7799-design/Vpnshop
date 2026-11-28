@@ -106,6 +106,7 @@ const server = createServer(async (req, res) => {
   if (path === "/api/orders/order-smoke") return json(order);
   if (path === "/api/orders/order-smoke/payments") return json(page([{ id: "attempt-local", status: "UNKNOWN",
     updatedAt: now, confirmedCaptures: [] }]));
+  if (path === "/api/me/subscription/renewal") return json({ estimatedEndAt: later });
   if (path === "/api/me/subscription") {
     if (slowOverview) await delay(850);
     if (subscriptionState === "ERROR") return json({ error: { code: "INTERNAL" } }, 503);
@@ -357,6 +358,12 @@ try {
   mailEnabled = true;
   signedIn = true;
   await send("Emulation.setDeviceMetricsOverride", { width: 360, height: 800, deviceScaleFactor: 1, mobile: true });
+  await send("Page.navigate", { url: origin + "/account/plans?renewal=1" });
+  await until(text("Продление подписки"));
+  await until(text(offer.name));
+  await click("Выбрать");
+  await until(text("Предварительная дата окончания"));
+  await click("Отмена");
   slowOverview = true;
   await send("Page.navigate", { url: origin + "/account" });
   await until('Boolean(document.querySelector("main .mz-skeleton"))');

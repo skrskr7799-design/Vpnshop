@@ -1,6 +1,8 @@
-import { Button, Card, CopyField, Icon, PageHeader, type IconName, StatusIndicator } from "@vpn/ui";
+import { Button, Card, CopyField, Icon, PageHeader, type IconName, StatusIndicator, buttonClass } from "@vpn/ui";
 import qrcode from "qrcode-generator";
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router";
+import { useProductConfig } from "../../config";
 import type { OwnerSubscription } from "@vpn/shared";
 import { request } from "../../api/client";
 import { date, displayDelivery, errorMessage, label, LoadState, useOwner } from "./account";
@@ -120,8 +122,17 @@ function detectedPlatform(): Platform {
 export function ConnectionPage() {
   const [platform, setPlatform] = useState(detectedPlatform);
   const selection = platforms[platform];
+  const paymentsEnabled = useProductConfig().data?.availability.payments === true;
+  const overview = useOwner<OwnerSubscription>("/me/subscription");
+  const subscription = !overview.isError && overview.data?.subscription;
+  const period = subscription && subscription.currentPeriod;
   return <><PageHeader title="Подключение" description="Добавьте подписку MZT в VPN-клиент." />
     <ConnectionCard />
+    {paymentsEnabled && subscription && ["ACTIVE", "EXPIRED"].includes(subscription.rightStatus) &&
+      <Card className="mzt-panel"><h2 className="mzt-section-title"><Icon name="clock" size={20} />Продление</h2>
+        {subscription.coverageEndsAt && <p>Доступ до {date(subscription.coverageEndsAt)}{period && ` · До ${period.deviceLimit} устройств`}</p>}
+        <Link className={buttonClass("secondary")} to="/account/plans?renewal=1">Продлить подписку</Link>
+      </Card>}
     <Card className="mzt-panel"><h2 className="mzt-section-title"><Icon name="help" size={20} />Как подключиться</h2>
       <div className="mzt-platform"><Icon name={selection.icon} size={22} />
         <label htmlFor="connect-platform">Устройство</label>

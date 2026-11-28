@@ -34,6 +34,15 @@ export async function publishOffer(db: Prisma.TransactionClient, plan: Plan, pri
   } });
 }
 
+export async function requireCurrentOffer(db: Prisma.TransactionClient, id: string) {
+  const version = await db.offerVersion.findUnique({
+    where: { id }, include: { offer: { include: { plan: true } } },
+  });
+  if (!version || !version.offer.isActive || !version.offer.plan.isActive) throw new AppError(409, "OFFER_UNAVAILABLE");
+  if (version.withdrawnAt) throw new AppError(409, "OFFER_CHANGED");
+  return version;
+}
+
 export function toOffer(version: OfferVersion, planId: string): Offer {
   return {
     id: version.id, offerId: version.planPriceId, planId, version: version.version, name: version.name,

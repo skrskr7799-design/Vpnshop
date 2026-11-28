@@ -1,7 +1,7 @@
 import type { MerchantAccount, Payment, PaymentTransaction } from "@prisma/client";
 import { dbNow } from "../commerce/offers";
 import { lockOrder, lockEntitlementAccount, noteCase } from "../payments/store";
-import { addMonths } from "../remnawave/remnawave.dates";
+import { computeTargetExpireAt } from "../remnawave/remnawave.dates";
 import { auditDecision, createSubscription, projectAssignment, subscriptionTransaction, type Db } from "./store";
 
 export const CALENDAR_VERSION = 1;
@@ -93,7 +93,7 @@ export async function allocateCapture(captureId: string) {
     const allocation = await db.orderAllocation.create({ data: { orderId: order.id, captureId, createdAt: grantedAt } });
     const grant = await db.periodGrant.create({ data: {
       orderId: order.id, allocationId: allocation.id, subscriptionId: subscription.id,
-      serial: (tail?.serial ?? 0) + 1, startAt, endAt: addMonths(startAt, order.durationMonths),
+      serial: (tail?.serial ?? 0) + 1, startAt, endAt: computeTargetExpireAt(tail?.endAt ?? null, order.durationMonths, grantedAt),
       calendarVersion: CALENDAR_VERSION, deviceLimit: order.deviceLimit, createdAt: grantedAt,
     } });
     await projectAssignment(db, subscription, grantedAt, "CAPTURE_ALLOCATED", true);

@@ -1,7 +1,7 @@
 import { useProductConfig } from "../../config";
 import { ProductLinks } from "../../components/ProductLinks";
 import type { OwnerSubscription } from "@vpn/shared";
-import { useQuery } from "@tanstack/react-query";
+import { skipToken, useQuery } from "@tanstack/react-query";
 import { BrandMark, Button, Drawer, ErrorState, Icon, IconButton, LabyrinthBackground, MobileNavigation, Skeleton, type IconName } from "@vpn/ui";
 import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router";
@@ -10,12 +10,12 @@ import { ApiError } from "../../api/ApiError";
 import { useLogout, useMe } from "../auth/queries";
 import "./account.css";
 
-export function useOwner<T>(path: string, refetchInterval?: number) {
+export function useOwner<T>(path: string | null, refetchInterval?: number) {
   const { data } = useMe();
   return useQuery({
     queryKey: ["owner", data?.id, data?.sessionId, path],
-    queryFn: ({ signal }) => request<T>(path, { signal }),
-    enabled: !!data, retry: false, refetchInterval,
+    queryFn: path ? ({ signal }) => request<T>(path, { signal }) : skipToken,
+    enabled: !!data && !!path, retry: false, refetchInterval,
   });
 }
 
