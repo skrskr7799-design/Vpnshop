@@ -26,10 +26,13 @@ export function useLogin(onEntry: () => Promise<void>) {
       setLogoutHidden(false);
       const confirmed = await fetchMe();
       if (!confirmed || confirmed.sessionId !== sessionId) throw new ApiError(401, "LOGIN_SESSION_UNCONFIRMED");
-      rememberEntryMethod("email");
       const ready = await loadDashboard().then(() => true, () => false);
       if (ready) await onEntry();
-      return confirmed;
+      // The session may have been revoked or replaced in another tab during the transition.
+      const current = await fetchMe();
+      if (!current || current.sessionId !== sessionId) throw new ApiError(401, "LOGIN_SESSION_UNCONFIRMED");
+      rememberEntryMethod("email");
+      return current;
     },
     onSuccess: user => {
       resetPrivateRequests();

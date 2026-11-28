@@ -104,7 +104,10 @@ export function LoginPage() {
           return;
         }
         void handleSubmit(values => login.mutate(values, {
-          onError: error => { if (error instanceof ApiError && error.code === "TEMPORARY_PASSWORD") setTemporary(true); },
+          onError: error => {
+            setOpening(false);
+            if (error instanceof ApiError && error.code === "TEMPORARY_PASSWORD") setTemporary(true);
+          },
         }))(event);
       }}>
         {login.isError && <p className="auth-signin-error" role="alert">{getErrorMessage(login.error)}</p>}

@@ -160,7 +160,7 @@ export function PlansPage() {
         {salesClosed && <p role="status">Покупка временно недоступна.</p>}
         {error && <p role="alert">{error}</p>}
         <div className="mz-actions"><Button variant="secondary" disabled={!!pending} onClick={() => setChoice(undefined)}>Отмена</Button>
-          <Button loading={!!pending} disabled={salesClosed} onClick={() => void buy(choice)}>Создать заказ</Button></div></>}
+          <Button loading={!!pending} disabled={salesClosed || (renewal && (!estimate.data || estimate.isError))} onClick={() => void buy(choice)}>Создать заказ</Button></div></>}
     </Dialog>
   </>;
 }
