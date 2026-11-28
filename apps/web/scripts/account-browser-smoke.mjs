@@ -51,7 +51,7 @@ const server = createServer(async (req, res) => {
     const storefrontFiles = ["/manifest.webmanifest", "/mzt-sw.js", "/mzt-icon-192.png", "/mzt-icon-512.png"];
     const filename = path.startsWith("/assets/") || storefrontFiles.includes(path) ? join(dist, path) : join(dist, "index.html");
     try {
-      serveAsset(req, res, mime[extname(filename)] ?? "application/octet-stream", filename, await readFile(filename));
+      serveAsset(req, res, mime[extname(filename)] ?? "application/octet-stream", filename, await readFile(filename), { pwa: true });
     } catch { res.writeHead(404).end(); }
     return;
   }
@@ -277,7 +277,8 @@ try {
   assert.equal(signedIn, false);
   await until('navigator.serviceWorker && Boolean(document.querySelector("link[rel=manifest]"))');
   const worker = await send("Runtime.evaluate", { expression: `Promise.all([
-    navigator.serviceWorker.getRegistration().then(registration => registration?.active?.scriptURL),
+    Promise.race([navigator.serviceWorker.ready.then(registration => registration.active?.scriptURL),
+      new Promise(resolve => setTimeout(() => resolve(null), 3500))]),
     caches.keys()
   ])`, awaitPromise: true, returnByValue: true });
   assert.deepEqual(worker.result.value, [origin + "/mzt-sw.js", []]);
@@ -311,12 +312,17 @@ try {
   await until("location.pathname.startsWith('/account')");
   assert.equal(await evaluate("localStorage.getItem('mzt.last-sign-in-method')"), "email");
   assert.equal(await evaluate('Boolean(document.querySelector(".mz-maze-opening"))'), false);
+  await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+  await send("Page.navigate", { url: origin + "/account?signed-in-with=google" });
+  await until("location.search === '' && Boolean(document.querySelector('.mzt-account'))");
+  assert.equal(await evaluate("localStorage.getItem('mzt.last-sign-in-method')"), "google");
+  assert.equal(await evaluate('Boolean(document.querySelector(".mz-maze-opening"))'), false);
   signedIn = false;
   await fit();
   const password = "local-test-password";
   oauthEnabled = true;
   await send("Page.navigate", { url: origin + "/login?error=OAUTH_DENIED" });
-  await until(text("Google"));
+  await until("Boolean(document.querySelector('.oauth__buttons a'))");
   assert.ok(await evaluate("location.search === '' && Boolean(document.querySelector('[role=alert]'))"));
   assert.ok(await evaluate("[...document.querySelectorAll('.oauth__buttons a')].every(a => a.origin === location.origin && a.pathname.endsWith('/start'))"));
   oauthEnabled = false;
