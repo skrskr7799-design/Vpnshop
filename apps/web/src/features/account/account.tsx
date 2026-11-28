@@ -77,8 +77,18 @@ export function displayDelivery(subscription: NonNullable<OwnerSubscription["sub
   return subscription.delivery.status === "READY" && !subscription.delivery.observationFresh ? "WAITING" : subscription.delivery.status;
 }
 
+function subscriptionFraction(summary?: OwnerSubscription) {
+  const period = summary?.subscription?.currentPeriod;
+  if (!period || summary?.subscription?.rightStatus !== "ACTIVE" || period.kind !== "PURCHASE") return undefined;
+  const duration = Date.parse(period.endAt) - Date.parse(period.startAt);
+  const remaining = Date.parse(period.effectiveEndAt) - Date.parse(summary.serverTime);
+  if (!(duration > 0) || !(remaining > 0)) return undefined;
+  return Math.min(1, remaining / duration);
+}
+
 export function AccountShell() {
   const logout = useLogout();
+  const subscription = useOwner<OwnerSubscription>("/me/subscription");
   const product = useProductConfig().data;
   const brand = product?.product.brandName ?? "MZT";
   const { data } = useMe();
@@ -92,21 +102,21 @@ export function AccountShell() {
   }, [pathname, active.title, brand]);
   const links = (close?: () => void) => <nav className="mzt-nav" aria-label="Разделы кабинета">{navigation.map(({ path, title, icon }) =>
     <NavLink end={path === "/account"} key={path} to={path} className="mz-nav-link" onClick={close}><Icon name={icon} size={18} />{title}</NavLink>)}</nav>;
+  const exit = <Button variant="quiet" onClick={() => logout.mutate()}><Icon name="out" size={17} />Выйти</Button>;
   return <div className={`mzt-account${pathname === "/account" ? " mzt-account--overview" : ""}`}>
-    <LabyrinthBackground />
+    <LabyrinthBackground remaining={subscription.isError ? undefined : subscriptionFraction(subscription.data)} />
     <a className="mz-skip" href="#account-main">Перейти к содержимому</a>
-    <aside className="mzt-rail"><div className="mzt-rail__brand"><Link to="/account" className="mz-brand-home"><BrandMark /></Link><p className="mzt-product-brand">{brand === "MZT" ? "Личный кабинет" : brand}</p></div>{links()}</aside>
+    <aside className="mzt-rail"><div className="mzt-rail__brand"><Link to="/account" className="mz-brand-home"><BrandMark /></Link><p className="mzt-product-brand">{brand === "MZT" ? "Личный кабинет" : brand}</p></div>{links()}<div className="mzt-rail-exit">{exit}</div></aside>
     <div className="mzt-workspace">
       <header className="mzt-top">
         <div className="mzt-top__mobile"><IconButton icon="menu" label="Открыть меню" aria-expanded={menu} onClick={() => setMenu(true)} />
           <Link to="/account" className="mz-brand-home"><BrandMark /></Link></div>
         <span className="mzt-top__context">{data?.email}</span>
-        <Button variant="quiet" className="mzt-top__exit" onClick={() => logout.mutate()}><Icon name="out" size={17} />Выйти</Button>
       </header>
       <Drawer open={menu} title="Личный кабинет" onClose={() => setMenu(false)}>{links(() => {
         setMenu(false);
         requestAnimationFrame(() => main.current?.focus({ preventScroll: true }));
-      })}</Drawer>
+      })}<div className="mzt-rail-exit">{exit}</div></Drawer>
       <main id="account-main" className="mzt-content" ref={main} tabIndex={-1}>
         {product?.availability.maintenance && <p><Link to="/maintenance">Техническое обслуживание</Link></p>}
         <Outlet key={data?.sessionId} />

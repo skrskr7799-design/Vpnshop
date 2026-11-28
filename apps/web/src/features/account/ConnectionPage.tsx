@@ -1,4 +1,4 @@
-import { Button, Card, CopyField, Icon, PageHeader, StatusIndicator } from "@vpn/ui";
+import { Button, Card, CopyField, Icon, PageHeader, type IconName, StatusIndicator } from "@vpn/ui";
 import qrcode from "qrcode-generator";
 import { useEffect, useRef, useState } from "react";
 import type { OwnerSubscription } from "@vpn/shared";
@@ -73,7 +73,7 @@ export function ConnectionCard({ compact = false }: { compact?: boolean }) {
           {!compact && sub?.delivery.observedAt && <p className="mz-muted">Последнее подтверждение {date(sub.delivery.observedAt)}</p>}
         </div>
         {ready && !visible && <Button ref={revealButton} variant="secondary" loading={pending} onClick={() => void reveal()}>
-          <Icon name="lock" size={17} />Показать ссылку и QR
+          <Icon name="qr" size={17} />Показать ссылку и QR
         </Button>}
       </div>
       {message && <p role="status">{message}</p>}
@@ -95,13 +95,46 @@ export function ConnectionCard({ compact = false }: { compact?: boolean }) {
   </>;
 }
 
+const platforms = {
+  ios: { label: "iPhone и iPad", icon: "phone", source: "App Store" },
+  android: { label: "Android", icon: "phone", source: "Google Play" },
+  androidTv: { label: "Android TV", icon: "tv", source: "Google Play на телевизоре" },
+  appleTv: { label: "Apple TV", icon: "tv", source: "App Store на Apple TV" },
+  windows: { label: "Windows", icon: "laptop", source: "сайта разработчика" },
+  mac: { label: "macOS", icon: "laptop", source: "App Store или сайта разработчика" },
+  other: { label: "Другое устройство", icon: "monitor", source: null },
+} satisfies Record<string, { label: string; icon: IconName; source: string | null }>;
+type Platform = keyof typeof platforms;
+
+function detectedPlatform(): Platform {
+  const ua = navigator.userAgent;
+  if (/AppleTV|tvOS/i.test(ua)) return "appleTv";
+  if (/Android.*(?:TV|AFT)|GoogleTV/i.test(ua)) return "androidTv";
+  if (/iPhone|iPad|iPod/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1)) return "ios";
+  if (/Android/i.test(ua)) return "android";
+  if (/Windows/i.test(ua)) return "windows";
+  if (/Macintosh/i.test(ua)) return "mac";
+  return "other";
+}
+
 export function ConnectionPage() {
+  const [platform, setPlatform] = useState(detectedPlatform);
+  const selection = platforms[platform];
   return <><PageHeader title="Подключение" description="Добавьте подписку MZT в VPN-клиент." />
     <ConnectionCard />
-    <Card className="mzt-panel"><h2 className="mzt-section-title"><Icon name="connect" size={20} />Как подключиться</h2><ol className="mzt-steps">
-      <li>Откройте совместимый VPN-клиент, который поддерживает импорт подписки.</li>
-      <li>Добавьте подписку по ссылке или отсканируйте QR-код с другого устройства.</li>
-      <li>Обновите список подключений в клиенте и выберите доступный профиль.</li>
-    </ol></Card>
+    <Card className="mzt-panel"><h2 className="mzt-section-title"><Icon name="help" size={20} />Как подключиться</h2>
+      <div className="mzt-platform"><Icon name={selection.icon} size={22} />
+        <label htmlFor="connect-platform">Устройство</label>
+        <select id="connect-platform" className="mz-control" value={platform} onChange={event => setPlatform(event.target.value as Platform)}>
+          {Object.entries(platforms).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}
+        </select>
+      </div>
+      <ol className="mzt-steps">
+        <li>{selection.source ? <>Установите из {selection.source} VPN-клиент с импортом подписок по ссылке.</>
+          : "На нужном устройстве откройте VPN-клиент, который поддерживает импорт подписок."}</li>
+        <li>Скопируйте ссылку подписки или покажите QR-код и отсканируйте его с нужного устройства, если клиент поддерживает QR.</li>
+        <li>Импортируйте подписку, обновите список и выберите доступный профиль.</li>
+      </ol>
+    </Card>
   </>;
 }

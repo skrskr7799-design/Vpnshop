@@ -4,6 +4,7 @@ import { Navigate, Route, Routes } from "react-router";
 import { AuthShell } from "./components/AuthShell/AuthShell";
 import { GuestOnly, RequireAuth } from "./features/auth/guards";
 import { loadDashboard as Commerce } from "./features/auth/entry";
+import { RegisterPage } from "./features/auth/pages/RegisterPage";
 import { LoginPage } from "./features/auth/pages/LoginPage";
 import { AccountShell } from "./features/account/account";
 import { useProductConfig } from "./config";
@@ -14,7 +15,6 @@ import { NotFoundPage } from "./pages/NotFoundPage";
 
 const ActivationPage = lazy(() => import("./features/auth/pages/ActivationPage").then(m => ({ default: m.ActivationPage })));
 const ForgotPasswordPage = lazy(() => import("./features/auth/pages/ForgotPasswordPage").then(m => ({ default: m.ForgotPasswordPage })));
-const RegisterPage = lazy(() => import("./features/auth/pages/RegisterPage").then(m => ({ default: m.RegisterPage })));
 const ResetPasswordPage = lazy(() => import("./features/auth/pages/ResetPasswordPage").then(m => ({ default: m.ResetPasswordPage })));
 const VerifyEmailPage = lazy(() => import("./features/auth/pages/VerifyEmailPage").then(m => ({ default: m.VerifyEmailPage })));
 const SecurityPage = lazy(() => import("./features/auth/pages/SecurityPage").then(m => ({ default: m.SecurityPage })));

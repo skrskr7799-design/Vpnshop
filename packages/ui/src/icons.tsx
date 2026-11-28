@@ -26,6 +26,9 @@ const paths = {
   bell: "M5 17h14l-2-3V9a5 5 0 0 0-10 0v5l-2 3Zm5 3h4",
   qr: "M3.5 3.5h6v6h-6zM14.5 3.5h6v6h-6zM3.5 14.5h6v6h-6zM14.5 14.5h3v3h3v3m-6 0h.01m6-6h.01",
   phone: "M7 3h10v18H7zM11 18h2",
+  help: "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-11.5-2.6a2.5 2.5 0 1 1 4.2 1.8c-1 .9-1.7 1.2-1.7 2.3v.4m0 2.8h.01",
+  monitor: "M3 4.5h18v12H3zM12 16.5v3m-4 0h8",
+  tv: "M3 5h18v13H3zM5 20h14m-2-4h2",
   laptop: "M5 5h14v11H5zM5 16l-2 3h18l-2-3",
   more: "M5 12h.01M12 12h.01M19 12h.01",
 } as const;

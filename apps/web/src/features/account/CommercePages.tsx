@@ -43,6 +43,12 @@ export function DashboardPage() {
     : pendingOrder?.moneyStatus === "UNKNOWN" ? "Дождитесь уточнения исхода в деталях заказа, прежде чем повторять оплату."
     : pendingOrder?.moneyStatus === "WAITING" ? "Срок и доступные действия указаны в деталях заказа."
     : "Выберите срок подписки и лимит устройств.";
+  const primary = ready ? { path: "/account/connect", label: "Подключиться" }
+    : sub?.rightStatus === "HELD" || delivery === "REVIEW" ? { path: "/account/support", label: "Написать в поддержку" }
+    : pendingOrder ? { path: "/account/orders/" + pendingOrder.id, label: "Открыть заказ" }
+    : sub?.rightStatus === "ACTIVE" || sub?.rightStatus === "SCHEDULED"
+      ? { path: "/account/subscription", label: "Посмотреть подписку" }
+      : { path: "/account/plans", label: sub ? "Продлить" : "Выбрать тариф" };
   return <div className="mzt-dashboard">
     <PageHeader title="Мой кабинет" description="Управление подпиской и подключениями." />
     <LoadState pending={overview.isPending} error={overview.error} retry={overview.refetch} />
@@ -55,10 +61,7 @@ export function DashboardPage() {
           <p className="mz-muted">{sub?.coverageEndsAt ? `Действует до ${date(sub.coverageEndsAt)}` : detail}</p>
         </div>
         <div className="mz-actions mzt-subscription-summary__actions">
-          <Link className={buttonClass()} to={sub?.rightStatus === "HELD" ? "/account/support" : pendingOrder ? "/account/orders/" + pendingOrder.id : "/account/plans"}>
-            {sub?.rightStatus === "HELD" ? "Написать в поддержку" : pendingOrder ? "Открыть заказ" : sub ? "Продлить" : "Выбрать тариф"}
-          </Link>
-          {ready && <Link className="mzt-inline-link" to="/account/connect">Подключиться <Icon name="arrow" size={15} /></Link>}
+          <Link className={buttonClass()} to={primary.path}>{primary.label}</Link>
         </div>
       </Card>
       <div className="mzt-account-facts">
@@ -66,7 +69,7 @@ export function DashboardPage() {
           <p>{remaining === null ? "—" : `${remaining} дн.`}</p></div></Card>
         <Card className="mz-cut--stat"><Icon name="terminal" size={19} /><div><h2>Лимит устройств</h2>
           <p>{period ? `До ${period.deviceLimit}` : "—"}</p></div></Card>
-        <Card className="mz-cut--stat"><Icon name="pulse" size={19} /><div><h2>Статус подключения</h2>
+        <Card className="mz-cut--stat"><Icon name="pulse" size={19} /><div><h2>Готовность профиля</h2>
           <p><StatusIndicator status={delivery ?? "EMPTY"}>{delivery ? label(delivery) : "Не запрошено"}</StatusIndicator></p></div></Card>
       </div>
       <ConnectionCard compact />
@@ -133,7 +136,7 @@ export function PlansPage() {
       {salesClosed ? <p className="mz-muted">Покупка временно недоступна</p> :
         <Button variant="secondary" block onClick={() => { setError(""); setChoice(offer); }}>Выбрать</Button>}
     </Panel>)}</div>
-    <Dialog open={!!choice} title="Проверьте условия" busy={pending !== null} onClose={() => setChoice(undefined)}>
+    <Dialog className="mzt-checkout-dialog" open={!!choice} title="Проверьте условия" busy={pending !== null} onClose={() => setChoice(undefined)}>
       {choice && <><h3>{choice.name}</h3><dl className="mzt-detail">
         <dt>Сумма</dt><dd>{amount(choice.price.amountMinor, choice.price.currency)}</dd>
         <dt>Срок</dt><dd>{choice.durationMonths} мес.</dd>

@@ -42,13 +42,14 @@ const visualOffers = [offer, { ...offer, name: "MZT · 3 месяца", id: "off
 const snapshot = { ...offer, snapshottedAt: now, expiresAt: later };
 const order = { id: "order-smoke", orderState: "OPEN", moneyStatus: "WAITING", deliveryStatus: "NOT_REQUESTED",
   createdAt: now, expiresAt: later, snapshot, allowedChannels: [], canStartPayment: false, refunds: [] };
-const period = { id: "period-smoke", deviceLimit: 3, startAt: now, endAt: later, effectiveEndAt: later, snapshot, adjustments: [] };
+const period = { id: "period-smoke", kind: "PURCHASE", deviceLimit: 3, startAt: now, endAt: later, effectiveEndAt: later, snapshot, adjustments: [] };
 const page = items => ({ items, nextCursor: null });
-const mime = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".woff2": "font/woff2" };
+const mime = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".woff2": "font/woff2", ".webmanifest": "application/manifest+json", ".png": "image/png" };
 const server = createServer(async (req, res) => {
   const path = new URL(req.url, "http://127.0.0.1").pathname;
   if (!path.startsWith("/api/")) {
-    const filename = path.startsWith("/assets/") ? join(dist, path) : join(dist, "index.html");
+    const storefrontFiles = ["/manifest.webmanifest", "/mzt-sw.js", "/mzt-icon-192.png", "/mzt-icon-512.png"];
+    const filename = path.startsWith("/assets/") || storefrontFiles.includes(path) ? join(dist, path) : join(dist, "index.html");
     try {
       serveAsset(req, res, mime[extname(filename)] ?? "application/octet-stream", filename, await readFile(filename));
     } catch { res.writeHead(404).end(); }
@@ -172,7 +173,7 @@ try {
       if (await evaluate(expression)) return;
       await delay(50);
     }
-    throw new Error("Missing expected UI state: " + expression);
+    throw new Error("Missing expected UI state at " + await evaluate("location.pathname") + ": " + expression);
   }
   const text = value => "Boolean(document.body?.innerText.includes(" + JSON.stringify(value) + "))";
   const click = value => evaluate(`[...document.querySelectorAll("a,button")].find(e => e.getClientRects().length && (!document.querySelector("dialog[open]") || e.closest("dialog[open]")) && e.textContent.trim() === ${JSON.stringify(value)}).click()`);
@@ -267,12 +268,19 @@ try {
   await until('Boolean(document.querySelector("svg.mzt-qr path"))');
   assert.ok(await evaluate(`[sessionStorage, localStorage].every(storage => !JSON.stringify(storage).includes(${JSON.stringify(url)}))`));
   assert.ok(requests.every(value => value.startsWith(origin) || value.startsWith("data:")));
+  await evaluate('document.querySelector(`button[aria-label="Открыть меню"]`).click()');
   await click("Выйти");
   await until(text("Серверный выход ещё не подтверждён"));
   assert.ok(await evaluate("!document.querySelector('.mzt-account, .mzt-qr')"));
   await click("Повторить выход");
   await until("document.body && !document.body.innerText.includes('Серверный выход ещё не подтверждён')");
   assert.equal(signedIn, false);
+  await until('navigator.serviceWorker && Boolean(document.querySelector("link[rel=manifest]"))');
+  const worker = await send("Runtime.evaluate", { expression: `Promise.all([
+    navigator.serviceWorker.getRegistration().then(registration => registration?.active?.scriptURL),
+    caches.keys()
+  ])`, awaitPromise: true, returnByValue: true });
+  assert.deepEqual(worker.result.value, [origin + "/mzt-sw.js", []]);
 
   await send("Emulation.setDeviceMetricsOverride", { width: 360, height: 440, deviceScaleFactor: 1, mobile: true });
   await send("Page.navigate", { url: origin + "/login" });
@@ -300,7 +308,7 @@ try {
   await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] });
   await click("Войти");
   await until('Boolean(document.querySelector(".mz-maze-opening"))');
-  await until("location.pathname === '/account'");
+  await until("location.pathname.startsWith('/account')");
   assert.equal(await evaluate("localStorage.getItem('mzt.last-sign-in-method')"), "email");
   assert.equal(await evaluate('Boolean(document.querySelector(".mz-maze-opening"))'), false);
   signedIn = false;

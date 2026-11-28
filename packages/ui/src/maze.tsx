@@ -5,8 +5,8 @@ export const mazeOpeningMs = 740;
 const ringOffsets = [-22, 24, -18, 34, -24, 24, -30, 17];
 const route = "M973 500H500";
 
-export function LabyrinthBackground({ scene = "edge" }: { scene?: "login" | "edge" | "admin" }) {
-  return <OrbitMaze className={`mz-labyrinth mz-labyrinth--${scene}`} />;
+export function LabyrinthBackground({ scene = "edge", remaining }: { scene?: "login" | "edge" | "admin"; remaining?: number }) {
+  return <OrbitMaze className={`mz-labyrinth mz-labyrinth--${scene}`} remaining={remaining} />;
 }
 
 export function MazeOpening() {
@@ -15,7 +15,7 @@ export function MazeOpening() {
   </div>;
 }
 
-function OrbitMaze({ className, opening = false }: { className: string; opening?: boolean }) {
+function OrbitMaze({ className, opening = false, remaining }: { className: string; opening?: boolean; remaining?: number }) {
   const gradientId = useId();
   return <svg className={className} viewBox="0 0 1000 1000" aria-hidden="true" focusable="false" fill="none">
     <defs>
@@ -31,6 +31,8 @@ function OrbitMaze({ className, opening = false }: { className: string; opening?
           style={{ "--mz-ring-offset": `${ringOffsets[index]}deg` } as CSSProperties} />)}
       <path d={mazeSpokes} className="mz-orbit-spokes" />
     </g>
+    {remaining !== undefined && remaining > 0 && <circle cx="500" cy="500" r="480" pathLength="1"
+      stroke="#baa0e4" strokeWidth="5" strokeDasharray={`${Math.min(1, remaining)} 1`} transform="rotate(-90 500 500)" />}
     {opening && <g className="mz-orbit-light">
       <path d={route} pathLength="100" className="mz-orbit-trail" />
       <circle r="8" opacity="0" fill="#f2e5ff">

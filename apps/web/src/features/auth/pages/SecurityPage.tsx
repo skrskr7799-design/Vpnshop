@@ -8,7 +8,10 @@ import { LoadState } from "../../account/account";
 
 type Device = { id: string; device: string; createdAt: string; lastSeenAt: string; expiresAt: string; current: boolean };
 
+import { motionDisabled, setMotionDisabled } from "../entry";
+
 export function SecurityPage() {
+  const [reducedMotion, setReducedMotion] = useState(motionDisabled);
   const { data: user } = useMe();
   const logout = useLogout();
   const [error, setError] = useState("");
@@ -46,6 +49,13 @@ export function SecurityPage() {
           <Button variant="secondary" onClick={() => { setError(""); setTarget(device); }}>Отозвать</Button>}
       </li>)}</ul>}
       {(devices.data?.sessions.length ?? 0) > 1 && <Button variant="danger" onClick={() => { setError(""); setTarget("others"); }}>Отозвать остальные</Button>}
+    </Card>
+    <Card className="mzt-panel" aria-labelledby="display-preferences-title">
+      <h2 className="mzt-section-title" id="display-preferences-title">Интерфейс</h2>
+      <label className="mz-check"><input type="checkbox" checked={reducedMotion} onChange={event => {
+        setReducedMotion(event.target.checked);
+        setMotionDisabled(event.target.checked);
+      }} /> Свести анимацию к минимуму на этом устройстве</label>
     </Card></div>
     <ConfirmDialog open={target !== null} title="Отозвать доступ" confirmLabel="Отозвать" busy={busy}
       onClose={() => { setTarget(null); setError(""); }} onConfirm={() => void revoke(target === "others" ? undefined : target?.id)}>

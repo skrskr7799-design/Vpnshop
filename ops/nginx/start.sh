@@ -31,7 +31,9 @@ CONF
                 ;;
             *) exit 64;;
         esac
+        EDGE_BROWSER_PWA="'self'"
         if [ "$EDGE_STATIC" = admin:8080 ]; then
+            EDGE_BROWSER_PWA="'none'"
             case "${EDGE_ADMIN_MODE:-private}" in private|public|local) ;; *) exit 64;; esac
             if [ "${EDGE_ADMIN_MODE:-private}:${EDGE_ADMIN_CIDRS:-}" != public:internet ]; then
                 case "${EDGE_ADMIN_CIDRS:-}" in ''|,*|*,|*,,*) exit 64;; esac
@@ -64,7 +66,8 @@ proxy_ssl_verify on;
 proxy_ssl_verify_depth 3;
 CONF
         fi
-        envsubst '${EDGE_HOST} ${EDGE_APP} ${EDGE_STATIC} ${EDGE_UPSTREAM_SCHEME} ${EDGE_HOST_HEADER}' < /etc/nginx/edge.conf > /tmp/mzt-edge.conf
+        export EDGE_BROWSER_PWA
+        envsubst '${EDGE_HOST} ${EDGE_APP} ${EDGE_STATIC} ${EDGE_UPSTREAM_SCHEME} ${EDGE_HOST_HEADER} ${EDGE_BROWSER_PWA}' < /etc/nginx/edge.conf > /tmp/mzt-edge.conf
         ;;
     *) exit 64;;
 esac

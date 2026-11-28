@@ -24,9 +24,23 @@ export function loadDashboard() {
   return import("../account/CommercePages");
 }
 
+const motionKey = "mzt.reduce-motion";
+
+export function motionDisabled() {
+  try { return localStorage.getItem(motionKey) === "1"; } catch { return false; }
+}
+
+export function setMotionDisabled(disabled: boolean) {
+  try {
+    if (disabled) localStorage.setItem(motionKey, "1");
+    else localStorage.removeItem(motionKey);
+  } catch { /* Browser storage is optional. */ }
+  document.documentElement.toggleAttribute("data-mzt-reduce-motion", disabled);
+}
+
 export async function playEntry(show: () => void, signal?: AbortSignal) {
   const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
-  if (motion.matches || document.hidden || signal?.aborted) return;
+  if (motion.matches || document.documentElement.hasAttribute("data-mzt-reduce-motion") || document.hidden || signal?.aborted) return;
 
   show();
   await new Promise<void>(resolve => {

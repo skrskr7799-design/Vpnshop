@@ -282,3 +282,7 @@ textarea.mz-control { resize: vertical; }
 .mz-input-icon input { padding-inline-start: 43px; }
 
 @media (prefers-reduced-motion: reduce) { .mz-maze-opening { display: none; } }
+[data-mzt-reduce-motion] *, [data-mzt-reduce-motion] *::before, [data-mzt-reduce-motion] *::after {
+  animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+  transition-duration: .01ms !important; scroll-behavior: auto !important;
+}
