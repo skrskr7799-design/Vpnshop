@@ -61,6 +61,6 @@ it("finds exact customer references under a 100,000-row workload per entity", as
     }
   } finally {
     await app.close();
-    await resetDatabase();
+    await resetDatabase(40_000);
   }
-}, 85_000);
+}, 100_000);

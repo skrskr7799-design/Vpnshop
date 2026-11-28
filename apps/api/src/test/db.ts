@@ -12,7 +12,7 @@ export async function checkTestDatabase(db: Prisma.TransactionClient = prisma): 
   if (!row?.safe) throw new Error("Wrong database, role or disposable instance");
 }
 
-export async function resetDatabase(): Promise<void> {
+export async function resetDatabase(timeout?: number): Promise<void> {
   await prisma.$transaction(async (tx) => {
     await checkTestDatabase(tx);
     // Explicit application tables, in foreign-key order. The role has DML grants only.
@@ -46,5 +46,5 @@ export async function resetDatabase(): Promise<void> {
     // AuthIdentity, Session, VerificationToken and staff credentials cascade from User.
     await tx.customerNotice.deleteMany();
     await tx.user.deleteMany();
-  });
+  }, timeout ? { timeout } : undefined);
 }
