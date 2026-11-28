@@ -6,8 +6,10 @@ import { AppError } from "../../../lib/errors";
 import { keysetPage, keysetQuery, keysetWhere, newestFirst } from "../../../lib/keyset";
 import { prisma } from "../../../lib/prisma";
 import { subscriptionOverview } from "../../account/projections";
+import { dbNow } from "../../commerce/offers";
 import { snapshot } from "../../commerce/orders";
 import { adminOf, requireAdmin } from "../admin.middleware";
+import { overdueJobs, stuckPayments } from "../operational-filters";
 import { can } from "../admin.permissions";
 
 const id = z.uuid();
@@ -298,6 +300,17 @@ export const adminReadRoutes: FastifyPluginAsync = async app => {
     });
     return keysetPage(scope, rows.map(row => ({ ...row, createdAt: row.receivedAt })), limit, movementDto);
   });
+  app.get("/payments/attempts", { preHandler: requireAdmin("finance:read") }, async req => {
+    const { cursor, limit, stuck } = keysetQuery.extend({ stuck: z.literal("true").optional() }).parse(req.query);
+    const scope = pageScope("admin-payment-attempts", { stuck });
+    const rows = await prisma.$transaction(async db => {
+      const settings = stuck && await db.adminOperationalSettings.findUnique({ where: { id: "default" } });
+      const filter = stuck ? stuckPayments(await dbNow(db), settings ? settings.paymentLagWarnSeconds : undefined) : {};
+      return db.payment.findMany({ where: { ...filter, ...keysetWhere(scope, cursor) },
+        select: { ...attemptSelect, orderId: true }, orderBy: newestFirst, take: limit + 1 });
+    }, { isolationLevel: "RepeatableRead" });
+    return keysetPage(scope, rows, limit, row => ({ ...row, reasonCode: knownCode(row.reasonCode) }));
+  });
   app.get("/payments/transactions", { preHandler: requireAdmin("finance:read") }, async req => {
     const { cursor, limit, currency, unallocated } = keysetQuery.extend({
       currency: z.enum(["RUB", "USD", "XTR"]).optional(), unallocated: z.enum(["true", "false"]).optional(),
@@ -355,9 +368,14 @@ export const adminJobsReadRoutes: FastifyPluginAsync = async app => {
     if (userId) filters.push({ OR: [{ order: { userId } }, { assignment: { subscription: { userId } } }] });
     if (orderId) filters.push({ OR: [{ orderId }, { assignment: { grant: { orderId } } }] });
     if (revision !== undefined) filters.push({ assignment: { revision } });
-    const rows = await prisma.fulfillmentJob.findMany({ where: { status: status as JobStatus | undefined, AND: filters,
-      ...(overdue === "true" && { nextAttemptAt: { lt: new Date() }, status: status ?? { in: ["PENDING", "VERIFY_PENDING", "RETRY_WAIT"] } }),
-    }, select: jobSelect, orderBy: newestFirst, take: limit + 1 });
+    const rows = await prisma.$transaction(async db => {
+      if (overdue === "true") {
+        const settings = await db.adminOperationalSettings.findUnique({ where: { id: "default" } });
+        filters.push(overdueJobs(await dbNow(db), settings?.fulfillmentLagWarnSeconds));
+      }
+      return db.fulfillmentJob.findMany({ where: { status: status as JobStatus | undefined, AND: filters },
+        select: jobSelect, orderBy: newestFirst, take: limit + 1 });
+    }, { isolationLevel: "RepeatableRead" });
     return keysetPage(scope, rows, limit, jobDto);
   });
 };

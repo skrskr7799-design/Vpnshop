@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { resetDatabase } from "../../test/db";
-import { createOrder, createUser } from "../../test/factories";
+import { createJob, createOrder, createUser } from "../../test/factories";
 import { createSession } from "../auth/session.service";
 import { buildAdminApp } from "./admin-app";
 import { paidOrder, financeFact } from "./admin.fixtures";
@@ -163,6 +163,31 @@ it("lists only the targeted customer's session history and revokes it idempotent
   expect((await run()).json().commandId).toBe(changed.json().commandId);
   expect((await api.get(url)).json().items[0].state).toBe("REVOKED");
   expect(await prisma.sessionFamily.count({ where: { userId: other.id, revokedAt: null } })).toBe(1);
+});
+
+it("uses the same configured cutoffs in dashboard alerts and investigation lists", async () => {
+  const customer = await createUser();
+  const first = await createOrder(customer.id, { status: "PENDING" });
+  const second = await createOrder(customer.id, { status: "PENDING" });
+  const old = new Date(Date.now() - 95_000);
+  await prisma.adminOperationalSettings.upsert({ where: { id: "default" },
+    create: { id: "default", paymentLagWarnSeconds: 60, fulfillmentLagWarnSeconds: 60 },
+    update: { paymentLagWarnSeconds: 60, fulfillmentLagWarnSeconds: 60 } });
+  const payment = await prisma.payment.create({ data: { orderId: first.id, provider: "PLATEGA",
+    status: "PROCESSING", amount: 100, currency: "RUB", updatedAt: old } });
+  await prisma.payment.create({ data: { orderId: second.id, provider: "PLATEGA",
+    status: "PROCESSING", amount: 100, currency: "RUB" } });
+  const job = await createJob(first.id);
+  await prisma.fulfillmentJob.update({ where: { id: job.id }, data: { nextAttemptAt: old } });
+  await createJob(second.id);
+  const dashboard = (await api.get("/api/dashboard")).json();
+  expect(dashboard.payments.data.stuck).toBe(1);
+  expect(dashboard.jobs.data.overdue).toBe(1);
+  expect((await api.get("/api/jobs?overdue=true")).json().items).toMatchObject([{ id: job.id }]);
+  const attempts = await api.get("/api/payments/attempts?stuck=true");
+  expect(attempts.json().items).toMatchObject([{ id: payment.id, orderId: first.id }]);
+  expect(attempts.body).not.toMatch(/providerData|redirectUrl|externalId/);
+  expect((await supportApi.get("/api/payments/attempts?stuck=true")).statusCode).toBe(403);
 });
 
 it("paginates 1001 users with timestamp ties, stable cursors and filter isolation", async () => {

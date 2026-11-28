@@ -297,6 +297,7 @@ export function Dashboard() {
   const query = useAdmin<DashboardData>("/dashboard", 30_000);
   const finance = useCan("finance:read");
   const services = useCan("ops:read");
+  const jobs = useCan("jobs:read");
   const canReadUsers = useCan("users:read");
   const data = query.data;
   const movements = finance ? data?.finance : undefined;
@@ -331,7 +332,10 @@ export function Dashboard() {
         <Card>
           <div className="admin-panel-title"><h2><Icon name="warning" size={19} />Требуют внимания</h2></div>
           {data.alerts.length ? <ul className="admin-alert-list">{data.alerts.map(({ kind, reasonCode }) =>
-            <li key={kind + reasonCode}><Icon name="pulse" size={16} />{sourceReason[reasonCode] ?? reasonCode}</li>)}</ul>
+            <li key={kind + reasonCode}><Icon name="pulse" size={16} />
+              {reasonCode === "JOBS_OVERDUE" && jobs ? <Link to="/jobs?overdue=true">{sourceReason[reasonCode]}</Link>
+                : reasonCode === "PAYMENTS_STUCK" && finance ? <Link to="/payments/attempts?stuck=true">{sourceReason[reasonCode]}</Link>
+                : sourceReason[reasonCode] ?? reasonCode}</li>)}</ul>
             : <p className="admin-meta">Открытых предупреждений нет.</p>}
           <DashboardSource title="Поддержка" source={data.support} />
         </Card>

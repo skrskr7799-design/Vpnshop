@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
+import { overdueJobs, stuckPayments } from "../operational-filters";
 import { emailAvailable, env } from "../../../config/env";
 import { z } from "zod";
 import { AppError } from "../../../lib/errors";
@@ -98,14 +99,12 @@ export const adminDashboardRoutes: FastifyPluginAsync<DashboardDeps> = async (ap
         WHERE g."startAt" <= ${asOf} AND COALESCE(a."effectiveAt",g."endAt") > ${asOf} AND NOT s."legacyUnverified"
           AND NOT EXISTS (SELECT 1 FROM "ServiceHold" h WHERE h."subscriptionId" = s.id AND h."releasedAt" IS NULL)`;
       const settings = await db.adminOperationalSettings.findUnique({ where: { id: "default" } });
-      const overdue = new Date(+asOf - (settings?.paymentLagWarnSeconds ?? 900) * 1000);
-      const jobCutoff = new Date(+asOf - (settings?.fulfillmentLagWarnSeconds ?? 900) * 1000);
-      const [paid, stuckPayments, awaiting, errors, overdueJobs, cases] = await Promise.all([
+      const [paid, stuckCount, awaiting, errors, overdueCount, cases] = await Promise.all([
         db.orderAllocation.count({ where: { createdAt: range } }),
-        db.payment.count({ where: { OR: [{ status: "UNKNOWN" }, { status: { in: ["SUBMITTING", "PROCESSING"] }, updatedAt: { lt: overdue } }] } }),
+        db.payment.count({ where: stuckPayments(asOf, settings?.paymentLagWarnSeconds) }),
         db.payment.count({ where: { status: "AWAITING_CUSTOMER", expiresAt: { gt: asOf } } }),
         db.fulfillmentJob.count({ where: { status: { in: ["FAILED", "NEEDS_REVIEW"] } } }),
-        db.fulfillmentJob.count({ where: { status: { in: ["VERIFY_PENDING", "RETRY_WAIT", "PENDING"] }, nextAttemptAt: { lt: jobCutoff } } }),
+        db.fulfillmentJob.count({ where: overdueJobs(asOf, settings?.fulfillmentLagWarnSeconds) }),
         db.supportCase.count({ where: { status: { notIn: ["RESOLVED", "CLOSED"] } } }),
       ]);
       const finance = financeAllowed ? await db.$queryRaw<{
@@ -125,8 +124,8 @@ export const adminDashboardRoutes: FastifyPluginAsync<DashboardDeps> = async (ap
         WHERE t."providerTime" >= ${from} AND t."providerTime" < ${to} AND t."receivedAt" <= ${asOf}
         GROUP BY t.currency ORDER BY t.currency` : undefined;
       const result = { asOf, range: { from, to }, users: block(users, asOf), subscriptions: block(subscriptions ?? null, asOf),
-        orders: block({ paid }, asOf), payments: block({ stuck: stuckPayments, awaiting }, asOf),
-        jobs: block({ errors, overdue: overdueJobs }, asOf), support: block({ open: cases }, asOf) };
+        orders: block({ paid }, asOf), payments: block({ stuck: stuckCount, awaiting }, asOf),
+        jobs: block({ errors, overdue: overdueCount }, asOf), support: block({ open: cases }, asOf) };
       return { ...result, ...(finance && { finance: block(finance, asOf) }) };
     }, { isolationLevel: "RepeatableRead" });
     const sources = await health();

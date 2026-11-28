@@ -353,7 +353,14 @@ export default function AdminWorkspace() {
       <Route path="payments" element={<Permit permission="finance:read"><List title="Денежные движения" path="/payments/transactions"
         columns={["id", "kind", "currency", "amountMinor", "providerTime", "allocation"]}
         filters={[["currency", "Валюта", ["RUB", "USD", "XTR"]], ["unallocated", "Не распределено", ["true"]]]}>
-        <div className="mz-actions"><Link className={buttonClass("secondary")} to="/payments/cases">Дела сверки <Icon name="arrow" size={16} /></Link></div></List></Permit>} />
+        <div className="mz-actions"><Link className={buttonClass("secondary")} to="/payments/cases">Дела сверки <Icon name="arrow" size={16} /></Link><Link className={buttonClass("secondary")} to="/payments/attempts?stuck=true">Платежи на сверке</Link></div></List></Permit>} />
+      <Route path="payments/attempts" element={<Permit permission="finance:read">
+        <List title="Платёжные попытки" path="/payments/attempts"
+          columns={["id", "orderId", "status", "reasonCode", "channel", "updatedAt", "nextCheckAt"]}
+          filters={[["stuck", "Требуют сверки", ["true"]]]} destination={row => "/orders/" + row.orderId}>
+          <Link className={buttonClass("secondary")} to="/payments/cases">Дела сверки</Link>
+        </List>
+      </Permit>} />
       <Route path="payments/cases" element={<Permit permission="finance:read"><List title="Дела сверки" path="/payments/cases"
         columns={["id", "kind", "status", "priority", "nextCheckAt", "updatedAt"]}
         filters={[["status", "Статус", ["OPEN", "INVESTIGATING", "RESOLVED"]]]} destination={row => "/payments/cases/" + row.id} /></Permit>} />
