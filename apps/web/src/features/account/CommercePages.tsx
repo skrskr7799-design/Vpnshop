@@ -124,6 +124,9 @@ export function PlansPage() {
       }
     } finally { inFlight.current = false; setPending(null); }
   }
+  const basePrice = choice && catalog.data?.offers.find(offer => offer.durationMonths === 1 &&
+    offer.planId === choice.planId && offer.deviceLimit === choice.deviceLimit && offer.price.currency === choice.price.currency);
+  const saving = choice && basePrice ? basePrice.price.amountMinor * choice.durationMonths - choice.price.amountMinor : 0;
   return <><PageHeader title="Тарифы" description="Выберите срок подписки и количество устройств." />
     <div className="mzt-notice"><Icon name="clock" /><p>Условия заказа фиксируются на 30 минут. Доступные способы оплаты проверяются при открытии заказа.</p></div>
     <LoadState pending={catalog.isPending} error={catalog.error} retry={catalog.refetch} />
@@ -140,6 +143,9 @@ export function PlansPage() {
       {choice && <><h3>{choice.name}</h3><dl className="mzt-detail">
         <dt>Сумма</dt><dd>{amount(choice.price.amountMinor, choice.price.currency)}</dd>
         <dt>Срок</dt><dd>{choice.durationMonths} мес.</dd>
+        {choice.durationMonths > 1 && <><dt>В среднем за месяц</dt><dd>{amount(
+          Math.round(choice.price.amountMinor / choice.durationMonths), choice.price.currency)}</dd></>}
+        {saving > 0 && <><dt>Экономия против помесячной оплаты</dt><dd>{amount(saving, choice.price.currency)}</dd></>}
         <dt>Устройства</dt><dd>До {choice.deviceLimit}</dd>
       </dl><p className="mz-muted">После создания заказ появится в истории. Сейчас списания не будет.</p>
         <ProductLinks kind="legal" />

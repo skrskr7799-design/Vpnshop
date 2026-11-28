@@ -165,14 +165,22 @@ function Permit({ permission, children }: { permission: string; children: ReactN
 }
 function Users() {
   const canActivate = useCan("users:write");
-  return <List title="Пользователи" path="/users" columns={["email", "id", "status", "activation", "emailVerified", "createdAt"]}
-    filters={[["status", "Статус", ["ACTIVE", "BLOCKED"]]]} destination={row => "/users/" + row.id}>
+  const { search } = useLocation();
+  return <><List title="Пользователи" path="/users" columns={["email", "id", "status", "activation", "emailVerified", "createdAt"]}
+    filters={[["status", "Статус", ["ACTIVE", "BLOCKED"]]]} destination={row => "/users/" + row.id + search}>
     <UserCreate />
     {canActivate && <Link className={buttonClass("secondary")} to="/users/registrations">Ожидающие регистрации</Link>}
-  </List>;
+  </List><Outlet /></>;
 }
 function UserDetails() {
-  return <Detail title="Пользователь" path="/users">{row => <>
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { focusRow } = (location.state ?? {}) as { focusRow?: string };
+  function close() {
+    void navigate("/users" + location.search, { replace: true, state: { focusRow } });
+  }
+  return <Drawer open title="Карточка пользователя" onClose={close}>
+    <Detail title="Пользователь" path="/users" hideTitle>{row => <>
     <section className="mz-card panel"><Facts data={row} keys={Object.keys(row).filter(key => key !== "access")} />
       <nav className="mz-actions" aria-label="Связанные записи пользователя">
         <Link className={buttonClass("secondary")} to={"/orders?userId=" + row.id}>Заказы</Link>
@@ -183,7 +191,7 @@ function UserDetails() {
     </section>
     <CustomerCredentials row={row} />
     <AccessActions row={row} />
-  </>}</Detail>;
+  </>}</Detail></Drawer>;
 }
 function OrderDetails() {
   const finance = useCan("finance:read");
@@ -301,7 +309,9 @@ export default function AdminWorkspace() {
   return <Routes>
     <Route element={<Guard />}>
       <Route index element={<Dashboard />} />
-      <Route path="users" element={<Users />} />
+      <Route path="users" element={<Users />}>
+        <Route path=":id" element={<UserDetails />} />
+      </Route>
       <Route path="users/registrations" element={<Permit permission="users:write">
         <List title="Ожидающие регистрации" path="/users/registrations" columns={["email", "state", "createdAt", "expiresAt"]}
           actions={rows => rows.map(row => <section key={row.id}>
@@ -314,7 +324,6 @@ export default function AdminWorkspace() {
           <p>Сначала подтвердите личность клиента по доверенному каналу и сверьте номер из его формы регистрации. Пароль запрашивать не нужно.</p>
         </List>
       </Permit>} />
-      <Route path="users/:id" element={<UserDetails />} />
       <Route path="users/:id/periods" element={<ForId render={id => <List title="Периоды доступа" path={`/users/${id}/periods`}
         columns={["orderId", "serial", "startAt", "endAt", "deviceLimit", "adjustment"]} />} />} />
       <Route path="orders" element={<List title="Заказы" path="/orders" columns={orderColumns} filters={orderFilters}

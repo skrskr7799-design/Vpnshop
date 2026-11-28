@@ -91,6 +91,10 @@ const server = createServer(async (req, res) => {
   if (path === "/api/dashboard") return json({ asOf: now, users: block({ total: 1010, new: 18 }), subscriptions: block({ active: 82 }), orders: block({ paid: 56 }),
     jobs: block({ overdue: 3, errors: 1 }), payments: block({ stuck: 1, awaiting: 2 }), support: block({ open: 2 }), panel: block(null, "UNAVAILABLE"),
     worker: block(null, "STALE"), alerts: [{ kind: "jobs", reasonCode: "JOBS_OVERDUE" }], ...(admin ? { finance: block([{ currency: "RUB", captured: "100" }]) } : {}) });
+  if (path === "/api/users/search" && req.method === "POST") {
+    assert.equal(new URL(req.url, "http://127.0.0.1").search, "");
+    return json({ ...pages(input.query === "synthetic@example.invalid" || input.userId === customer.id ? [customer] : []), truncated: false });
+  }
   if (path === "/api/users") {
     if (!process.env.MZT_VISUAL_DIR) return json(pages([customer]));
     const start = Number(searchParams.get("cursor") ?? 0);
@@ -221,7 +225,7 @@ try {
   };
   const fit = () => until("Boolean(document.documentElement && document.documentElement.scrollWidth <= innerWidth)");
   async function login(username) {
-    await until(text("Вход для сотрудников"));
+    await until(text("Вход"));
     await fill("username", username.split("@")[0]);
     await fill("password", fixtureSignInPassword);
     await click("Продолжить");
@@ -256,6 +260,24 @@ try {
   await fill("status", "ACTIVE");
   await click("Применить фильтры");
   await until("new URLSearchParams(location.search).get('status') === 'ACTIVE'");
+  assert.equal(await evaluate("Boolean(document.querySelector('.mz-drawer[open]'))"), false);
+  await evaluate('document.querySelector(".admin-search-trigger").click()');
+  await until(text("Поиск клиентов"));
+  await evaluate(`(() => {
+    const field = document.querySelector("#admin-search-query");
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(field, "synthetic@example.invalid");
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  })()`);
+  await click("Найти");
+  await click(customer.email);
+  await until('Boolean(document.querySelector(".mz-drawer[open]"))');
+  assert.ok(await evaluate("Boolean(document.querySelector('.admin-compact-users')) && !location.href.includes('synthetic@example.invalid')"));
+  await click("К списку");
+  await until("location.pathname === '/users' && !document.querySelector('.mz-drawer[open]')");
+  await click(customer.email);
+  await until('Boolean(document.querySelector(".mz-drawer[open]"))');
+  await click("К списку");
+  await until("document.activeElement.id === 'row-id-customer'");
   await menu("Тарифы");
   await until(text(plan.name));
   await click(plan.name);
@@ -349,7 +371,7 @@ try {
   await fit();
   assert.ok(requests.every(value => value.startsWith(origin) || value.startsWith("data:")));
   await click("Выйти");
-  await until(text("Вход для сотрудников"));
+  await until(text("Вход"));
   await fill("username", "initial-owner");
   await fill("password", fixtureSignInPassword);
   await click("Продолжить");
@@ -372,7 +394,7 @@ try {
         await until(text("Свежий код TOTP"));
       },
       screens: [
-        { id: "login", path: "/login", ready: "Вход для сотрудников", guest: true, measure: true },
+        { id: "login", path: "/login", ready: "Вход", guest: true, measure: true },
         { id: "invitation", path: "/invitation", ready: "Код приглашения", guest: true },
         { id: "dashboard", path: "/", ready: "Движения по валюте", measure: true },
         { id: "users", path: "/users", ready: customer.email },

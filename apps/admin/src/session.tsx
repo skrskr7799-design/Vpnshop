@@ -70,7 +70,7 @@ export function Login({ invitation = false }: { invitation?: boolean }) {
   const changing = stage?.step === "change_password";
   return <SignatureScene brand={<BrandMark />}>
     <section className="admin-signin">
-    <h1>{invitation ? "Приглашение" : changing ? "Задайте новый пароль" : stage ? "Подтвердите вход" : "Вход для сотрудников"}</h1>
+    <h1>{invitation ? "Приглашение" : changing ? "Задайте новый пароль" : stage ? "Подтвердите вход" : "Вход"}</h1>
     {!stage && !recoveryCodes.length && <p className="login__context">{invitation ?
       "Используйте код, полученный от администратора." : "Используйте имя пользователя своей служебной учётной записи."}</p>}
     {issue && <p role="alert">{issue}</p>}

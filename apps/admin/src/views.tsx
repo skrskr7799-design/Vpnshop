@@ -335,14 +335,16 @@ export function Dashboard() {
   </div>;
 }
 
-export function Detail({ title, path, children }: { title: string; path: string; children: (row: Row, refresh: () => unknown) => ReactNode }) {
+export function Detail({ title, path, children, hideTitle = false }: {
+  title: string; path: string; children: (row: Row, refresh: () => unknown) => ReactNode; hideTitle?: boolean;
+}) {
   const { id } = useParams();
   const state = useLocation().state as { returnTo?: string; focusRow?: string } | null;
   const fallback = path === "/support/cases" ? "/support" : path;
   const back = state?.returnTo && (state.returnTo === fallback || state.returnTo.startsWith(fallback + "?")) ? state.returnTo : fallback;
   const query = useAdmin<Row>(path + "/" + encodeURIComponent(id ?? ""));
   return <><Breadcrumbs><Link to={back} state={{ focusRow: state?.focusRow }}><Icon name="back" size={16} />К списку</Link></Breadcrumbs>
-    <PageHeader title={title} /><RequestState state={query} />{query.data && children(query.data, query.refetch)}</>;
+    {!hideTitle && <PageHeader title={title} />}<RequestState state={query} />{query.data && children(query.data, query.refetch)}</>;
 }
 export function PlanDetail({ actions }: { actions?: (plan: Row, rows: Row[]) => ReactNode }) {
   const { id } = useParams();
