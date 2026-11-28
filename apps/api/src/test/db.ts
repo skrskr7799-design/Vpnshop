@@ -13,6 +13,8 @@ export async function checkTestDatabase(db: Prisma.TransactionClient = prisma): 
 }
 
 export async function resetDatabase(timeout?: number): Promise<void> {
+  // Some suites pass this helper directly to a Vitest lifecycle hook.
+  const options = typeof timeout === "number" ? { timeout } : undefined;
   await prisma.$transaction(async (tx) => {
     await checkTestDatabase(tx);
     // Explicit application tables, in foreign-key order. The role has DML grants only.
@@ -46,5 +48,5 @@ export async function resetDatabase(timeout?: number): Promise<void> {
     // AuthIdentity, Session, VerificationToken and staff credentials cascade from User.
     await tx.customerNotice.deleteMany();
     await tx.user.deleteMany();
-  }, timeout ? { timeout } : undefined);
+  }, options);
 }
