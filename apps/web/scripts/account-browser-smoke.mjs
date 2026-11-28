@@ -310,6 +310,12 @@ try {
   await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] });
   await click("Войти");
   await until('Boolean(document.querySelector(".mz-maze-opening"))');
+  signedIn = false;
+  await until(text("Не удалось подтвердить вход"));
+  assert.equal(await evaluate('Boolean(document.querySelector(".mzt-account"))'), false);
+  await fillAuth({ password: "not-a-real-password" });
+  await click("Войти");
+  await until('Boolean(document.querySelector(".mz-maze-opening"))');
   await until("location.pathname.startsWith('/account')");
   assert.equal(await evaluate("localStorage.getItem('mzt.last-sign-in-method')"), "email");
   assert.equal(await evaluate('Boolean(document.querySelector(".mz-maze-opening"))'), false);
