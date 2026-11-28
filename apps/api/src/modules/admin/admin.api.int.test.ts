@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { resetDatabase } from "../../test/db";
 import { createOrder, createUser } from "../../test/factories";
@@ -89,6 +90,36 @@ it("isolates SUPPORT, masks contacts and excludes finance-only blocks and intern
   expect((await supportApi.command("staff.role", admin.userId, 1, { role: "SUPPORT" })).statusCode).toBe(403);
   await prisma.user.update({ where: { id: admin.userId }, data: { role: "SUPPORT" } });
   expect((await api.get("/api/audit")).statusCode).toBe(403);
+});
+
+it("finds customers by exact credential and business references without extending SUPPORT finance access", async () => {
+  const buyer = await createUser();
+  await prisma.user.update({ where: { id: buyer.id }, data: {
+    email: "mzt-customer@example.invalid", emailVerifiedAt: new Date(), displayName: "MZT Customer",
+    identities: { create: { provider: "TELEGRAM", providerId: "153908452" } },
+  } });
+  const { order, capture } = await paidOrder(buyer.id);
+  const payment = await prisma.payment.findUniqueOrThrow({ where: { id: capture.paymentId! } });
+  const subscription = await prisma.subscription.findUniqueOrThrow({ where: { userId: buyer.id } });
+  const find = (query: string, actor = supportApi) => actor.post("/api/users/search", { query });
+
+  for (const term of ["MZT-CUSTOMER@example.invalid", "MZT Customer", "153908452", order.id, subscription.id]) {
+    const response = await find(term);
+    expect(response.statusCode).toBe(200);
+    expect(response.json().items).toMatchObject([{ id: buyer.id, email: "m•••@example.invalid" }]);
+    expect(response.body).not.toContain("mzt-customer@example.invalid");
+    expect(response.headers["cache-control"]).toBe("no-store");
+  }
+
+  expect((await find(payment.id)).json().items).toEqual([]);
+  expect((await find(payment.id, api)).json().items).toMatchObject([{ id: buyer.id }]);
+  expect((await find(admin.userId, api)).json().items).toEqual([]);
+  expect((await find("MZT%Customer")).json().items).toEqual([]);
+  await prisma.user.update({ where: { id: buyer.id }, data: { emailVerifiedAt: null } });
+  expect((await find("mzt-customer@example.invalid")).json().items).toEqual([]);
+  expect((await supportApi.post("/api/users/search", { query: "MZT Customer", role: "OWNER" })).statusCode).toBe(400);
+  expect((await app.inject({ method: "POST", url: "/api/users/search", payload: { query: payment.id },
+    headers: { origin: env.ADMIN_ORIGIN } })).statusCode).toBe(401);
 });
 
 it("paginates 1001 users with timestamp ties, stable cursors and filter isolation", async () => {

@@ -1,5 +1,5 @@
 import { useProductBrand } from "./config";
-import { Badge, BrandMark, Button, CodeDisplay, Drawer, EmptyState, Icon, IconButton, Input, LabyrinthBackground, MobileNavigation, PageHeader, SignatureScene, StatusIndicator, Timeline, buttonClass, type IconName } from "@vpn/ui";
+import { Badge, BrandMark, Button, CodeDisplay, Dialog, Drawer, EmptyState, Icon, IconButton, Input, LabyrinthBackground, MobileNavigation, PageHeader, SignatureScene, StatusIndicator, Timeline, buttonClass, type IconName } from "@vpn/ui";
 import { supportStatus } from "@vpn/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
@@ -31,6 +31,69 @@ function Guard() {
     <div className="admin-signin"><h1>Администрирование</h1><RequestState state={me} /></div>
   </SignatureScene>;
   return me.data ? <Session.Provider value={me.data}><Shell key={me.data.user.id} /></Session.Provider> : <Navigate to="/login" replace />;
+}
+
+type CustomerSearchResult = { items: { id: string; email: string | null; displayName: string | null }[]; truncated: boolean };
+
+function CustomerSearch() {
+  const [open, setOpen] = useState(false);
+  const [term, setTerm] = useState("");
+  const [pending, setPending] = useState(false);
+  const [result, setResult] = useState<CustomerSearchResult>();
+  const [error, setError] = useState("");
+  const request = useRef<AbortController>(null);
+
+  useEffect(() => () => request.current?.abort(), []);
+
+  function close() {
+    request.current?.abort();
+    request.current = null;
+    setOpen(false); setTerm(""); setPending(false); setResult(undefined); setError("");
+  }
+
+  async function search(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const query = term.trim();
+    if (query.length < 2 || request.current) return;
+    const controller = new AbortController();
+    request.current = controller;
+    setPending(true); setResult(undefined); setError("");
+    try {
+      const response = await api<CustomerSearchResult>("/users/search", {
+        method: "POST", body: { query }, signal: controller.signal,
+      });
+      if (!controller.signal.aborted) setResult(response);
+    } catch (err) {
+      if (!controller.signal.aborted) setError(errorText(err));
+    } finally {
+      if (request.current === controller) { request.current = null; setPending(false); }
+    }
+  }
+
+  return <>
+    <Button className="admin-search-trigger" variant="quiet" onClick={() => setOpen(true)} aria-haspopup="dialog">
+      <Icon name="search" size={18} /><span className="admin-search-label">Поиск клиентов</span>
+    </Button>
+    <Dialog open={open} title="Поиск клиентов" onClose={close}>
+      <form className="admin-search-form" onSubmit={event => void search(event)}>
+        <label htmlFor="admin-search-query">Почта, имя, Telegram ID, заказ, платёж или UUID подписки</label>
+        <Input id="admin-search-query" value={term} onChange={event => setTerm(event.target.value)}
+          autoComplete="off" maxLength={160} minLength={2} required />
+        <Button type="submit" disabled={term.trim().length < 2} loading={pending}><Icon name="search" size={18} />Найти</Button>
+      </form>
+      {error && <p role="alert">{error}</p>}
+      {result && <div aria-live="polite">
+        {!result.items.length && <p>Клиенты не найдены.</p>}
+        {result.truncated && <p>Показаны первые результаты. Уточните запрос по идентификатору.</p>}
+        {result.items.length > 0 && <ul className="admin-search-results">
+          {result.items.map(item => <li key={item.id}><Link to={"/users/" + item.id} onClick={close}>
+            {item.displayName || item.email || item.id}
+            {item.displayName && item.email && <small>{item.email}</small>}
+          </Link></li>)}
+        </ul>}
+      </div>}
+    </Dialog>
+  </>;
 }
 
 function Shell() {
@@ -79,7 +142,7 @@ function Shell() {
       <div className="admin-topbar__mobile"><IconButton icon="menu" label="Открыть меню" aria-expanded={menu} onClick={() => setMenu(true)} />
         <Link to="/" className="mz-brand-home"><BrandMark /></Link></div>
       <span className="admin-topbar__context">{active}</span>
-      <div className="admin-topbar__identity"><span className="admin-topbar__email">{session.user.username ?? session.user.email}</span>
+      <div className="admin-topbar__identity">{session.permissions.includes("users:read") && <CustomerSearch />}<span className="admin-topbar__email">{session.user.username ?? session.user.email}</span>
         <Badge tone="accent">{session.user.role}</Badge>
         <Button variant="quiet" onClick={() => void logout()}><Icon name="out" size={16} />Выйти</Button></div>
     </header>

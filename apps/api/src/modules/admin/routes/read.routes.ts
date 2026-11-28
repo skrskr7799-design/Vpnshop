@@ -24,6 +24,51 @@ const publicUser = (row: Prisma.UserGetPayload<{ select: typeof userSelect }>, c
   id: row.id, email: contact ? row.email : mask(row.email), status: row.status, displayName: row.displayName, emailVerified: !!row.emailVerifiedAt,
   activation: row.activationRequired ? "PENDING" : row.manualActivatedAt ? "MANUAL" : "ACTIVE", createdAt: row.createdAt, version: row.updatedAt,
 });
+const globalLookup = z.strictObject({ query: z.string().trim().min(2).max(160).refine(value => !/[\p{Cc}\p{Cf}]/u.test(value)) });
+const userLookup = z.union([globalLookup, z.strictObject({
+  userId: id.optional(), verifiedEmail: z.email().transform(value => value.toLowerCase()).optional(),
+}).refine(input => Boolean(input.userId) !== Boolean(input.verifiedEmail))]);
+
+async function findCustomers(query: string, canReadOrders: boolean, canReadFinance: boolean) {
+  const uuid = id.safeParse(query.toLowerCase());
+  const email = z.email().safeParse(query.toLowerCase());
+  const telegramId = /^\d{2,20}$/.test(query) ? query : undefined;
+  const bound = 12;
+
+  const [orderMatches, paymentMatches, subscriptionMatches, telegramMatches] = await Promise.all([
+    canReadOrders && uuid.success ? prisma.order.findMany({
+      where: { id: uuid.data }, select: { userId: true }, take: 1,
+    }) : [],
+    canReadFinance ? prisma.payment.findMany({
+      where: { OR: [
+        ...(uuid.success ? [{ id: uuid.data }] : []),
+        { externalId: query }, { merchantReference: query },
+      ], order: { user: { role: "USER" } } },
+      select: { order: { select: { userId: true } } }, orderBy: { id: "asc" }, take: bound + 1,
+    }) : [],
+    uuid.success ? prisma.subscription.findMany({
+      where: { id: uuid.data }, select: { userId: true }, take: 1,
+    }) : [],
+    telegramId ? prisma.authIdentity.findMany({
+      where: { provider: "TELEGRAM", providerId: telegramId }, select: { userId: true }, take: 1,
+    }) : [],
+  ]);
+  const users = [...new Set([
+    ...orderMatches.map(row => row.userId), ...paymentMatches.map(row => row.order.userId),
+    ...subscriptionMatches.map(row => row.userId), ...telegramMatches.map(row => row.userId),
+    ...(uuid.success ? [uuid.data] : []),
+  ])];
+  const rows = await prisma.user.findMany({
+    where: { role: "USER", OR: [
+      { id: { in: users } },
+      ...(email.success ? [{ email: email.data, emailVerifiedAt: { not: null } }] : []),
+      { displayName: query },
+    ] },
+    select: userSelect, orderBy: newestFirst, take: bound + 1,
+  });
+  return { items: rows.slice(0, bound).map(row => publicUser(row, false)), nextCursor: null,
+    truncated: rows.length > bound || paymentMatches.length > bound };
+}
 const jobSelect = {
   id: true, orderId: true, status: true, attempts: true, verificationEpoch: true, writes: true,
   nextAttemptAt: true, createdAt: true, completedAt: true, lastError: true,
@@ -104,9 +149,12 @@ export const adminReadRoutes: FastifyPluginAsync = async app => {
     }));
   });
   app.post("/users/search", { preHandler: requireAdmin("users:read") }, async req => {
-    const { userId, verifiedEmail } = z.strictObject({ userId: id.optional(),
-      verifiedEmail: z.email().transform(value => value.toLowerCase()).optional(),
-    }).refine(input => Boolean(input.userId) !== Boolean(input.verifiedEmail)).parse(req.body);
+    const input = userLookup.parse(req.body);
+    if ("query" in input) {
+      const { role } = adminOf(req);
+      return findCustomers(input.query, can(role, "orders:read"), can(role, "finance:read"));
+    }
+    const { userId, verifiedEmail } = input;
     const rows = await prisma.user.findMany({
       where: { role: "USER", id: userId, ...(verifiedEmail && { email: verifiedEmail, emailVerifiedAt: { not: null } }) },
       select: userSelect, take: 1,

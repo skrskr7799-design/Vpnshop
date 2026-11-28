@@ -1,9 +1,9 @@
 import { mazeOpeningMs } from "@vpn/ui";
-import type { OAuthProvider } from "@vpn/shared";
+import type { OAuthProviderId } from "@vpn/shared";
 
 export const loginMutationKey = ["auth", "login"] as const;
 export const oauthMethodParam = "signed-in-with";
-type EntryMethod = OAuthProvider | "email";
+type EntryMethod = OAuthProviderId | "email";
 const storageKey = "mzt.last-sign-in-method";
 let lastMethod: EntryMethod | undefined;
 
