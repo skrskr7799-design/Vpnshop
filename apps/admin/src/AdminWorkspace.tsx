@@ -196,10 +196,16 @@ function UserDetails() {
         <Link className={buttonClass("secondary")} to={"/jobs?userId=" + row.id}>Выдача</Link>
         <Link className={buttonClass("secondary")} to={"/support?forUserId=" + row.id}>Обращения</Link>
         <Link className={buttonClass("secondary")} to={"/users/" + row.id + "/periods"}>Периоды</Link>
-        {canSeeSessions && <Link className={buttonClass("secondary")} to={`/users/${row.id}/sessions`}>Сессии</Link>}
+        {canSeeSessions && <>
+          <Link className={buttonClass("secondary")} to={`/users/${row.id}/sessions`}>Сессии</Link>
+          <Link className={buttonClass("secondary")} to={`/users/${row.id}/notices`}>Сообщения</Link>
+        </>}
         {canSeeAudit && <Link className={buttonClass("secondary")} to={`/audit?entityId=${row.id}`}>Аудит</Link>}
       </nav>
     </section>
+    <Action title="Отправить сервисное сообщение" operation="user.notice.send" permission="users:write"
+      target={row.id} version={String(row.version)} context={String(row.email ?? row.id)}
+      fields={[{ name: "title", label: "Тема" }, { name: "body", label: "Текст", type: "textarea" }]} />
     <CustomerCredentials row={row} />
     <Action title="Завершить все сессии клиента" operation="user.sessions.revoke" permission="users:write"
       target={row.id} version={String(row.version)} context={String(row.email ?? row.id)} />
@@ -339,6 +345,11 @@ export default function AdminWorkspace() {
       </Permit>} />
       <Route path="users/:id/periods" element={<ForId render={id => <List title="Периоды доступа" path={`/users/${id}/periods`}
         columns={["orderId", "serial", "startAt", "endAt", "deviceLimit", "adjustment"]} />} />} />
+      <Route path="users/:id/notices" element={<Permit permission="users:write"><ForId render={id =>
+        <List title="Сервисные сообщения клиента" path={`/users/${id}/notices`}
+          columns={["title", "body", "createdAt", "readAt"]}>
+          <Link to={`/users/${id}`}>К карточке клиента</Link>
+        </List>} /></Permit>} />
       <Route path="users/:id/sessions" element={<Permit permission="users:write"><ForId render={id =>
         <List title="Сессии клиента" path={`/users/${id}/sessions`}
           columns={["state", "loginMethod", "userAgent", "createdAt", "lastSeenAt", "expiresAt", "revokedAt"]}>

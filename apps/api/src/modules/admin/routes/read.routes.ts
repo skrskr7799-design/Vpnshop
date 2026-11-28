@@ -8,6 +8,7 @@ import { prisma } from "../../../lib/prisma";
 import { subscriptionOverview } from "../../account/projections";
 import { dbNow } from "../../commerce/offers";
 import { snapshot } from "../../commerce/orders";
+import { listCustomerNotices } from "../../notifications/customer-notices";
 import { adminOf, requireAdmin } from "../admin.middleware";
 import { overdueJobs, stuckPayments } from "../operational-filters";
 import { can } from "../admin.permissions";
@@ -200,6 +201,11 @@ export const adminReadRoutes: FastifyPluginAsync = async app => {
         holds: subscription.holds.map(({ reason, source, ...hold }) => staff ? { ...hold, reason, source } : hold),
       },
     };
+  });
+  app.get("/users/:id/notices", { preHandler: requireAdmin("users:write") }, async req => {
+    const userId = params.parse(req.params).id;
+    if (!await prisma.user.findFirst({ where: { id: userId, role: "USER" }, select: { id: true } })) throw missing();
+    return listCustomerNotices(userId, keysetQuery.parse(req.query), "staff");
   });
   app.get("/users/:id/sessions", { preHandler: requireAdmin("users:write") }, async req => {
     const userId = params.parse(req.params).id;

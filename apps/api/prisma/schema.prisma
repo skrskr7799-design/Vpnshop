@@ -153,6 +153,7 @@ model User {
   supportCases SupportCase[]
   assignedCases SupportCase[] @relation("SupportAssignee")
   supportReads SupportReadCursor[]
+  customerNotices CustomerNotice[]
   @@index([role, createdAt, id])
   @@index([role, displayName, createdAt, id])
 }
@@ -992,6 +993,19 @@ model AdminOperationalSettings {
   version                  Int @default(0)
   fulfillmentLagWarnSeconds Int @default(900)
   paymentLagWarnSeconds     Int @default(900)
+}
+
+model CustomerNotice {
+  id String @id @default(uuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title String
+  body String
+  createdAt DateTime @default(now())
+  readAt DateTime?
+
+  @@index([userId, createdAt, id])
+  @@index([userId, readAt])
 }
 
 model NotificationOutbox {

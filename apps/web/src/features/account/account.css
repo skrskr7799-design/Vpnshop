@@ -189,3 +189,9 @@
     padding-block-end: max(1rem, env(safe-area-inset-bottom));
   }
 }
+
+.mzt-top__right { display: flex; align-items: center; justify-self: end; margin-inline-start: auto; gap: .55rem; min-width: 0; }
+.mzt-notice-link { position: relative; display: grid; place-items: center; width: 44px; height: 44px; flex: none; color: var(--mz-violet-hover); }
+.mzt-notice-link span { position: absolute; inset: 0 0 auto auto; min-width: 1.2rem; text-align: center; padding-inline: 2px;
+  border-radius: .4rem; background: var(--mz-raised); color: var(--mz-text); font-size: .7rem; }
+.mzt-notice-text { white-space: pre-wrap; overflow-wrap: anywhere; margin-block: .75rem; }

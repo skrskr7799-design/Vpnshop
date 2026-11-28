@@ -44,6 +44,7 @@ export async function resetDatabase(): Promise<void> {
     await tx.oAuthFlow.deleteMany();
     await tx.authMailWindow.deleteMany();
     // AuthIdentity, Session, VerificationToken and staff credentials cascade from User.
+    await tx.customerNotice.deleteMany();
     await tx.user.deleteMany();
   });
 }

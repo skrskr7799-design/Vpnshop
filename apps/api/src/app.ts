@@ -12,6 +12,7 @@ import { registerErrorHandler } from "./lib/error-handler";
 import { authRoutes } from "./modules/auth/auth.routes";
 import { commerceRoutes } from "./modules/commerce/commerce.routes";
 import { healthRoutes, setDrain } from "./modules/health/health.routes";
+import { ownerNoticeRoutes } from "./modules/notifications/customer-notices";
 import { oauthRoutes } from "./modules/oauth/oauth.routes";
 import { loadProviders } from "./modules/oauth/providers";
 import { paymentFixture, paymentWebhookRoutes } from "./modules/payments/payments.routes";
@@ -66,6 +67,7 @@ export async function buildApp(options: { payments?: PaymentProviderAdapter; pan
       api.get("/config", (_req, reply) => reply.header("Cache-Control", "no-store").send(configuration()));
       await api.register(healthRoutes);
       await api.register(ownerSupportRoutes);
+      await api.register(ownerNoticeRoutes);
       await api.register(commerceRoutes, { payments, panel, restriction });
       await api.register(authRoutes, { prefix: "/auth" });
       await api.register(oauthRoutes, { prefix: "/auth/oauth", providers });

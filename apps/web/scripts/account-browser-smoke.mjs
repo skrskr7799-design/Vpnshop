@@ -20,6 +20,7 @@ const emailToken = "synthetic-email-token";
 const user = { id: "synthetic-user", email: "test@example.invalid", role: "USER" };
 const sessionId = "synthetic-browser-session";
 let signedIn = true;
+let noticeRead = false;
 let loginMethod = "email";
 let loginOutcome = "invalid";
 let loginRequests = 0;
@@ -107,6 +108,13 @@ const server = createServer(async (req, res) => {
   if (path === "/api/orders/order-smoke") return json(order);
   if (path === "/api/orders/order-smoke/payments") return json(page([{ id: "attempt-local", status: "UNKNOWN",
     updatedAt: now, confirmedCaptures: [] }]));
+  if (path === "/api/me/notices/unread") return json({ unread: noticeRead ? 0 : 1 });
+  if (path === "/api/me/notices") return json(page([{ id: "fixture-notice", title: "Сервисное обновление",
+    body: "Проверка сообщения", createdAt: now, readAt: noticeRead ? now : null }]));
+  if (path === "/api/me/notices/fixture-notice/read" && req.method === "POST") {
+    noticeRead = true;
+    return res.writeHead(204).end();
+  }
   if (path === "/api/me/subscription/devices") return json({ total: 1, limit: 3, items: [{ platform: "Android", model: "Synthetic device", registeredAt: now, updatedAt: now }] });
   if (path === "/api/me/subscription/renewal") return json({ estimatedEndAt: later });
   if (path === "/api/me/subscription") {
@@ -251,6 +259,12 @@ try {
   await click("Закрыть обращение");
   await click("Закрыть");
   await until(text("Обращение закрыто."));
+  await fit();
+  await until('document.querySelector(".mzt-notice-link").getAttribute("aria-label").includes("непрочитано: 1")');
+  await evaluate('document.querySelector(".mzt-notice-link").click()');
+  await until(text("Проверка сообщения"));
+  await click("Отметить прочитанным");
+  await until('!document.querySelector(".mzt-notice-link").getAttribute("aria-label").includes("непрочитано:")');
   await fit();
   await menu("Безопасность");
   await until(text("Chromium Smoke"));

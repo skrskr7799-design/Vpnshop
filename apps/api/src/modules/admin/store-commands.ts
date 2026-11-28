@@ -1,5 +1,5 @@
 import type { Prisma } from "@prisma/client";
-import { createPlanSchema, emailField, updatePlanSchema } from "@vpn/shared";
+import { createPlanSchema, emailField, supportText, updatePlanSchema } from "@vpn/shared";
 import { z } from "zod";
 import { emailAvailable, env } from "../../config/env";
 import { isUniqueViolation } from "../../lib/db-errors";
@@ -313,6 +313,13 @@ export const storeCommands = {
       startAt, endAt: new Date(+startAt + input.durationSeconds * 1000), deviceLimit: basis.deviceLimit, createdAt: now } });
     const desired = await projectAssignment(ctx.db, subscription, now, "SERVICE_COMPENSATION", true);
     return { id: credit.id, startAt: startAt.toISOString(), endAt: credit.endAt.toISOString(), revision: desired.revision };
+  }),
+  "user.notice.send": command("users:write", z.strictObject({ title: supportText.max(120), body: supportText }), async (ctx, input) => {
+    const user = await lockIdentityOwner(ctx.db, versionTarget(ctx));
+    if (!user || user.role !== "USER") throw new AppError(404, "NOT_FOUND");
+    expectVersion(ctx.expectedVersion, user.updatedAt);
+    const notice = await ctx.db.customerNotice.create({ data: { userId: user.id, ...input }, select: { id: true } });
+    return { id: notice.id, userId: user.id, kind: "SERVICE" };
   }),
   "user.sessions.revoke": command("users:write", empty, async ctx => {
     const user = await lockIdentityOwner(ctx.db, versionTarget(ctx));

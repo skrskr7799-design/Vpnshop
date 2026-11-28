@@ -190,6 +190,44 @@ it("uses the same configured cutoffs in dashboard alerts and investigation lists
   expect((await supportApi.get("/api/payments/attempts?stuck=true")).statusCode).toBe(403);
 });
 
+it("sends service notices once, keeps content out of the audit, and isolates reading and acknowledgement", async () => {
+  const target = await createUser();
+  const other = await createUser();
+  const targetSession = await createSession(target, {});
+  const otherSession = await createSession(other, {});
+  const text = "Проверка сервисного уведомления";
+  const key = randomUUID();
+  const body = { title: "Обновление", body: text };
+  const send = () => api.command("user.notice.send", target.id, target.updatedAt.toISOString(), body, { key });
+  expect((await supportApi.command("user.notice.send", target.id, target.updatedAt.toISOString(), body)).statusCode).toBe(403);
+  const sent = await send();
+  expect(sent.statusCode).toBe(200);
+  expect((await send()).json()).toEqual(sent.json());
+  const id = sent.json().result.id;
+  const log = await prisma.auditLog.findFirstOrThrow({ where: { action: "user.notice.send", entityId: target.id } });
+  expect(JSON.stringify(log)).not.toContain(text);
+  expect(await prisma.customerNotice.count()).toBe(1);
+  const { buildApp } = await import("../../app");
+  const storefront = await buildApp();
+  const owned = { vpn_at: targetSession.accessToken };
+  const foreign = { vpn_at: otherSession.accessToken };
+  const origin = { origin: env.WEB_ORIGIN };
+  const read = (cookies: typeof owned) => storefront.inject({ method: "POST", headers: origin, cookies,
+    url: "/api/me/notices/" + id + "/read" });
+  try {
+    expect((await storefront.inject({ url: "/api/me/notices", cookies: foreign })).json().items).toEqual([]);
+    const inbox = await storefront.inject({ url: "/api/me/notices", cookies: owned });
+    expect(inbox.headers["cache-control"]).toBe("private, no-store");
+    expect(inbox.json().items).toMatchObject([{ id, ...body, readAt: null }]);
+    expect((await read(foreign)).statusCode).toBe(404);
+    expect((await storefront.inject({ url: "/api/me/notices/unread", cookies: owned })).json()).toEqual({ unread: 1 });
+    expect((await read(owned)).statusCode).toBe(204);
+    expect((await read(owned)).statusCode).toBe(204);
+    expect((await storefront.inject({ url: "/api/me/notices/unread", cookies: owned })).json()).toEqual({ unread: 0 });
+    expect((await api.get("/api/users/" + target.id + "/notices")).json().items[0].readAt).toBeTruthy();
+  } finally { await storefront.close(); }
+});
+
 it("paginates 1001 users with timestamp ties, stable cursors and filter isolation", async () => {
   const createdAt = new Date("2026-01-01T00:00:00Z");
   await prisma.user.createMany({ data: Array.from({ length: 1001 }, (_, i) => ({

@@ -10,6 +10,9 @@ GRANT SELECT ON "User","Plan","PlanPrice","OfferVersion","Order","Payment","Orde
    "Subscription","PeriodGrant","Adjustment","ServiceHold","DesiredAssignment","FulfillmentJob","PanelBinding"
   TO mzt_public;
 GRANT INSERT ON "User","Order" TO mzt_public;
+GRANT SELECT (id,"subscriptionLinkAllowed") ON "AdminOperationalSettings" TO mzt_public;
+GRANT SELECT,UPDATE ("readAt") ON "CustomerNotice" TO mzt_public;
+GRANT SELECT,INSERT ON "CustomerNotice" TO mzt_admin;
 GRANT EXECUTE ON FUNCTION mzt_lock_offer_plan(text) TO mzt_public;
 GRANT EXECUTE ON FUNCTION mzt_lock_order(text) TO mzt_admin,mzt_billing;
 ALTER TABLE "Order" ENABLE ROW LEVEL SECURITY;

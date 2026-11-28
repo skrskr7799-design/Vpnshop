@@ -226,7 +226,7 @@ INSERT INTO test_guard.instance VALUES ('$VPNSHOP_TEST_MARKER');
 GRANT USAGE ON SCHEMA test_guard, public TO vpnshop_suite;
 GRANT EXECUTE ON FUNCTION mzt_lock_offer_plan(text), mzt_lock_order(text) TO vpnshop_suite;
 GRANT SELECT ON "_prisma_migrations" TO vpnshop_suite;
-GRANT SELECT, INSERT, UPDATE, DELETE ON "NotificationOutbox" TO vpnshop_suite;
+GRANT SELECT, INSERT, UPDATE, DELETE ON "NotificationOutbox", "CustomerNotice" TO vpnshop_suite;
 GRANT SELECT ON test_guard.instance TO vpnshop_suite;
 GRANT SELECT, INSERT, UPDATE, DELETE ON "User","AuthIdentity","Session","PendingRegistration",
   "VerificationToken","AdminTotp","AdminRecoveryCode","AdminSession","Plan","PlanPrice","OfferVersion","Order",

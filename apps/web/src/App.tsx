@@ -24,6 +24,7 @@ const OrdersPage = lazy(() => Commerce().then(m => ({ default: m.OrdersPage })))
 const OrderPage = lazy(() => Commerce().then(m => ({ default: m.OrderPage })));
 const SubscriptionPage = lazy(() => Commerce().then(m => ({ default: m.SubscriptionPage })));
 const ConnectionPage = lazy(() => import("./features/account/ConnectionPage").then(m => ({ default: m.ConnectionPage })));
+const NoticesPage = lazy(() => import("./features/account/NoticesPage").then(m => ({ default: m.NoticesPage })));
 const Support = () => import("./features/account/SupportPages");
 const SupportPage = lazy(() => Support().then(m => ({ default: m.SupportPage })));
 const SupportThreadPage = lazy(() => Support().then(m => ({ default: m.SupportThreadPage })));
@@ -71,6 +72,7 @@ export function App() {
           <Route path="orders/:id" element={<OrderPage />} />
           <Route path="subscription" element={<SubscriptionPage />} />
           <Route path="connect" element={<ConnectionPage />} />
+          <Route path="notices" element={<NoticesPage />} />
           <Route path="support" element={<SupportPage />} />
           <Route path="support/:id" element={<SupportThreadPage />} />
           <Route path="security" element={<SecurityPage />} />

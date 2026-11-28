@@ -27,6 +27,7 @@ const labels: Record<string, string> = {
   periodName: "Название тарифа", endsAt: "Окончание периода",
   subscriptionLinkAllowed: "Выдача ссылок по умолчанию", subscriptionLinkPolicy: "Политика ссылки",
   identities: "Способы входа", provider: "Провайдер", verifiedAt: "Подтверждён",
+  title: "Тема", body: "Сообщение", readAt: "Прочитано",
   subject: "Тема", customer: "Клиент", priority: "Приоритет", assignee: "Ответственный", unread: "Новые события",
   username: "Имя пользователя", displayName: "Отображаемое имя", contactEmail: "Контакт",
   activation: "Активация", emailVerified: "Почта подтверждена", lastLoginAt: "Последний вход",

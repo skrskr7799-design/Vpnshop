@@ -91,6 +91,8 @@ function subscriptionFraction(summary?: OwnerSubscription) {
 export function AccountShell() {
   const logout = useLogout();
   const subscription = useOwner<OwnerSubscription>("/me/subscription");
+  const notices = useOwner<{ unread: number }>("/me/notices/unread", 30_000);
+  const unread = notices.isError ? 0 : notices.data?.unread ?? 0;
   const product = useProductConfig().data;
   const brand = product?.product.brandName ?? "MZT";
   const { data } = useMe();
@@ -100,7 +102,7 @@ export function AccountShell() {
   const active = navigation.find(item => item.path !== "/account" && pathname.startsWith(item.path)) ?? navigation[0]!;
   useEffect(() => {
     main.current?.focus({ preventScroll: true });
-    document.title = active.title + " — " + brand;
+    document.title = (pathname === "/account/notices" ? "Сервисные сообщения" : active.title) + " — " + brand;
   }, [pathname, active.title, brand]);
   const links = (close?: () => void) => <nav className="mzt-nav" aria-label="Разделы кабинета">{navigation.map(({ path, title, icon }) =>
     <NavLink end={path === "/account"} key={path} to={path} className="mz-nav-link" onClick={close}><Icon name={icon} size={18} />{title}</NavLink>)}</nav>;
@@ -113,7 +115,14 @@ export function AccountShell() {
       <header className="mzt-top">
         <div className="mzt-top__mobile"><IconButton icon="menu" label="Открыть меню" aria-expanded={menu} onClick={() => setMenu(true)} />
           <Link to="/account" className="mz-brand-home"><BrandMark /></Link></div>
-        <span className="mzt-top__context">{data?.email}</span>
+        <div className="mzt-top__right">
+          <span className="mzt-top__context">{data?.email}</span>
+          <Link to="/account/notices" className="mzt-notice-link"
+            aria-label={unread ? "Сервисные сообщения, непрочитано: " + unread : "Сервисные сообщения"}>
+            <Icon name="bell" size={20} />
+            {unread > 0 && <span aria-hidden="true">{Math.min(99, unread)}{unread > 99 ? "+" : ""}</span>}
+          </Link>
+        </div>
       </header>
       <Drawer open={menu} title="Личный кабинет" onClose={() => setMenu(false)}>{links(() => {
         setMenu(false);
