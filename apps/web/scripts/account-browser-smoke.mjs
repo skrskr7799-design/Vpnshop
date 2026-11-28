@@ -20,6 +20,8 @@ const emailToken = "synthetic-email-token";
 const user = { id: "synthetic-user", email: "test@example.invalid", role: "USER" };
 const sessionId = "synthetic-browser-session";
 let signedIn = true;
+let loginOutcome = "invalid";
+let loginRequests = 0;
 let checkoutKeys = [];
 let history = [];
 let ticket;
@@ -66,7 +68,10 @@ const server = createServer(async (req, res) => {
   if (path === "/api/auth/me") return signedIn ? json({ user, sessionId }) : json({ error: { code: "UNAUTHENTICATED" } }, 401);
   if (path === "/api/auth/login") {
     req.resume();
-    return json({ error: { code: "INVALID_CREDENTIALS" } }, 401);
+    loginRequests++;
+    if (loginOutcome === "invalid") return json({ error: { code: "INVALID_CREDENTIALS" } }, 401);
+    signedIn = loginOutcome === "confirmed";
+    return json({ user, sessionId });
   }
   if (path === "/api/auth/refresh") return json({ error: { code: "INVALID_SESSION" } }, 401);
   if (path === "/api/auth/oauth/providers") return json({ providers: { google: oauthEnabled, telegram: oauthEnabled }, emailAvailable: mailEnabled });
@@ -271,13 +276,13 @@ try {
 
   await send("Emulation.setDeviceMetricsOverride", { width: 360, height: 440, deviceScaleFactor: 1, mobile: true });
   await send("Page.navigate", { url: origin + "/login" });
-  await until(text("Добро пожаловать"));
-  await evaluate(`for (const [name,value] of [["email","synthetic@example.invalid"],["password","not-a-real-password"]]) {
-    const input = document.querySelector("[name=" + name + "]");
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, value);
-    input.dispatchEvent(new Event("input", {bubbles:true}));
-    input.focus();
-  }`);
+  await until(text("Войти в кабинет"));
+  assert.equal(await evaluate('Boolean(document.querySelector("[name=password]"))'), false);
+  await fillAuth({ email: "synthetic@example.invalid" });
+  await click("Продолжить");
+  await until('document.activeElement.name === "password"');
+  assert.equal(loginRequests, 0);
+  await fillAuth({ password: "not-a-real-password" });
   assert.ok(await evaluate(`(() => {
     const button = document.querySelector(".auth-form button[type='submit']");
     button.scrollIntoView({block:"center"});
@@ -286,11 +291,24 @@ try {
   })()`));
   await click("Войти");
   await until(text("Неверный email или пароль"));
+  assert.equal(await evaluate('Boolean(document.querySelector(".mz-maze-opening"))'), false);
+  loginOutcome = "unconfirmed";
+  await click("Войти");
+  await until(text("Войдите, чтобы подключить аккаунт"));
+  assert.equal(await evaluate('Boolean(document.querySelector(".mz-maze-opening"))'), false);
+  loginOutcome = "confirmed";
+  await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] });
+  await click("Войти");
+  await until('Boolean(document.querySelector(".mz-maze-opening"))');
+  await until("location.pathname === '/account'");
+  assert.equal(await evaluate("localStorage.getItem('mzt.last-sign-in-method')"), "email");
+  assert.equal(await evaluate('Boolean(document.querySelector(".mz-maze-opening"))'), false);
+  signedIn = false;
   await fit();
   const password = "local-test-password";
   oauthEnabled = true;
   await send("Page.navigate", { url: origin + "/login?error=OAUTH_DENIED" });
-  await until(text("Продолжить через Google"));
+  await until(text("Google"));
   assert.ok(await evaluate("location.search === '' && Boolean(document.querySelector('[role=alert]'))"));
   assert.ok(await evaluate("[...document.querySelectorAll('.oauth__buttons a')].every(a => a.origin === location.origin && a.pathname.endsWith('/start'))"));
   oauthEnabled = false;
@@ -356,6 +374,8 @@ try {
       },
       afterLoad: async screen => {
         if (screen.id === "initial-password") {
+          await fillAuth({ email: "synthetic@example.invalid" });
+          await click("Продолжить");
           await click("У меня временный пароль");
           await until(text("Сменить пароль"));
         } else {
@@ -364,8 +384,8 @@ try {
         }
       },
       screens: [
-        { id: "login", path: "/login", ready: "Войти", guest: true, measure: true },
-        { id: "initial-password", path: "/login", ready: "Войти", guest: true, afterLoad: true },
+        { id: "login", path: "/login", ready: "Войти в кабинет", guest: true, measure: true },
+        { id: "initial-password", path: "/login", ready: "Войти в кабинет", guest: true, afterLoad: true },
         { id: "maintenance", path: "/maintenance", ready: "Техническое обслуживание", guest: true, product: "maintenance" },
         { id: "registration-closed", path: "/register", ready: "Регистрация закрыта", guest: true, product: "closed" },
         { id: "payments-closed", path: "/account/plans", ready: "Покупка временно недоступна", product: "closed" },
@@ -375,7 +395,7 @@ try {
         { id: "activation-pending", path: "/activation", ready: "ручной активации", guest: true, noMail: true },
         { id: "verify-email", path: "/verify-email#token=" + emailToken, ready: "Почта подтверждена", guest: true },
         { id: "reset-password", path: "/reset-password#token=" + emailToken, ready: "Сохранить пароль", guest: true },
-        { id: "oauth-login", path: "/login?error=OAUTH_DENIED", ready: "Продолжить через Google", guest: true, oauth: true },
+        { id: "oauth-login", path: "/login?error=OAUTH_DENIED", ready: "Google", guest: true, oauth: true },
         { id: "not-found", path: "/page-not-found", ready: "Страница не найдена", guest: true },
         { id: "dashboard", path: "/account", ready: "Показать ссылку и QR", measure: true },
         { id: "plans", path: "/account/plans", ready: offer.name },

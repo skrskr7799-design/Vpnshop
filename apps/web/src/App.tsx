@@ -3,6 +3,7 @@ import { Skeleton } from "@vpn/ui";
 import { Navigate, Route, Routes } from "react-router";
 import { AuthShell } from "./components/AuthShell/AuthShell";
 import { GuestOnly, RequireAuth } from "./features/auth/guards";
+import { loadDashboard as Commerce } from "./features/auth/entry";
 import { LoginPage } from "./features/auth/pages/LoginPage";
 import { AccountShell } from "./features/account/account";
 import { useProductConfig } from "./config";
@@ -17,7 +18,6 @@ const RegisterPage = lazy(() => import("./features/auth/pages/RegisterPage").the
 const ResetPasswordPage = lazy(() => import("./features/auth/pages/ResetPasswordPage").then(m => ({ default: m.ResetPasswordPage })));
 const VerifyEmailPage = lazy(() => import("./features/auth/pages/VerifyEmailPage").then(m => ({ default: m.VerifyEmailPage })));
 const SecurityPage = lazy(() => import("./features/auth/pages/SecurityPage").then(m => ({ default: m.SecurityPage })));
-const Commerce = () => import("./features/account/CommercePages");
 const DashboardPage = lazy(() => Commerce().then(m => ({ default: m.DashboardPage })));
 const PlansPage = lazy(() => Commerce().then(m => ({ default: m.PlansPage })));
 const OrdersPage = lazy(() => Commerce().then(m => ({ default: m.OrdersPage })));

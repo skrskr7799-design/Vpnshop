@@ -171,21 +171,20 @@ textarea.mz-control { resize: vertical; }
 /* Only the paint layers are beveled. Content, focus and popovers stay outside the masks. */
 :is(.mz-cut, .mz-card, .mz-skeleton, .mz-dialog:not(.mz-drawer), .mz-button:not(.mz-button--quiet), .mz-nav-link[aria-current]) {
   --mz-angle: var(--mz-cut-size, var(--mzt-cut-panel));
-  --mz-inner-angle: calc(var(--mz-angle) - .586px);
   position: relative; isolation: isolate; background: transparent; border: 1px solid transparent; border-radius: 0;
 }
 :is(.mz-cut, .mz-card, .mz-skeleton, .mz-dialog:not(.mz-drawer), .mz-button:not(.mz-button--quiet), .mz-nav-link[aria-current])::before,
 :is(.mz-cut, .mz-card, .mz-skeleton, .mz-dialog:not(.mz-drawer), .mz-button:not(.mz-button--quiet), .mz-nav-link[aria-current])::after {
   content: ""; pointer-events: none; position: absolute;
-  clip-path: polygon(var(--mz-chamfer) 0, calc(100% - var(--mz-chamfer)) 0, 100% var(--mz-chamfer),
-    100% calc(100% - var(--mz-chamfer)), calc(100% - var(--mz-chamfer)) 100%, var(--mz-chamfer) 100%,
-    0 calc(100% - var(--mz-chamfer)), 0 var(--mz-chamfer));
+  clip-path: polygon(var(--mz-angle) 0, calc(100% - var(--mz-angle)) 0, 100% var(--mz-angle),
+    100% calc(100% - var(--mz-angle)), calc(100% - var(--mz-angle)) 100%, var(--mz-angle) 100%,
+    0 calc(100% - var(--mz-angle)), 0 var(--mz-angle));
 }
 :is(.mz-cut, .mz-card, .mz-skeleton, .mz-dialog:not(.mz-drawer), .mz-button:not(.mz-button--quiet), .mz-nav-link[aria-current])::before {
-  --mz-chamfer: var(--mz-angle); inset: -1px; background: var(--mz-outline, var(--mzt-border-accent)); z-index: -2;
+  inset: -1px; background: var(--mz-outline, var(--mzt-border-accent)); z-index: -2;
 }
 :is(.mz-cut, .mz-card, .mz-skeleton, .mz-dialog:not(.mz-drawer), .mz-button:not(.mz-button--quiet), .mz-nav-link[aria-current])::after {
-  --mz-chamfer: var(--mz-inner-angle); inset: 0; background: var(--mz-fill, var(--mz-surface)); z-index: -1;
+  inset: 0; background: var(--mz-fill, var(--mz-surface)); z-index: -1;
 }
 .mz-metric, .mz-cut--stat { --mz-cut-size: var(--mzt-cut-stat); }
 .mz-cut--auth { --mz-cut-size: var(--mzt-cut-auth); }
@@ -204,20 +203,38 @@ textarea.mz-control { resize: vertical; }
 .mz-button--primary:not(.mz-button--quiet):active { --mz-fill: var(--mz-violet-pressed); }
 .mz-button--danger:not(.mz-button--quiet) { --mz-fill: var(--mz-danger-bg); }
 .mz-button:not(.mz-button--quiet):disabled { --mz-outline: var(--mz-line); --mz-fill: var(--mz-raised); color: var(--mz-muted); }
-.mz-labyrinth { display: block; position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: -1; }
-.mz-labyrinth path { vector-effect: non-scaling-stroke; }
-.mz-labyrinth-depth { stroke: #181321; stroke-width: 17; opacity: .43; }
-.mz-labyrinth-walls { stroke: #3a3049; stroke-width: 1; opacity: .74; }
-.mz-labyrinth-trace { stroke: #a582ef; stroke-width: 1.2; opacity: .78; }
-.mz-labyrinth-halo { stroke: #a16cf9; stroke-width: 5; filter: blur(5px); opacity: calc(.39 * var(--mzt-glow-strength)); }
-.mz-labyrinth--edge { position: fixed; opacity: .62; }
-.mz-labyrinth--edge .mz-labyrinth-depth { stroke-width: 13; }
-.mz-labyrinth--edge .mz-labyrinth-trace { opacity: .64; }
-.mz-labyrinth--edge .mz-labyrinth-halo { opacity: calc(.23 * var(--mzt-glow-strength)); }
+.mz-labyrinth {
+  display: block; position: fixed; width: min(78rem, 120vw); height: auto; top: -28rem; right: -28rem;
+  pointer-events: none; z-index: -1; opacity: .27;
+}
+.mz-labyrinth--admin { opacity: .16; }
+.mz-labyrinth--login {
+  position: absolute; top: min(-5vh, -24px); right: auto; left: 50%; transform: translateX(-50%);
+  width: clamp(37rem, 92vh, 67rem); opacity: .28;
+}
+.mz-maze-opening {
+  display: grid; place-items: center; position: fixed; inset: 0; z-index: var(--mz-layer-skip);
+  background: radial-gradient(ellipse at center, #1c112c, #0b0911 65%); overflow: hidden;
+}
+.mz-maze-opening__maze { width: min(92dvh, 96vw, 63rem); }
+.mz-maze-opening .mz-orbit-ring { transform-origin: 50% 50%; animation: mz-orbit-align 250ms ease-out both; }
+.mz-maze-opening .mz-orbit-spokes { animation: mz-orbit-join 250ms linear both; }
+.mz-orbit-light { color: #d7b6ff; filter: drop-shadow(0 0 8px currentColor); }
+.mz-orbit-light circle { opacity: 0; }
+.mz-orbit-trail {
+  stroke: currentColor; stroke-width: 3; stroke-dasharray: 100; stroke-dashoffset: 100;
+  animation: mz-orbit-travel 390ms 250ms linear forwards;
+}
+.mz-orbit-center { fill: #f2e5ff; animation: mz-orbit-arrival 100ms 640ms ease-out both; }
+@keyframes mz-orbit-align { from { transform: rotate(var(--mz-ring-offset)); } to { transform: rotate(0); } }
+@keyframes mz-orbit-join { 0%, 85% { opacity: 0; } 100% { opacity: 1; } }
+@keyframes mz-orbit-travel { to { stroke-dashoffset: 0; } }
+@keyframes mz-orbit-arrival { from { opacity: 0; } to { opacity: 1; } }
+
 .mz-signature-scene {
   --mz-scene-top: clamp(38px, 12.6dvh, 123px);
   display: grid; align-content: start; justify-items: center; gap: 28px; position: relative; isolation: isolate;
-  min-height: 100dvh; padding: var(--mz-scene-top) 16px clamp(36px, 10dvh, 94px);
+  min-height: 100dvh; overflow-x: clip; padding: var(--mz-scene-top) 16px clamp(36px, 10dvh, 94px);
 }
 .mz-signature-scene::before {
   content: ""; position: absolute; inset: 0; z-index: -2; pointer-events: none;
@@ -229,12 +246,6 @@ textarea.mz-control { resize: vertical; }
   --mz-outline: linear-gradient(135deg, #9a7ac5, #564467 39%, #9a7ac5 73%, #715789);
   --mz-fill: #0a090e;
 }
-.mz-signature-kicker {
-  display: flex; align-items: center; justify-content: center; gap: 12px;
-  font-size: .68rem; font-weight: 530; color: var(--mz-muted); text-transform: uppercase;
-  letter-spacing: .27em; margin-block-end: 18px;
-}
-.mz-signature-kicker::before, .mz-signature-kicker::after { content: ""; display: block; flex: 1 1 1.7rem; max-width: 42px; height: 1px; background: #40354f; }
 .mz-signature-panel h1 { font-size: clamp(1.5rem, 2vw, 1.75rem); line-height: 1.22; letter-spacing: -.026em; }
 .mz-mobile-nav { display: none; }
 @media (max-width: 819px) {
@@ -259,8 +270,7 @@ textarea.mz-control { resize: vertical; }
   .mz-signature-scene { --mz-scene-top: clamp(27px, 9.3dvh, 80px); gap: 20px; }
   .mz-signature-panel { --mz-cut-size: 14px; padding: 24px clamp(16px, 5vw, 23px) 24px; }
   .mz-signature-brand { --mz-brand-size: 56px; }
-  .mz-signature-kicker { letter-spacing: .18em; margin-block-end: 16px; }
-  .mz-labyrinth--login { opacity: .72; }
+  .mz-labyrinth:not(.mz-labyrinth--login) { width: 42rem; top: -19rem; right: -23rem; }
 }
 @media (forced-colors: active) {
   :is(.mz-cut, .mz-card, .mz-skeleton, .mz-dialog, .mz-button) { border-color: ButtonText; background: Canvas; color: CanvasText; }
@@ -270,3 +280,5 @@ textarea.mz-control { resize: vertical; }
 .mz-input-icon { position: relative; display: block; min-width: 0; }
 .mz-input-icon > svg { position: absolute; z-index: 1; inset: 0 auto 0 14px; margin-block: auto; color: var(--mz-muted); pointer-events: none; }
 .mz-input-icon input { padding-inline-start: 43px; }
+
+@media (prefers-reduced-motion: reduce) { .mz-maze-opening { display: none; } }

@@ -192,7 +192,7 @@ describe("Google: вход", () => {
 
     const res = await callback(app, "google", `code=abc&state=${flow.state}`, flow.cookies);
 
-    expect(location(res)).toBe("http://localhost:5173/account");
+    expect(location(res)).toBe("http://localhost:5173/account?signed-in-with=google");
     expect(loginWithProfile).toHaveBeenCalledWith("GOOGLE", {
       providerId: "g-sub",
       email: "user@gmail.com",
@@ -217,11 +217,11 @@ describe("Google: вход", () => {
     idp.idToken = googleToken();
     const good = await start(app, "google", { query: "?returnTo=/orders%3Fa%3D1" });
     const ok = await callback(app, "google", `code=abc&state=${good.state}`, good.cookies);
-    expect(location(ok)).toBe("http://localhost:5173/orders?a=1");
+    expect(location(ok)).toBe("http://localhost:5173/orders?a=1&signed-in-with=google");
 
     const evil = await start(app, "google", { query: "?returnTo=//evil.example" });
     const res = await callback(app, "google", `code=abc&state=${evil.state}`, evil.cookies);
-    expect(location(res)).toBe("http://localhost:5173/account");
+    expect(location(res)).toBe("http://localhost:5173/account?signed-in-with=google");
   });
 
   it("does not replace a live account when a guest callback arrives after another login", async () => {
@@ -308,7 +308,7 @@ describe("Telegram: вход", () => {
 
     const res = await callback(tgApp, "telegram", `code=abc&state=${flow.state}`, flow.cookies);
 
-    expect(location(res)).toBe("http://localhost:5173/account");
+    expect(location(res)).toBe("http://localhost:5173/account?signed-in-with=telegram");
     expect(loginWithProfile).toHaveBeenCalledWith("TELEGRAM", { providerId: "987654321", email: null, emailVerified: false });
     const tokenRequest = idp.tokenRequests[0]!;
     expect(tokenRequest.authorization).toBe(`Basic ${Buffer.from("123456789:tg-secret").toString("base64")}`);

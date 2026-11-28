@@ -264,7 +264,7 @@ export const oauthRoutes: FastifyPluginAsync<{ providers: ProviderMap }> = async
         return createSession(user, { ip: req.ip, userAgent: req.headers["user-agent"] }, db);
       });
       setAuthCookies(reply, tokens);
-      return toWeb(reply, flow.returnTo ?? "/account");
+      return toWeb(reply, flow.returnTo ?? "/account", { "signed-in-with": provider.id });
     } catch (err) {
       if (err instanceof AppError) return toWeb(reply, failurePath, { error: err.code });
       if (err instanceof z.ZodError) return toWeb(reply, failurePath, { error: "OAUTH_STATE" });

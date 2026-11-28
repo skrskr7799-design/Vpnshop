@@ -1,7 +1,9 @@
 import { useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type ComponentPropsWithRef, type HTMLAttributes,
   type InputHTMLAttributes, type KeyboardEvent, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
-import { Icon, LabyrinthBackground, type IconName } from "./icons";
-export { Icon, Labyrinth, LabyrinthBackground, type IconName } from "./icons";
+import { Icon, type IconName } from "./icons";
+import { LabyrinthBackground } from "./maze";
+export { Icon, Labyrinth, type IconName } from "./icons";
+export { LabyrinthBackground, MazeOpening, mazeOpeningMs } from "./maze";
 
 const brandMarkUrl = new URL("./assets/mzt-logo.svg", import.meta.url).href;
 
@@ -97,7 +99,6 @@ export function SignatureScene({ brand, children, mainId }: { brand: ReactNode; 
     {mainId && <a className="mz-skip" href={`#${mainId}`}>Перейти к форме</a>}
     <div className="mz-signature-brand">{brand}</div>
     <main id={mainId} className="mz-signature-panel mz-cut mz-cut--auth" tabIndex={mainId ? -1 : undefined}>
-      <p className="mz-signature-kicker">Private Digital Connectivity</p>
       {children}
     </main>
   </div>;

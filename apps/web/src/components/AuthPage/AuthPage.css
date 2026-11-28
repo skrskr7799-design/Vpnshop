@@ -25,3 +25,14 @@
 .auth-form--signin .mz-control { padding-block: 18px 5px; }
 .auth-form--signin .mz-password > input + button { inset-inline-end: 2px; }
 .auth-page__body:has(.auth-form--signin) { gap: 14px; margin-top: 18px; }
+
+.auth-text-button {
+  border: 0; padding: 0; background: transparent; color: var(--mz-link, var(--mz-violet-hover)); font: inherit;
+  text-decoration: underline; text-underline-offset: .18em; cursor: pointer;
+}
+.auth-text-button:disabled { color: var(--mz-muted); cursor: default; }
+.auth-signin-error {
+  color: var(--mz-secondary); text-align: start; border-inline-start: 2px solid var(--mz-violet);
+  padding-inline-start: .75rem; animation: auth-nudge 220ms ease-out;
+}
+@keyframes auth-nudge { 33% { transform: translateX(3px); } 66% { transform: translateX(-2px); } }

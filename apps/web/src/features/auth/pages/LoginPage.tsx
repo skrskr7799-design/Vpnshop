@@ -13,13 +13,23 @@ import { useConsumedSearchParam } from "../../../hooks/useConsumedSearchParam";
 import { PasswordField } from "../../../components/Field/PasswordField";
 import { getErrorMessage, getMessageByCode } from "../errors";
 import { authApi, logoutHidden, publishSessionEvent, setLogoutHidden } from "../api";
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useLogin } from "../queries";
 import { getRedirectTarget } from "../redirect";
-import { Icon } from "@vpn/ui";
+import { Icon, MazeOpening } from "@vpn/ui";
+import { playEntry, readEntryMethod } from "../entry";
+import { RegisterPage } from "./RegisterPage";
 
 export function LoginPage() {
-  const login = useLogin();
+  const [opening, setOpening] = useState(false);
+  const openingController = useRef<AbortController>(null);
+  useEffect(() => () => openingController.current?.abort(), []);
+  const login = useLogin(async () => {
+    const controller = new AbortController();
+    openingController.current = controller;
+    await playEntry(() => setOpening(true), controller.signal);
+  });
+  const [stage, setStage] = useState<"email" | "password" | "register">("email");
   const availability = useProductConfig().data?.availability;
   const [temporary, setTemporary] = useState(false);
   const [changing, setChanging] = useState(false);
@@ -33,8 +43,15 @@ export function LoginPage() {
     register,
     handleSubmit,
     getValues,
+    trigger,
+    resetField,
+    setFocus,
     formState: { errors },
   } = useForm<LoginInput>({ resolver: zodResolver(loginSchema), defaultValues: { email: "", password: "" } });
+
+  useEffect(() => {
+    if (stage === "password") setFocus("password");
+  }, [stage, setFocus]);
 
   async function changePassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -55,8 +72,15 @@ export function LoginPage() {
     } finally { setChanging(false); }
   }
 
+  if (opening) return <MazeOpening />;
+  if (stage === "register") return <RegisterPage initialEmail={getValues("email")} onBack={() => setStage("password")} />;
+
+  const emailFirst = readEntryMethod() === "email";
+  const providers = !temporary && !logoutPending && stage === "email" &&
+    <OAuthButtons returnTo={returnTo === "/account" ? undefined : returnTo} placement={emailFirst ? "below" : "above"} />;
   return (
-    <AuthPage title="Добро пожаловать" lead="Войдите в свой аккаунт, чтобы продолжить.">
+    <AuthPage title={temporary ? "Смена временного пароля" : "Войти в кабинет"}>
+      {!emailFirst && providers}
       {logoutPending && <Alert variant="error">
         Данные скрыты. Серверный выход ещё не подтверждён.
         <Button type="button" variant="secondary" onClick={() => void authApi.logout().then(() => {
@@ -72,10 +96,18 @@ export function LoginPage() {
         <Button type="submit" loading={changing}>Сменить пароль</Button>
         <Button type="button" variant="secondary" disabled={changing} onClick={() => { setTemporary(false); setMessage(undefined); }}>Ко входу</Button>
       </form> : <>
-      <form className="auth-form auth-form--signin" noValidate onSubmit={handleSubmit(values => login.mutate(values, {
-        onError: error => { if (error instanceof ApiError && error.code === "TEMPORARY_PASSWORD") setTemporary(true); },
-      }))}>
-        {login.isError && <Alert variant="error">{getErrorMessage(login.error)}</Alert>}
+      <form className="auth-form auth-form--signin" noValidate onSubmit={event => {
+        event.preventDefault();
+        if (login.isPending || logoutPending) return;
+        if (stage === "email") {
+          void trigger("email", { shouldFocus: true }).then(valid => { if (valid) setStage("password"); });
+          return;
+        }
+        void handleSubmit(values => login.mutate(values, {
+          onError: error => { if (error instanceof ApiError && error.code === "TEMPORARY_PASSWORD") setTemporary(true); },
+        }))(event);
+      }}>
+        {login.isError && <p className="auth-signin-error" role="alert">{getErrorMessage(login.error)}</p>}
         {!login.isError && oauthError && <Alert variant="error">{getMessageByCode(oauthError)}</Alert>}
         <Field
           label="Электронная почта"
@@ -86,9 +118,14 @@ export function LoginPage() {
           inputMode="email"
           autoCapitalize="none"
           spellCheck={false}
+          readOnly={stage === "password"}
           error={errors.email?.message}
           {...register("email")}
         />
+        {stage === "password" && <>
+        <div className="auth-recovery"><button type="button" className="auth-text-button" disabled={login.isPending} onClick={() => {
+          resetField("password"); login.reset(); setStage("email"); requestAnimationFrame(() => setFocus("email"));
+        }}>Изменить почту</button></div>
         <PasswordField
           label="Пароль"
           icon="lock"
@@ -100,14 +137,23 @@ export function LoginPage() {
         <div className="auth-recovery"><Link to="/forgot-password">Забыли пароль?</Link></div>
         {login.isError && getErrorMessage(login.error) === getMessageByCode("ACTIVATION_PENDING") &&
           <Link to="/activation">Подтверждение и активация</Link>}
-        <Button type="submit" loading={login.isPending}>Войти <Icon name="arrow" size={17} /></Button>
+        </>}
+        <Button type="submit" disabled={logoutPending} loading={login.isPending}>
+          {stage === "email" ? "Продолжить" : "Войти"} <Icon name="arrow" size={17} />
+        </Button>
       </form>
-      <Button type="button" variant="secondary" onClick={() => { setMessage(undefined); setTemporary(true); }}>У меня временный пароль</Button>
+      {stage === "password" && <Button type="button" variant="secondary" disabled={login.isPending} onClick={() => {
+        setMessage(undefined); setTemporary(true);
+      }}>У меня временный пароль</Button>}
       </>}
-      {!temporary && !logoutPending && <OAuthButtons returnTo={returnTo === "/account" ? undefined : returnTo} />}
+      {emailFirst && providers}
       {availability?.maintenance && <p><Link to="/maintenance">Техническое обслуживание</Link></p>}
-      {availability?.registration === false ? <p>Новая регистрация закрыта.</p> :
-        <p className="auth-links auth-links--register">Нет аккаунта? <Link to="/register">Зарегистрироваться</Link></p>}
+      {!temporary && (availability?.registration === false ? <p>Новая регистрация закрыта.</p> :
+        stage === "password" && <p className="auth-links auth-links--register">Нет аккаунта?{" "}
+          <button type="button" className="auth-text-button" disabled={login.isPending} onClick={() => {
+            resetField("password"); login.reset(); setStage("register");
+          }}>Зарегистрироваться</button>
+        </p>)}
     </AuthPage>
   );
 }

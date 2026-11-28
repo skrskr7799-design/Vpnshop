@@ -1,6 +1,9 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { ApiError } from "../../api/ApiError";
 import { bindPrivateSession, resetPrivateRequests } from "../../api/client";
 import { authApi, fetchMe, publishSessionEvent, setLogoutHidden } from "./api";
+
+import { loadDashboard, loginMutationKey, rememberEntryMethod } from "./entry";
 
 export const meQueryKey = ["auth", "me"] as const;
 
@@ -15,17 +18,25 @@ export function useMe() {
   return useQuery({ queryKey: meQueryKey, queryFn: ({ signal }) => fetchMe(signal), staleTime: 0, retry: false, refetchInterval: 30_000 });
 }
 
-export function useLogin() {
+export function useLogin(onEntry: () => Promise<void>) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: authApi.login,
-    // Положили пользователя в кэш: GuestOnly сам перенаправит на нужную страницу
-    onSuccess: ({ user, sessionId }) => {
+    mutationKey: loginMutationKey,
+    mutationFn: async (input: Parameters<typeof authApi.login>[0]) => {
+      const { sessionId } = await authApi.login(input);
       setLogoutHidden(false);
+      const confirmed = await fetchMe();
+      if (!confirmed || confirmed.sessionId !== sessionId) throw new ApiError(401, "UNAUTHENTICATED");
+      rememberEntryMethod("email");
+      const ready = await loadDashboard().then(() => true, () => false);
+      if (ready) await onEntry();
+      return confirmed;
+    },
+    onSuccess: user => {
       resetPrivateRequests();
       queryClient.removeQueries({ predicate: query => query.queryKey[0] !== "auth" });
-      bindPrivateSession(sessionId);
-      queryClient.setQueryData(meQueryKey, { ...user, sessionId });
+      bindPrivateSession(user.sessionId);
+      queryClient.setQueryData(meQueryKey, user);
       publishSessionEvent("login");
     },
   });

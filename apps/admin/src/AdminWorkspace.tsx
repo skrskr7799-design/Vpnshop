@@ -72,7 +72,7 @@ function Shell() {
     <div className="admin-signin"><h1>Выход из панели</h1><p role="status">{error || "Выходим…"}</p>
       {error && <Button variant="secondary" onClick={() => void logout()}>Повторить выход</Button>}</div>
   </SignatureScene> : <div className={`shell${location.pathname === "/" ? " shell--overview" : ""}`}>
-    <LabyrinthBackground />
+    <LabyrinthBackground scene="admin" />
     <a className="skip" href="#main">Перейти к содержимому</a>
     <aside className="sidebar"><div className="admin-brand"><Link to="/" className="mz-brand-home"><BrandMark /></Link><span className="admin-product-brand">{brand === "MZT" ? "Администрирование" : brand}</span></div>{navigation()}</aside>
     <div className="body"><header className="admin-topbar">

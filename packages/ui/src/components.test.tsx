@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { BrandMark, Button, FormField, Input, Labyrinth, StatusIndicator, statusTone } from "./index";
+import { BrandMark, Button, FormField, Input, Labyrinth, LabyrinthBackground, MazeOpening, StatusIndicator, statusTone } from "./index";
 
 describe("MZT UI semantics", () => {
   it("renders a pending native button with its original accessible name", () => {
@@ -32,6 +32,17 @@ describe("MZT UI semantics", () => {
     expect(html).toContain('aria-hidden="true"');
     expect(html).toContain("mz-maze-route");
     expect(html).not.toMatch(/<image|href=/);
+  });
+
+  it("renders eight shared rings with motion only during the entry transition", () => {
+    const still = renderToStaticMarkup(<LabyrinthBackground scene="admin" />);
+    const opening = renderToStaticMarkup(<MazeOpening />);
+    for (const markup of [still, opening]) {
+      expect(markup.match(/class="mz-orbit-ring"/g)).toHaveLength(8);
+      expect(markup).toContain('aria-hidden="true"');
+    }
+    expect(still).not.toContain("animateMotion");
+    expect(opening).toContain('<animateMotion path="M973 500H500"');
   });
 
   it("exposes an accessible brand image and reserves its square proportions", () => {

@@ -14,7 +14,10 @@ import { getErrorMessage } from "../errors";
 import { useRegister } from "../queries";
 import { registerFormSchema, type RegisterForm } from "../schemas";
 
-export function RegisterPage() {
+export function RegisterPage({ initialEmail = "", onBack }: { initialEmail?: string; onBack?: () => void }) {
+  const back = onBack
+    ? <Button type="button" variant="secondary" onClick={onBack}>Вернуться ко входу</Button>
+    : <ButtonLink to="/login" variant="secondary">Вернуться ко входу</ButtonLink>;
   const registration = useRegister();
   const availability = useProductConfig().data?.availability;
   const {
@@ -23,7 +26,7 @@ export function RegisterPage() {
     formState: { errors },
   } = useForm<RegisterForm>({
     resolver: zodResolver(registerFormSchema),
-    defaultValues: { email: "", password: "", confirmPassword: "" },
+    defaultValues: { email: initialEmail, password: "", confirmPassword: "" },
   });
 
   if (registration.isSuccess) {
@@ -38,16 +41,14 @@ export function RegisterPage() {
           {" "}<code>{registration.data.registrationReference}</code>.</p>}
         {registration.data.emailAvailable !== false &&
           <><p>Проверьте папку «Спам». Для созданного аккаунта <Link to="/activation">запросите подтверждение</Link>.</p><Button type="button" variant="secondary" onClick={() => registration.reset()}>Повторить регистрацию</Button></>}
-        <ButtonLink to="/login" variant="secondary">
-          Вернуться ко входу
-        </ButtonLink>
+        {back}
       </AuthPage>
     );
   }
 
   if (availability?.registration === false) return <AuthPage title="Регистрация закрыта"
     lead="Если у вас уже есть аккаунт, воспользуйтесь входом.">
-    <ButtonLink to="/login">Войти</ButtonLink><ProductLinks kind="support" />
+    {back}<ProductLinks kind="support" />
   </AuthPage>;
 
   return (
@@ -85,11 +86,9 @@ export function RegisterPage() {
           Создать аккаунт
         </Button>
       </form>
-      <OAuthButtons />
+      {!onBack && <OAuthButtons />}
       <ProductLinks kind="legal" />
-      <p>
-        Уже есть аккаунт? <Link to="/login">Войти</Link>
-      </p>
+      {back}
     </AuthPage>
   );
 }

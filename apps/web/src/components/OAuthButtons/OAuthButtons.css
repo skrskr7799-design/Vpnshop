@@ -29,3 +29,7 @@
   width: 1.25rem;
   height: 1.25rem;
 }
+
+.oauth__buttons > a { min-height: 48px; justify-content: flex-start; gap: .75rem; }
+.oauth__buttons > a[data-last-method] { --mz-outline: var(--mz-violet); }
+.oauth__recent { margin-inline-start: auto; color: var(--mz-secondary); font-size: .75rem; }
