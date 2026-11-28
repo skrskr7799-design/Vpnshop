@@ -2,7 +2,7 @@ name: VPNShop V2 deployment
 
 on:
   push:
-    branches: [work/vpnshop-v2, work/v2.0.1-acceptance]
+    branches: [work/vpnshop-v2, work/v2.0.1-acceptance, work/v2.0.2-mzt]
   pull_request:
     paths:
       - 'ops/**'

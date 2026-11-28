@@ -83,8 +83,8 @@ export function statusTone(status: string): Tone {
 export function Badge({ tone = "neutral", children }: { tone?: Tone; children: ReactNode }) {
   return <span className="mz-badge" data-tone={tone}>{children}</span>;
 }
-export function StatusIndicator({ status, children }: { status: string; children: ReactNode }) {
-  return <Badge tone={statusTone(status)}><span className="mz-status-dot" aria-hidden="true" />{children}</Badge>;
+export function StatusIndicator({ status, tone = statusTone(status), children }: { status: string; tone?: Tone; children: ReactNode }) {
+  return <Badge tone={tone}><span className="mz-status-dot" aria-hidden="true" />{children}</Badge>;
 }
 export function Card({ className = "", ...props }: HTMLAttributes<HTMLElement>) {
   return <section {...props} className={"mz-card " + className} />;

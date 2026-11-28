@@ -303,7 +303,7 @@ try {
   assert.equal(await evaluate('Boolean(document.querySelector(".mz-maze-opening"))'), false);
   loginOutcome = "unconfirmed";
   await click("Войти");
-  await until(text("Войдите, чтобы подключить аккаунт"));
+  await until(text("Не удалось подтвердить вход"));
   assert.equal(await evaluate('Boolean(document.querySelector(".mz-maze-opening"))'), false);
   loginOutcome = "confirmed";
   await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] });

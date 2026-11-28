@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tansta
 import { ApiError } from "../../api/ApiError";
 import { bindPrivateSession, resetPrivateRequests } from "../../api/client";
 import { authApi, fetchMe, publishSessionEvent, setLogoutHidden } from "./api";
-
 import { loadDashboard, loginMutationKey, rememberEntryMethod } from "./entry";
 
 export const meQueryKey = ["auth", "me"] as const;
@@ -26,7 +25,7 @@ export function useLogin(onEntry: () => Promise<void>) {
       const { sessionId } = await authApi.login(input);
       setLogoutHidden(false);
       const confirmed = await fetchMe();
-      if (!confirmed || confirmed.sessionId !== sessionId) throw new ApiError(401, "UNAUTHENTICATED");
+      if (!confirmed || confirmed.sessionId !== sessionId) throw new ApiError(401, "LOGIN_SESSION_UNCONFIRMED");
       rememberEntryMethod("email");
       const ready = await loadDashboard().then(() => true, () => false);
       if (ready) await onEntry();

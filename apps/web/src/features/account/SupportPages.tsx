@@ -80,7 +80,7 @@ export function SupportPage() {
     <section className="mzt-help-list"><h2 className="mzt-section-title"><Icon name="receipt" size={19} />Мои обращения</h2>
     <PageList<CaseSummary> path={path} refetchInterval={30_000} empty="Обращений пока нет." render={ticket => <>
       <h3><Link className="mzt-record-link" to={`/account/support/${ticket.id}`}>{ticket.subject || categories[ticket.category]} <Icon name="arrow" size={16} /></Link></h3>
-      <p><StatusIndicator status={ticket.status}>{label(ticket.status)}</StatusIndicator> · {categories[ticket.category]} · {date(ticket.updatedAt)}</p>
+      <p><StatusIndicator status={ticket.status} tone={ticket.status === "OPEN" ? "success" : undefined}>{label(ticket.status)}</StatusIndicator> · {categories[ticket.category]} · {date(ticket.updatedAt)}</p>
       <p>№ {ticket.id.slice(0, 8)} {!!ticket.unread && <Badge tone="accent">Новые события · {ticket.unread}</Badge>}</p>
     </>} /></section></div>
   </>;
@@ -130,7 +130,7 @@ function SupportThread({ ticketPath }: { ticketPath: string }) {
   return <><Breadcrumbs><Link to="/account/support"><Icon name="back" size={16} />Все обращения</Link></Breadcrumbs><PageHeader title="Обращение" />
     <LoadState pending={query.isPending} error={query.error} retry={query.refetch} />
     {ticket && <section className="mz-card mzt-panel"><h2 className="mzt-message">{ticket.subject || categories[ticket.category]}</h2>
-      <p><StatusIndicator status={ticket.status}>{label(ticket.status)}</StatusIndicator> · {categories[ticket.category]} · № {ticket.id.slice(0, 8)} · {date(ticket.updatedAt)}</p>
+      <p><StatusIndicator status={ticket.status} tone={ticket.status === "OPEN" ? "success" : undefined}>{label(ticket.status)}</StatusIndicator> · {categories[ticket.category]} · № {ticket.id.slice(0, 8)} · {date(ticket.updatedAt)}</p>
       {ticket.orderId && <Link className="mzt-record-link" to={`/account/orders/${ticket.orderId}`}>Связанный заказ <Icon name="arrow" size={16} /></Link>}
       <div className="mzt-messages" aria-label="Переписка"><Timeline>
         {query.data?.messages.items.slice().reverse().map(message => <li key={message.id} data-author={message.author}>

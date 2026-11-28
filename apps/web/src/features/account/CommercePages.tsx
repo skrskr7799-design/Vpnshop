@@ -175,7 +175,7 @@ export function PageList<T extends { id: string }>({ path, empty, render, refetc
 function OrderFacts({ order }: { order: OwnerOrderSummary }) {
   return <dl className="mzt-record-facts">
     <dt>Заказ</dt><dd><StatusIndicator status={order.orderState}>{label(order.orderState)}</StatusIndicator></dd>
-    <dt>Оплата</dt><dd><StatusIndicator status={order.moneyStatus}>{label(order.moneyStatus)}</StatusIndicator></dd>
+    <dt>Оплата</dt><dd><StatusIndicator status={order.moneyStatus} tone={order.moneyStatus === "WAITING" ? "neutral" : undefined}>{label(order.moneyStatus)}</StatusIndicator></dd>
     <dt>Выдача</dt><dd><StatusIndicator status={order.deliveryStatus}>{label(order.deliveryStatus)}</StatusIndicator></dd>
     <dt>Создан</dt><dd>{date(order.createdAt)}</dd>
     <dt>Окно оплаты</dt><dd>{date(order.expiresAt)}</dd>
@@ -226,7 +226,7 @@ export function OrderPage() {
       </Panel>
       <h2 className="mzt-section-title"><Icon name="receipt" size={19} />Попытки оплаты</h2>
       <PageList<OwnerPayment> key={order.id} path={path + "/payments"} empty="Платёжных попыток пока нет." render={attempt => <>
-        <p><StatusIndicator status={attempt.status}>{label(attempt.status)}</StatusIndicator> · {date(attempt.updatedAt)}</p>
+        <p><StatusIndicator status={attempt.status} tone={["CREATED", "SUBMITTING", "AWAITING_CUSTOMER", "PROCESSING"].includes(attempt.status) ? "neutral" : undefined}>{label(attempt.status)}</StatusIndicator> · {date(attempt.updatedAt)}</p>
         {attempt.confirmedCaptures.map(fact => <p key={fact.id}>Поступление {amount(fact.amountMinor, fact.currency)} · {date(fact.confirmedAt)}</p>)}
       </>} />
     </>}
