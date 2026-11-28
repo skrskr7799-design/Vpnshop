@@ -210,7 +210,7 @@ textarea.mz-control { resize: vertical; }
 .mz-labyrinth--admin { opacity: .16; }
 .mz-labyrinth--login {
   position: absolute; top: min(-5vh, -24px); right: auto; left: 50%; transform: translateX(-50%);
-  width: clamp(37rem, 92vh, 67rem); opacity: .28;
+  width: clamp(37rem, 102vh, 67rem); opacity: .28;
 }
 .mz-maze-opening {
   display: grid; place-items: center; position: fixed; inset: 0; z-index: var(--mz-layer-skip);
@@ -220,7 +220,7 @@ textarea.mz-control { resize: vertical; }
 .mz-maze-opening .mz-orbit-ring { transform-origin: 50% 50%; animation: mz-orbit-align 250ms ease-out both; }
 .mz-maze-opening .mz-orbit-spokes { animation: mz-orbit-join 250ms linear both; }
 .mz-orbit-light { color: #d7b6ff; filter: drop-shadow(0 0 8px currentColor); }
-.mz-orbit-light circle { opacity: 0; }
+.mz-orbit-glints { opacity: .9; }
 .mz-orbit-trail {
   stroke: currentColor; stroke-width: 3; stroke-dasharray: 100; stroke-dashoffset: 100;
   animation: mz-orbit-travel 390ms 250ms linear forwards;
