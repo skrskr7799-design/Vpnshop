@@ -13,12 +13,13 @@ import { useConsumedSearchParam } from "../../../hooks/useConsumedSearchParam";
 import { PasswordField } from "../../../components/Field/PasswordField";
 import { getErrorMessage, getMessageByCode } from "../errors";
 import { authApi, logoutHidden, publishSessionEvent, setLogoutHidden } from "../api";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type FormEvent } from "react";
 import { useLogin } from "../queries";
 import { getRedirectTarget } from "../redirect";
 import { Icon, MazeOpening } from "@vpn/ui";
 import { playEntry, readEntryMethod } from "../entry";
-import { RegisterPage } from "./RegisterPage";
+
+const RegisterPage = lazy(() => import("./RegisterPage").then(m => ({ default: m.RegisterPage })));
 
 export function LoginPage() {
   const [opening, setOpening] = useState(false);
@@ -73,7 +74,9 @@ export function LoginPage() {
   }
 
   if (opening) return <MazeOpening />;
-  if (stage === "register") return <RegisterPage initialEmail={getValues("email")} onBack={() => setStage("password")} />;
+  if (stage === "register") return <Suspense fallback={<AuthPage title="Создать аккаунт"><p role="status">Загрузка…</p></AuthPage>}>
+    <RegisterPage initialEmail={getValues("email")} onBack={() => setStage("password")} />
+  </Suspense>;
 
   const emailFirst = readEntryMethod() === "email";
   const providers = !temporary && !logoutPending && stage === "email" &&

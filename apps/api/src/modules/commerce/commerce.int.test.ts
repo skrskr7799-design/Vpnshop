@@ -7,6 +7,8 @@ import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { resetDatabase } from "../../test/db";
 import { createOrder, createUser } from "../../test/factories";
+import { paidOrder } from "../admin/admin.fixtures";
+import { addMonths } from "../remnawave/remnawave.dates";
 import { as, buildTestAdminApp, createEnrolledAdmin } from "../admin/admin.test-helpers";
 import { ACCESS_COOKIE } from "../auth/auth.constants";
 import { createSession } from "../auth/session.service";
@@ -59,23 +61,20 @@ async function catalog(query = "") {
 it("previews renewal against the customer's own expiry and current published offer without writing", async () => {
   const current = await publish();
   const other = await customer();
-  const sub = await prisma.subscription.create({ data: { userId: buyer.user.id } });
-  await prisma.periodGrant.create({ data: { subscriptionId: sub.id, serial: 1,
-    startAt: new Date("2096-01-01T12:00:00Z"), endAt: new Date("2096-01-31T12:00:00Z"), deviceLimit: 5,
-    calendarVersion: 1, createdAt: new Date() } });
+  const { grant } = await paidOrder(buyer.user.id);
   const url = "/api/me/subscription/renewal?offerVersionId=" + current.offerVersionId;
   const estimate = await app.inject({ url, cookies: buyer.cookies });
   expect(estimate.statusCode).toBe(200);
   expect(estimate.headers["cache-control"]).toBe("private, no-store");
   const { estimatedEndAt } = renewalPreviewSchema.parse(estimate.json());
-  expect(estimatedEndAt).toBe("2096-02-29T12:00:00.000Z");
+  expect(estimatedEndAt).toBe(addMonths(grant.endAt, 1).toISOString());
   expect((await app.inject({ url, cookies: other.cookies })).json().estimatedEndAt).not.toBe(estimatedEndAt);
   expect((await app.inject({ url: url + "&userId=" + other.user.id, cookies: buyer.cookies })).statusCode).toBe(400);
   expect((await app.inject({ url })).statusCode).toBe(401);
   await publish(22000);
   expect((await app.inject({ url, cookies: buyer.cookies })).json().error.code).toBe("OFFER_CHANGED");
-  expect(await prisma.order.count()).toBe(0);
-  expect(await prisma.payment.count()).toBe(0);
+  expect(await prisma.order.count()).toBe(1);
+  expect(await prisma.payment.count()).toBe(1);
   expect(await prisma.periodGrant.count()).toBe(1);
 });
 

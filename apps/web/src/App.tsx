@@ -4,15 +4,15 @@ import { Navigate, Route, Routes } from "react-router";
 import { AuthShell } from "./components/AuthShell/AuthShell";
 import { GuestOnly, RequireAuth } from "./features/auth/guards";
 import { loadDashboard as Commerce } from "./features/auth/entry";
-import { RegisterPage } from "./features/auth/pages/RegisterPage";
 import { LoginPage } from "./features/auth/pages/LoginPage";
-import { AccountShell } from "./features/account/account";
 import { useProductConfig } from "./config";
 import { AuthPage } from "./components/AuthPage/AuthPage";
 import { ButtonLink } from "./components/Button/ButtonLink";
 import { ProductLinks } from "./components/ProductLinks";
 import { NotFoundPage } from "./pages/NotFoundPage";
 
+const AccountShell = lazy(() => import("./features/account/account").then(m => ({ default: m.AccountShell })));
+const RegisterPage = lazy(() => import("./features/auth/pages/RegisterPage").then(m => ({ default: m.RegisterPage })));
 const ActivationPage = lazy(() => import("./features/auth/pages/ActivationPage").then(m => ({ default: m.ActivationPage })));
 const ForgotPasswordPage = lazy(() => import("./features/auth/pages/ForgotPasswordPage").then(m => ({ default: m.ForgotPasswordPage })));
 const ResetPasswordPage = lazy(() => import("./features/auth/pages/ResetPasswordPage").then(m => ({ default: m.ResetPasswordPage })));
